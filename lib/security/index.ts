@@ -1,0 +1,90 @@
+/**
+ * Security Module - Enterprise RBAC Hardening
+ * 
+ * Centralized exports for all security-related functionality:
+ * - secureAction: Unified server action wrapper with telemetry
+ * - Security telemetry: Authorization event logging
+ * - Type-safe permission utilities
+ */
+
+// Secure action wrapper
+export { 
+  secureAction, 
+  secureActionAny, 
+  secureActionAll,
+  type SecureActionResult,
+  type SecureActionOptions,
+} from './secureAction'
+
+// Security telemetry
+export {
+  logPermissionDenied,
+  logPermissionGranted,
+  logSecurityEvent,
+  getSecurityEvents,
+  getSecurityEventStats,
+  SecurityEventType,
+  type SecurityEvent,
+  type SecurityEventInput,
+} from './telemetry'
+
+// Re-export core permission types and utilities for convenience
+export {
+  PERMISSIONS,
+  ALL_PERMISSIONS,
+  PERMISSION_CATALOG,
+  type Permission,
+  type UserRole,
+  type PermissionsMatrix,
+  isValidPermission,
+  isValidRole,
+} from '../permissions/constants'
+
+// Re-export permission enforcement
+export {
+  requirePermission,
+  requireAnyPermission,
+  requireAllPermissions,
+  hasPermission,
+  hasAnyPermission,
+  hasAllPermissions,
+  getCurrentUser,
+  PermissionError,
+  type AuthenticatedUser,
+} from '../permissions'
+
+// Rate limiting
+export {
+  withRateLimit,
+  checkRateLimit,
+  incrementRateLimit,
+  rateLimitedAction,
+  getRateLimitStats,
+  clearRateLimitStore,
+  RATE_LIMITS,
+  type RateLimitConfig,
+  type RateLimitResult,
+} from './rateLimit'
+
+// Policy engine (PBAC)
+export {
+  authorize,
+  authorizeAction,
+  registerPolicy,
+  unregisterPolicy,
+  getAllPolicies,
+  getPoliciesForPermission,
+  isAssignedToProject,
+  exceedsAmountThreshold,
+  hasElevatedRole,
+  type Policy,
+  type PolicyContext,
+  type PolicyResult,
+  type AuthorizationResult,
+} from './policyEngine'
+
+// Policy registry
+export {
+  registerDefaultPolicies,
+  POLICIES,
+} from './policies'
