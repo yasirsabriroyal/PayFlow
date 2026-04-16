@@ -12,8 +12,8 @@ const ROLE_REDIRECTS: Record<string, string> = {
 // Protected route patterns by role
 const PROTECTED_ROUTES: Record<string, string[]> = {
   admin: ['/admin', '/accountant', '/pm', '/vendor'],  // Admin has access to all routes
-  accountant: ['/accountant', '/admin'],
-  project_manager: ['/admin', '/pm'],
+  accountant: ['/accountant'],
+  project_manager: ['/pm'],
   contractor: ['/vendor'],
 }
 
@@ -45,9 +45,13 @@ export async function updateSession(request: NextRequest) {
     },
   )
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+  let user = null
+  try {
+    const { data, error } = await supabase.auth.getUser()
+    if (!error) user = data.user
+  } catch {
+    // Auth check failed — treat as unauthenticated
+  }
 
   const pathname = request.nextUrl.pathname
 
@@ -64,8 +68,18 @@ export async function updateSession(request: NextRequest) {
 
   // If user is logged in
   if (user) {
-    // Get user role from auth user metadata (avoids RLS issues)
-    const userRole = user.user_metadata?.role || 'contractor'
+    // Fetch role from database profiles table (not user_metadata, which is user-controlled)
+    let userRole = 'contractor'
+    try {
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', user.id)
+        .single()
+      if (profile?.role) userRole = profile.role
+    } catch {
+      // Fall back to default role if profile fetch fails
+    }
 
     // If user is on login page and already authenticated, redirect to their dashboard
     if (pathname === '/auth/login' || pathname === '/') {
@@ -77,7 +91,7 @@ export async function updateSession(request: NextRequest) {
 
     // Check if user has access to the current route
     const allowedRoutes = PROTECTED_ROUTES[userRole] || []
-    const isAccessingProtectedRoute = ['/admin', '/accountant', '/vendor'].some(route => 
+    const isAccessingProtectedRoute = ['/admin', '/accountant', '/pm', '/vendor'].some(route =>
       pathname.startsWith(route)
     )
 
