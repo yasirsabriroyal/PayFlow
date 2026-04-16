@@ -343,8 +343,8 @@ describe('Policy Helper Functions', () => {
       expect(hasElevatedRole(user)).toBe(true)
     })
 
-    it('should return true for super_admin', () => {
-      const user = createMockUser({ role: 'super_admin' })
+    it('should return true for admin', () => {
+      const user = createMockUser({ role: 'admin' })
       expect(hasElevatedRole(user)).toBe(true)
     })
 

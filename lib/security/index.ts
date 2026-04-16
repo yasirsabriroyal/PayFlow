@@ -1,6 +1,6 @@
 /**
  * Security Module - Enterprise RBAC Hardening
- * 
+ *
  * Centralized exports for all security-related functionality:
  * - secureAction: Unified server action wrapper with telemetry
  * - Security telemetry: Authorization event logging
@@ -8,24 +8,22 @@
  */
 
 // Secure action wrapper
-export { 
-  secureAction, 
-  secureActionAny, 
-  secureActionAll,
-  type SecureActionResult,
+export {
+  secureAction,
+  secureActionAny,
+  secureCriticalAction,
+  type ActionResult,
   type SecureActionOptions,
 } from './secureAction'
 
 // Security telemetry
 export {
   logPermissionDenied,
-  logPermissionGranted,
+  logPermissionsModified,
   logSecurityEvent,
-  getSecurityEvents,
-  getSecurityEventStats,
+  getRecentSecurityEvents,
   SecurityEventType,
   type SecurityEvent,
-  type SecurityEventInput,
 } from './telemetry'
 
 // Re-export core permission types and utilities for convenience
@@ -42,16 +40,15 @@ export {
 
 // Re-export permission enforcement
 export {
-  requirePermission,
-  requireAnyPermission,
-  requireAllPermissions,
   hasPermission,
   hasAnyPermission,
   hasAllPermissions,
   getCurrentUser,
   PermissionError,
-  type AuthenticatedUser,
 } from '../permissions'
+
+// AuthenticatedUser lives in auth.ts
+export type { AuthenticatedUser } from '../permissions/auth'
 
 // Rate limiting
 export {

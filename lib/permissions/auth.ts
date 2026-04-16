@@ -10,6 +10,8 @@ export interface AuthenticatedUser {
   id: string
   email: string | undefined
   role: UserRole
+  /** Optional pre-loaded permission list for policy evaluation */
+  permissions?: Permission[]
 }
 
 /**

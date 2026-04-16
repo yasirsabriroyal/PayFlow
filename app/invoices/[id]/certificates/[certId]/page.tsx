@@ -93,7 +93,7 @@ export default function CertificateDetailPage() {
     try {
       const result = await getPaymentCertificateById(certId)
       if (result.success && result.certificate) {
-        setCertificate(result.certificate as Certificate)
+        setCertificate(result.certificate as unknown as Certificate)
       } else {
         toast({
           title: 'Error',

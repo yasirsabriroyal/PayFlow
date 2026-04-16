@@ -325,8 +325,8 @@ export const ADMIN_ROLE_ASSIGNMENT_POLICY: Policy = {
   evaluate: (user: AuthenticatedUser, context: PolicyContext) => {
     const targetRole = context.targetRole
     
-    if (targetRole === 'admin' || targetRole === 'super_admin') {
-      if (user.role !== 'super_admin') {
+    if (targetRole === 'admin') {
+      if (user.role !== 'admin') {
         return {
           allowed: false,
           reason: 'Only super administrators can assign admin roles',

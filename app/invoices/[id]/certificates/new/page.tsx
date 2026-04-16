@@ -99,7 +99,7 @@ export default function NewCertificatePage({ params }: { params: Promise<{ id: s
     const fetchData = async () => {
       const result = await getInvoiceForCertificate(invoiceId)
       if (result.success && result.invoice) {
-        setInvoice(result.invoice as Invoice)
+        setInvoice(result.invoice as unknown as Invoice)
         setExistingCertificates(result.certificates as Certificate[])
       } else {
         setError(result.error || 'Failed to load invoice')

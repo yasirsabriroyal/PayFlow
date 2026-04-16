@@ -204,8 +204,9 @@ export default function PaymentsPage() {
           amount: ((inv.total_cents as number) || 0) / 100,
           holdback: ((inv.holdback_cents as number) || 0) / 100,
           netPayable: (((inv.total_cents as number) || 0) - ((inv.holdback_cents as number) || 0)) / 100,
-          wcbExpiry: (inv.contractor as Record<string, unknown>)?.wcb_clearance_expiry as string || null,
-          hasLienWaiver: true, // Would come from separate table in production
+          wcbExpiry: ((inv.contractor as Record<string, unknown>)?.wcb_clearance_expiry as string) || '',
+          hasLienWaiver: true as boolean, // Would come from separate table in production
+          hasStatutoryDeclaration: false as boolean,
         })))
       } else {
         // No approved invoices - show empty state (don't use mock data to avoid confusion)

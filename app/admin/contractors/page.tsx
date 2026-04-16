@@ -164,7 +164,7 @@ function ContractorDirectoryContent() {
   
   // Navigate to contractor detail with context (uses PM detail page)
   const goToContractor = useCallback((contractor: Contractor) => {
-    navigateTo(`/pm/contractors/${contractor.id}`, contractor.company_name)
+    navigateTo(`/pm/contractors/${contractor.id}`, { title: contractor.company_name })
   }, [navigateTo])
   
   const [contractors, setContractors] = useState<Contractor[]>([])

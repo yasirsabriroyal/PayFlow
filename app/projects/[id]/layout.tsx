@@ -6,6 +6,6 @@ export default async function ProjectHubLayout({
 }: {
   children: React.ReactNode
 }) {
-  await protectRoute([PERMISSIONS.PROJECTS.VIEW_PROJECTS])
+  await protectRoute({ anyPermission: [PERMISSIONS.PROJECTS.VIEW_PROJECTS] })
   return children
 }

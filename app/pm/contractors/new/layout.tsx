@@ -8,7 +8,7 @@ export default async function PMAddContractorLayout({
   children: ReactNode
 }) {
   // Require create_vendors permission
-  await protectRoute([PERMISSIONS.VENDORS.CREATE_VENDORS])
+  await protectRoute({ anyPermission: [PERMISSIONS.VENDORS.CREATE_VENDORS] })
   
   return <>{children}</>
 }

@@ -401,8 +401,8 @@ export async function getInvoiceHub(invoiceId: string) {
     // Transform data to match interface
     const transformedInvoice = {
       ...invoice,
-      contractor: invoice.contractor as InvoiceHubData['invoice']['contractor'],
-      project: invoice.project as InvoiceHubData['invoice']['project'],
+      contractor: invoice.contractor as unknown as InvoiceHubData['invoice']['contractor'],
+      project: invoice.project as unknown as InvoiceHubData['invoice']['project'],
     }
 
     return {

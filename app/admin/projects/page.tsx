@@ -149,7 +149,7 @@ export default function AdminProjectsPage() {
       ])
       
       if (projectsResult?.success && Array.isArray(projectsResult.projects)) {
-        setProjects(projectsResult.projects)
+        setProjects(projectsResult.projects as unknown as Project[])
       } else {
         setFetchError(projectsResult?.error || 'Unable to load projects.')
         setProjects([])

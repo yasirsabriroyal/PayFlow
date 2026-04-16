@@ -228,7 +228,7 @@ export default function AccountingSyncPage() {
           ...log,
           syncStatus: 'synced' as SyncStatus,
           qbReference: `QB-SYNC-${Date.now().toString().slice(-8)}`
-        }
+        } as typeof log
       }
       return log
     }))

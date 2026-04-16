@@ -304,5 +304,5 @@ export function exceedsAmountThreshold(
  * Check if user has elevated role
  */
 export function hasElevatedRole(user: AuthenticatedUser): boolean {
-  return user.role === 'admin' || user.role === 'super_admin'
+  return user.role === 'admin'
 }

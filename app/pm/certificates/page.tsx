@@ -68,7 +68,7 @@ export default function PMCertificatesPage() {
     async function loadData() {
       const result = await getPMInvoices()
       if (result.success) {
-        setInvoices(result.invoices as Invoice[])
+        setInvoices(result.invoices as unknown as Invoice[])
       }
       setLoading(false)
     }

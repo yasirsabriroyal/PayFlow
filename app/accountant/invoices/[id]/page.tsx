@@ -281,8 +281,8 @@ export default function InvoiceDetailPage() {
     const fetchInvoice = async () => {
       const result = await getInvoiceById(invoiceId)
       if (result.success && result.invoice) {
-        setInvoice(result.invoice as Invoice)
-        setPayments(result.payments as Payment[])
+        setInvoice(result.invoice as unknown as Invoice)
+        setPayments(result.payments as unknown as Payment[])
         setPaymentRequests(result.paymentRequests as typeof paymentRequests)
         setHoldbacks(result.holdbacks as Holdback[])
         setAttachments(result.attachments as Attachment[])
@@ -308,7 +308,7 @@ export default function InvoiceDetailPage() {
   // Action handlers
   const handleApprove = async () => {
     setActionLoading(true)
-    const result = await approveInvoice(invoiceId)
+    const result = await approveInvoice({ invoice_id: invoiceId })
     if (result.success) {
       setInvoice(prev => prev ? { ...prev, status: 'approved' } : null)
       toast({ title: 'Invoice Approved', description: 'Invoice has been approved for payment.' })
@@ -364,8 +364,8 @@ export default function InvoiceDetailPage() {
           // Refresh data
           const refreshResult = await getInvoiceById(invoiceId)
           if (refreshResult.success && refreshResult.invoice) {
-            setInvoice(refreshResult.invoice as Invoice)
-            setPayments(refreshResult.payments as Payment[])
+            setInvoice(refreshResult.invoice as unknown as Invoice)
+            setPayments(refreshResult.payments as unknown as Payment[])
           }
           const paymentInfoResult = await getInvoicePaymentInfo(invoiceId)
           if (paymentInfoResult.success) {
@@ -413,8 +413,8 @@ export default function InvoiceDetailPage() {
           // Refresh data
           const refreshResult = await getInvoiceById(invoiceId)
           if (refreshResult.success && refreshResult.invoice) {
-            setInvoice(refreshResult.invoice as Invoice)
-            setPayments(refreshResult.payments as Payment[])
+            setInvoice(refreshResult.invoice as unknown as Invoice)
+            setPayments(refreshResult.payments as unknown as Payment[])
           }
           const paymentInfoResult = await getInvoicePaymentInfo(invoiceId)
           if (paymentInfoResult.success) {
@@ -454,7 +454,7 @@ export default function InvoiceDetailPage() {
       return
     }
     setActionLoading(true)
-    const result = await rejectInvoice(invoiceId, rejectReason)
+    const result = await rejectInvoice({ invoice_id: invoiceId, reason: rejectReason })
     if (result.success) {
       setInvoice(prev => prev ? { ...prev, status: 'rejected' } : null)
       setRejectDialogOpen(false)

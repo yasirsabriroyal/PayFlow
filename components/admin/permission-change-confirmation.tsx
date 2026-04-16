@@ -55,9 +55,8 @@ function getRoleLabel(role: UserRole): string {
 // Critical permissions that show extra warnings
 const CRITICAL_PERMISSIONS: Permission[] = [
   'execute_eft_payments',
-  'manage_role_permissions',
-  'create_users',
-  'delete_users',
+  'manage_permissions',
+  'manage_users',
   'view_financial_reports',
 ]
 

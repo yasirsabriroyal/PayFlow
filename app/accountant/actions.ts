@@ -1511,7 +1511,7 @@ export async function recordDirectInvoicePayment(input: {
  * Returns payment mode and details for UI rendering
  */
 export async function getInvoicePaymentInfo(invoiceId: string) {
-  return withPermission(PERMISSIONS.INVOICES.VIEW_INVOICES, async () => {
+  return withPermission(PERMISSIONS.INVOICES.VIEW_AP_QUEUE, async () => {
     const supabase = getSupabaseAdmin()
     
     // Get invoice details

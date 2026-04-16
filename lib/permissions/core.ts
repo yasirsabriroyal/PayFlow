@@ -149,6 +149,22 @@ export async function getCurrentUser(): Promise<CurrentUser | null> {
   }
 }
 
+/**
+ * Thrown by requirePermission() and protect-route helpers when a user lacks
+ * the required permission or is not authenticated.
+ */
+export class PermissionError extends Error {
+  readonly permission: string | undefined
+  readonly statusCode: number
+
+  constructor(message: string, permission?: string, statusCode = 403) {
+    super(message)
+    this.name = 'PermissionError'
+    this.permission = permission
+    this.statusCode = statusCode
+  }
+}
+
 export function clearPermissionsCache(): void {
   permissionsCache = null
   cacheTimestamp = 0

@@ -273,7 +273,7 @@ export default function HoldbackLedgerPage() {
     setIsReleasing(true)
     
     // Call server action with permission enforcement
-    const result = await releaseHoldback(selectedHoldback.id)
+    const result = await releaseHoldback({ holdbackId: selectedHoldback.id })
     
     if (result.success) {
       // Remove from list

@@ -140,7 +140,7 @@ export async function getProjectHub(projectId: string): Promise<{
 
     // Build contractor summary from invoices
     for (const inv of (invoices || [])) {
-      const contractor = inv.contractor as { company_name: string } | null
+      const contractor = inv.contractor as unknown as { company_name: string } | null
       if (contractor) {
         const existing = contractorMap.get(contractor.company_name)
         if (existing) {
@@ -174,8 +174,14 @@ export async function getProjectHub(projectId: string): Promise<{
       success: true,
       data: {
         project,
-        invoices: invoices || [],
-        changeOrders: changeOrders || [],
+        invoices: (invoices || []).map(inv => ({
+          ...inv,
+          contractor: (inv.contractor as unknown as { company_name: string }[] | null)?.[0] ?? null,
+        })),
+        changeOrders: (changeOrders || []).map(co => ({
+          ...co,
+          contractor: (co.contractor as unknown as { company_name: string }[] | null)?.[0] ?? null,
+        })),
         contractors,
         assignments: (assignments || []).map(a => ({
           ...a,

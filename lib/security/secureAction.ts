@@ -314,6 +314,7 @@ export function secureActionAny<TInput, TOutput>(
 // ============================================
 
 interface RequestMetadata {
+  [key: string]: unknown
   ip?: string
   userAgent?: string
   referer?: string

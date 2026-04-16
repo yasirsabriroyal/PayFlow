@@ -97,7 +97,7 @@ export default function PMDashboardPage() {
         if (projectsResult?.success && Array.isArray(projectsResult.projects)) {
           setProjects(projectsResult.projects)
         } else {
-          errorList.push('Projects: ' + (projectsResult?.error || 'Permission denied or unavailable'))
+          errorList.push('Projects: ' + ((projectsResult as { error?: string })?.error || 'Permission denied or unavailable'))
         }
       } catch (err) {
         errorList.push('Projects: ' + (err instanceof Error ? err.message : 'Fetch failed'))
@@ -109,7 +109,7 @@ export default function PMDashboardPage() {
         if (contractorsResult?.success && Array.isArray(contractorsResult.contractors)) {
           setContractors(contractorsResult.contractors)
         } else {
-          errorList.push('Contractors: ' + (contractorsResult?.error || 'Permission denied or unavailable'))
+          errorList.push('Contractors: ' + ((contractorsResult as { error?: string })?.error || 'Permission denied or unavailable'))
         }
       } catch (err) {
         errorList.push('Contractors: ' + (err instanceof Error ? err.message : 'Fetch failed'))
@@ -121,7 +121,7 @@ export default function PMDashboardPage() {
         if (invoicesResult?.success && Array.isArray(invoicesResult.invoices)) {
           setInvoices(invoicesResult.invoices)
         } else {
-          errorList.push('Invoices: ' + (invoicesResult?.error || 'Permission denied or unavailable'))
+          errorList.push('Invoices: ' + ((invoicesResult as { error?: string })?.error || 'Permission denied or unavailable'))
         }
       } catch (err) {
         errorList.push('Invoices: ' + (err instanceof Error ? err.message : 'Fetch failed'))

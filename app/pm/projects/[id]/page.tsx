@@ -79,7 +79,7 @@ export default function PMProjectDetailPage({ params }: { params: Promise<{ id: 
       
       if (invoicesResult.success) {
         // Filter invoices for this project by project_id
-        const projectInvoices = (invoicesResult.invoices as Invoice[]).filter(
+        const projectInvoices = (invoicesResult.invoices as unknown as Invoice[]).filter(
           inv => inv.project_id === resolvedParams.id
         )
         setInvoices(projectInvoices)

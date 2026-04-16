@@ -150,9 +150,10 @@ export async function POST(request: NextRequest) {
     }
 
     // Transform data if needed
-    const transformedData = config.transform 
-      ? (data || []).map(config.transform)
-      : (data || [])
+    const rawRows = (data || []) as unknown as Record<string, unknown>[]
+    const transformedData = config.transform
+      ? rawRows.map(config.transform)
+      : rawRows
 
     // Generate CSV content using streaming approach
     const encoder = new TextEncoder()

@@ -41,11 +41,11 @@ export const WorkflowLink = forwardRef<HTMLAnchorElement, WorkflowLinkProps>(
       
       // Track the navigation in workflow context
       if (startNewWorkflow) {
-        startWorkflow(destination, contextTitle)
+        startWorkflow(contextTitle || destination, destination)
       } else {
-        navigateTo(destination, contextTitle, contextParams)
+        navigateTo(destination, { title: contextTitle, params: contextParams as Record<string, string> | undefined })
       }
-      
+
       // Call any existing onClick handler
       onClick?.(e)
     }
@@ -83,9 +83,9 @@ export function WorkflowButton({
     const destination = typeof href === 'string' ? href : href.pathname || ''
     
     if (startNewWorkflow) {
-      startWorkflow(destination, contextTitle)
+      startWorkflow(contextTitle || destination, destination)
     } else {
-      navigateTo(destination, contextTitle, contextParams)
+      navigateTo(destination, { title: contextTitle, params: contextParams as Record<string, string> | undefined })
     }
     
     onClick?.(e)

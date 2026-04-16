@@ -170,7 +170,7 @@ function AccountantQueueContent() {
   
   // Navigate to invoice with context
   const goToInvoice = useCallback((invoice: typeof mockInvoices[0]) => {
-    navigateTo(`/invoices/${invoice.id}`, invoice.invoiceNumber)
+    navigateTo(`/invoices/${invoice.id}`, { title: invoice.invoiceNumber })
   }, [navigateTo])
   
   // Initialize state from URL params
@@ -300,7 +300,7 @@ function AccountantQueueContent() {
     if (!selectedInvoice) return
     
     setIsProcessing(true)
-    const result = await approveInvoice(selectedInvoice.id)
+    const result = await approveInvoice({ invoice_id: selectedInvoice.id })
     
     if (result.success) {
       toast({
@@ -330,7 +330,7 @@ function AccountantQueueContent() {
     if (!selectedInvoice) return
     
     setIsProcessing(true)
-    const result = await rejectInvoice(selectedInvoice.id, disputeReason)
+    const result = await rejectInvoice({ invoice_id: selectedInvoice.id, reason: disputeReason })
     
     if (result.success) {
       toast({

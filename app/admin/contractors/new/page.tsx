@@ -109,17 +109,11 @@ export default function AddContractorPage() {
         contact_name: `${formData.contact_first_name} ${formData.contact_last_name}`.trim(),
         email: formData.email,
         phone: formData.phone || undefined,
-        trade: formData.trade,
-        address: formData.address_line1 || undefined,
+        address_line1: formData.address_line1 || undefined,
         city: formData.city || undefined,
         province: formData.province,
         postal_code: formData.postal_code || undefined,
-        gst_hst_number: formData.gst_hst_number || undefined,
-        wcb_number: formData.wcb_number || undefined,
-        wcb_expiry: formData.wcb_expiry || undefined,
-        bank_institution_number: formData.bank_institution || undefined,
-        bank_transit_number: formData.bank_transit || undefined,
-        bank_account_number: formData.bank_account || undefined,
+        gst_number: formData.gst_hst_number || undefined,
       })
 
       if (!result.success) {

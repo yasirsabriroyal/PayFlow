@@ -262,13 +262,13 @@ if (invites && invites.length > 0) {
 
     try {
       // Use Supabase Admin API via server action to create user with password
-      const result = await createTeamMember(
-        newMember.email,
-        newMember.firstName,
-        newMember.lastName,
-        newMember.role,
-        newMember.temporaryPassword
-      )
+      const result = await createTeamMember({
+        email: newMember.email,
+        firstName: newMember.firstName,
+        lastName: newMember.lastName,
+        role: newMember.role,
+        temporaryPassword: newMember.temporaryPassword,
+      })
 
       if (!result.success) {
         toast({
@@ -281,8 +281,8 @@ if (invites && invites.length > 0) {
 
       // Add to local team members list
       const newTeamMember: TeamMember = {
-        id: result.user?.id || crypto.randomUUID(),
-        auth_user_id: result.user?.id || '',
+        id: result.data?.user?.id || crypto.randomUUID(),
+        auth_user_id: result.data?.user?.id || '',
         email: newMember.email,
         first_name: newMember.firstName,
         last_name: newMember.lastName,
@@ -320,7 +320,7 @@ if (invites && invites.length > 0) {
   const handleDeactivateMember = async (member: TeamMember) => {
     setIsSubmitting(true)
     try {
-      const result = await deactivateTeamMember(member.auth_user_id)
+      const result = await deactivateTeamMember({ userId: member.auth_user_id })
       if (result.success) {
         setTeamMembers(prev => 
           prev.map(m => m.id === member.id ? { ...m, is_active: false } : m)
@@ -358,7 +358,7 @@ if (invites && invites.length > 0) {
     
     setIsSubmitting(true)
     try {
-      const result = await updateTeamMemberRole(editingMember.auth_user_id, editRole)
+      const result = await updateTeamMemberRole({ userId: editingMember.auth_user_id, newRole: editRole })
       if (result.success) {
         setTeamMembers(prev => 
           prev.map(m => m.id === editingMember.id ? { ...m, role: editRole } : m)
@@ -407,7 +407,7 @@ if (invites && invites.length > 0) {
     
     setIsSubmitting(true)
     try {
-      const result = await resetTeamMemberPassword(resetPasswordMember.auth_user_id, newPassword)
+      const result = await resetTeamMemberPassword({ userId: resetPasswordMember.auth_user_id, newPassword })
       if (result.success) {
         toast({
           title: 'Password Reset',

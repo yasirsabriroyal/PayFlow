@@ -190,10 +190,10 @@ export default function PMContractorProfilePage({ params }: { params: Promise<{ 
       
       if (result.success) {
         setContractor(result.contractor as Contractor)
-        setInvoices((result.invoices || []) as Invoice[])
-        setProjects((result.projects || []) as Project[])
-        setPayments((result.payments || []) as Payment[])
-        setCertificates((result.certificates || []) as Certificate[])
+        setInvoices((result.invoices || []) as unknown as Invoice[])
+        setProjects((result.projects || []) as unknown as Project[])
+        setPayments((result.payments || []) as unknown as Payment[])
+        setCertificates((result.certificates || []) as unknown as Certificate[])
         setDocuments((result.documents || []) as KYCDocument[])
         setFinancialSummary(result.financialSummary as FinancialSummary)
       }
@@ -261,8 +261,8 @@ export default function PMContractorProfilePage({ params }: { params: Promise<{ 
         wcb_clearance_expiry: editForm.wcb_clearance_expiry || undefined,
       })
       
-      // Handle result - check for vendor in result.vendor or result.data.vendor
-      const updatedVendor = result.vendor || (result as unknown as { data?: { vendor?: Contractor } }).data?.vendor
+      // Handle result - vendor is in result.data when success is true
+      const updatedVendor = result.success ? (result.data as { vendor?: Contractor } | undefined)?.vendor : undefined
       
       if (updatedVendor) {
         setContractor(updatedVendor as Contractor)

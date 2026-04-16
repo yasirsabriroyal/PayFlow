@@ -229,8 +229,8 @@ export async function getPendingApprovals() {
 
     // Transform invoices into approval format
     const approvals = (invoices || []).map((invoice) => {
-      const contractor = invoice.contractor as { id: string; company_name: string } | null
-      const project = invoice.project as { id: string; name: string; project_number: string; current_budget_cents: number } | null
+      const contractor = invoice.contractor as unknown as { id: string; company_name: string } | null
+      const project = invoice.project as unknown as { id: string; name: string; project_number: string; current_budget_cents: number } | null
       
       return {
         id: invoice.id,
@@ -290,8 +290,8 @@ export async function getPMApprovedInvoices() {
 
     // Transform invoices into a display format
     const transformedInvoices = (invoices || []).map((invoice) => {
-      const contractor = invoice.contractor as { id: string; company_name: string } | null
-      const project = invoice.project as { id: string; name: string; project_number: string; current_budget_cents: number } | null
+      const contractor = invoice.contractor as unknown as { id: string; company_name: string } | null
+      const project = invoice.project as unknown as { id: string; name: string; project_number: string; current_budget_cents: number } | null
       
       return {
         id: invoice.id,
@@ -510,7 +510,7 @@ export async function getPMContractorById(contractorId: string) {
     }
     
     // Fetch projects this contractor is associated with (via invoices)
-    const projectIds = [...new Set((invoices || []).map(inv => inv.project?.id).filter(Boolean))]
+    const projectIds = [...new Set((invoices || []).map(inv => (inv.project as unknown as { id: string } | null)?.id).filter(Boolean))]
     
     const { data: projects, error: projectsError } = await supabase
       .from('projects')

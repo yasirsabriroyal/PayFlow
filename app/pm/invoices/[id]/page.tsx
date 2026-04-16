@@ -79,7 +79,7 @@ export default function PMInvoiceDetailPage() {
         console.error('Error fetching invoice:', error)
         setError('Invoice not found')
       } else {
-        setInvoice(data as Invoice)
+        setInvoice(data as unknown as Invoice)
       }
       setLoading(false)
     }
