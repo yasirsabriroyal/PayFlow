@@ -122,18 +122,30 @@ export interface CurrentUser {
   role: UserRole
 }
 
+/**
+ * Role is read from the profiles table (server-side, trusted) — never from
+ * user_metadata which is writable by the client via supabase.auth.updateUser().
+ */
 export async function getCurrentUser(): Promise<CurrentUser | null> {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
-  
+
   if (!user) return null
-  
-  const role = (user.user_metadata?.role as UserRole) || 'contractor'
-  
+
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('role')
+    .eq('id', user.id)
+    .single()
+
+  const role: UserRole = profile?.role && ROLES.includes(profile.role as UserRole)
+    ? (profile.role as UserRole)
+    : 'contractor'
+
   return {
     id: user.id,
     email: user.email || '',
-    role: ROLES.includes(role) ? role : 'contractor',
+    role,
   }
 }
 

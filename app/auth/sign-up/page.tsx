@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
+import { completeContractorRegistration } from './actions'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -56,7 +57,6 @@ export default function SignUpPage() {
             first_name: firstName,
             last_name: lastName,
             company_name: companyName,
-            role: 'contractor', // Contractor role for vendor portal access
           },
         },
       })
@@ -64,42 +64,25 @@ export default function SignUpPage() {
       if (authError) throw authError
 
       if (authData.user) {
-        // Create contractor record
-        const { error: contractorError } = await supabase
-          .from('contractors')
-          .insert({
-            company_name: companyName,
-            contact_name: contactName,
-            email: email,
-            kyc_status: 'pending', // New contractors need KYC verification
-            is_active: true,
-          })
+        // Complete registration server-side: DB inserts run in a server action
+        // so the browser never touches contractors/users/profiles directly.
+        // Role is hardcoded to 'contractor' inside the action — not user-supplied.
+        const result = await completeContractorRegistration({
+          userId: authData.user.id,
+          email,
+          firstName,
+          lastName,
+          companyName,
+          contactName,
+        })
 
-        if (contractorError) {
-          console.log('[v0] Contractor insert note:', contractorError.message)
-          // Continue - auth user was created, contractor record can be added by admin
-        }
-
-        // Also create user record for role-based access
-        const { error: userError } = await supabase
-          .from('users')
-          .insert({
-            id: authData.user.id,
-            auth_user_id: authData.user.id,
-            email: email,
-            first_name: firstName,
-            last_name: lastName,
-            role: 'contractor',
-            is_active: true,
-          })
-
-        if (userError) {
-          console.log('[v0] User insert note:', userError.message)
-          // Continue - RLS may prevent this, but auth is working
+        if (!result.success) {
+          // Auth user was created; DB records will be reconciled by admin if needed
+          console.log('[signup] Registration note:', result.error)
         }
 
         setSuccess(true)
-        
+
         // Auto-redirect to login after success message
         setTimeout(() => {
           router.push('/auth/login')

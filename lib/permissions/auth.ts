@@ -13,37 +13,30 @@ export interface AuthenticatedUser {
 }
 
 /**
- * Get current authenticated user with their role
- * Returns null if not authenticated
+ * Get current authenticated user with their role.
+ * Role is read from the profiles table (server-side, trusted) — never from
+ * user_metadata which is writable by the client via supabase.auth.updateUser().
  */
 export async function getCurrentUser(): Promise<AuthenticatedUser | null> {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
-  
+
   if (!user) return null
-  
-  // Get role from user metadata first (faster)
-  const roleFromMetadata = user.user_metadata?.role as UserRole | undefined
-  
-  if (roleFromMetadata && ROLES.includes(roleFromMetadata)) {
-    return {
-      id: user.id,
-      email: user.email,
-      role: roleFromMetadata,
-    }
-  }
-  
-  // Fallback to users table
-  const { data: userData } = await supabase
-    .from('users')
+
+  const { data: profile } = await supabase
+    .from('profiles')
     .select('role')
-    .eq('auth_user_id', user.id)
+    .eq('id', user.id)
     .single()
-  
+
+  const role: UserRole = profile?.role && ROLES.includes(profile.role as UserRole)
+    ? (profile.role as UserRole)
+    : 'contractor'
+
   return {
     id: user.id,
     email: user.email,
-    role: (userData?.role as UserRole) || 'contractor',
+    role,
   }
 }
 
