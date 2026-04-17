@@ -252,10 +252,6 @@ export default function ProjectDetailsPage({ params }: { params: Promise<{ id: s
     is_credit: false,
   })
 
-  useEffect(() => {
-    fetchProjectData()
-  }, [resolvedParams.id])
-
   const fetchProjectData = async () => {
     const supabase = createClient()
     
@@ -308,6 +304,11 @@ export default function ProjectDetailsPage({ params }: { params: Promise<{ id: s
     
     setIsLoading(false)
   }
+
+  useEffect(() => {
+    fetchProjectData()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resolvedParams.id])
 
   const handleCreateChangeOrder = async () => {
     if (!project) return

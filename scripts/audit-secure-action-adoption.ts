@@ -118,6 +118,7 @@ function extractModule(filePath: string): string {
 function analyzeActionFile(filePath: string): ActionInfo[] {
   const content = fs.readFileSync(filePath, 'utf-8')
   const actions: ActionInfo[] = []
+  // eslint-disable-next-line @next/next/no-assign-module-variable
   const module = extractModule(filePath)
   
   // Track found action names to avoid duplicates

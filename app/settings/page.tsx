@@ -281,7 +281,7 @@ export default function SettingsPage() {
           <div className="bg-card border border-border rounded-xl overflow-hidden">
             <div className="px-6 py-4 border-b border-border flex items-center gap-3">
               <Shield className="w-5 h-5 text-muted-foreground" />
-              <h2 className="font-semibold">What You'll Receive</h2>
+              <h2 className="font-semibold">What You&apos;ll Receive</h2>
             </div>
             <div className="p-6">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

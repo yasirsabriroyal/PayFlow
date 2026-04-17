@@ -152,7 +152,7 @@ export default function PMInvoiceDetailPage() {
             <CardContent className="p-12 text-center">
               <AlertCircle className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
               <h2 className="text-xl font-semibold mb-2">Invoice Not Found</h2>
-              <p className="text-muted-foreground">The invoice you're looking for doesn't exist or you don't have permission to view it.</p>
+              <p className="text-muted-foreground">The invoice you&apos;re looking for doesn&apos;t exist or you don&apos;t have permission to view it.</p>
             </CardContent>
           </Card>
         </div>

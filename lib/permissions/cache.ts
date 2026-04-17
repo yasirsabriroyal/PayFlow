@@ -29,7 +29,7 @@ type PermissionMatrix = Map<string, Set<string>>
 
 // Cache store - module-level singleton
 let permissionMatrixCache: CacheEntry<PermissionMatrix> | null = null
-let rolePermissionsCache: Map<string, CacheEntry<string[]>> = new Map()
+const rolePermissionsCache: Map<string, CacheEntry<string[]>> = new Map()
 
 // Cache statistics for monitoring
 let cacheStats = {

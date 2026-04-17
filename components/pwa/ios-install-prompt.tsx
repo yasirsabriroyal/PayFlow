@@ -165,7 +165,7 @@ export function IOSInstallPrompt() {
                   <span className="text-sm font-semibold text-primary">2</span>
                 </div>
                 <div className="flex-1">
-                  <p className="text-sm font-medium">Scroll and tap "Add to Home Screen"</p>
+                  <p className="text-sm font-medium">Scroll and tap &ldquo;Add to Home Screen&rdquo;</p>
                   <div className="flex items-center gap-2 mt-1">
                     <div className="w-8 h-8 bg-background border border-border rounded-lg flex items-center justify-center">
                       <Plus className="w-4 h-4" />
@@ -181,7 +181,7 @@ export function IOSInstallPrompt() {
                   <span className="text-sm font-semibold text-primary">3</span>
                 </div>
                 <div className="flex-1">
-                  <p className="text-sm font-medium">Tap "Add" in the top right</p>
+                  <p className="text-sm font-medium">Tap &ldquo;Add&rdquo; in the top right</p>
                   <span className="text-xs text-muted-foreground">The app will appear on your home screen</span>
                 </div>
               </div>
