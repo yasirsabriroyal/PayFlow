@@ -1365,7 +1365,7 @@ export async function recordDirectInvoicePayment(input: {
     // 2. Check if invoice has payment certificates and verify they are all fully paid
     const { data: certificates, error: certError } = await supabase
       .from('payment_certificates')
-      .select('id, certificate_number, net_payable_cents')
+      .select('id, status')
       .eq('invoice_id', input.invoice_id)
 
     if (certError) {
@@ -1373,25 +1373,17 @@ export async function recordDirectInvoicePayment(input: {
       return { success: false, error: 'Failed to check payment certificates' }
     }
 
-    // 3. All certificates must be fully paid before direct payment is allowed
+    // 3. All certificates must have status 'paid' before direct payment is allowed.
+    // A status check is used (not a payment-math check) so that certificates in
+    // 'draft', 'pending', 'approved', 'rejected', 'partially_paid', or 'cancelled'
+    // always block — even when net_payable_cents is 0 (e.g. a draft with no amount yet).
     if (certificates && certificates.length > 0) {
-      const certIds = certificates.map(c => c.id)
-      const { data: certPayments } = await supabase
-        .from('payments')
-        .select('payment_certificate_id, amount_cents')
-        .in('payment_certificate_id', certIds)
+      const notPaidCount = certificates.filter(cert => cert.status !== 'paid').length
 
-      const unpaidCount = certificates.filter(cert => {
-        const paid = (certPayments || [])
-          .filter(p => p.payment_certificate_id === cert.id)
-          .reduce((sum, p) => sum + (p.amount_cents || 0), 0)
-        return (cert.net_payable_cents || 0) - paid > 0
-      }).length
-
-      if (unpaidCount > 0) {
+      if (notPaidCount > 0) {
         return {
           success: false,
-          error: `${unpaidCount} payment certificate${unpaidCount > 1 ? 's' : ''} must be fully paid before paying this invoice balance.`,
+          error: `${notPaidCount} payment certificate${notPaidCount > 1 ? 's' : ''} must be fully paid before paying this invoice balance.`,
         }
       }
     }
