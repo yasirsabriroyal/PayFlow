@@ -1370,22 +1370,37 @@ export async function recordDirectInvoicePayment(input: {
       return { success: false, error: 'Invoice not found' }
     }
     
-    // 2. Check if invoice has any payment certificates
+    // 2. Check if invoice has payment certificates and verify they are all fully paid
     const { data: certificates, error: certError } = await supabase
       .from('payment_certificates')
-      .select('id')
+      .select('id, certificate_number, net_payable_cents')
       .eq('invoice_id', input.invoice_id)
-    
+
     if (certError) {
       console.error('Fetch certificates error:', certError)
       return { success: false, error: 'Failed to check payment certificates' }
     }
-    
-    // 3. If certificates exist, block direct payment
+
+    // 3. All certificates must be fully paid before direct payment is allowed
     if (certificates && certificates.length > 0) {
-      return { 
-        success: false, 
-        error: `This invoice has ${certificates.length} payment certificate(s). Payments must be made against individual certificates, not the invoice directly.` 
+      const certIds = certificates.map(c => c.id)
+      const { data: certPayments } = await supabase
+        .from('payments')
+        .select('payment_certificate_id, amount_cents')
+        .in('payment_certificate_id', certIds)
+
+      const unpaidCount = certificates.filter(cert => {
+        const paid = (certPayments || [])
+          .filter(p => p.payment_certificate_id === cert.id)
+          .reduce((sum, p) => sum + (p.amount_cents || 0), 0)
+        return (cert.net_payable_cents || 0) - paid > 0
+      }).length
+
+      if (unpaidCount > 0) {
+        return {
+          success: false,
+          error: `${unpaidCount} payment certificate${unpaidCount > 1 ? 's' : ''} must be fully paid before paying this invoice balance.`,
+        }
       }
     }
     
@@ -1604,8 +1619,7 @@ export async function getInvoicePaymentInfo(invoiceId: string) {
     // Calculate totals
     const certificateCount = certificates?.length || 0
     const hasCertificates = certificateCount > 0
-    const paymentMode = hasCertificates ? 'certificate' : 'direct'
-    
+
     // Calculate certificate-level details
     const certificatesWithPayments = (certificates || []).map(cert => {
       const certPayments = certificatePayments.filter(p => p.payment_certificate_id === cert.id)
@@ -1621,6 +1635,10 @@ export async function getInvoicePaymentInfo(invoiceId: string) {
       }
     })
     
+    // paymentMode: 'certificate' when unpaid certs exist; 'direct' when all paid or no certs
+    const unpaidCertificateCount = certificatesWithPayments.filter(c => !c.is_fully_paid).length
+    const paymentMode = hasCertificates && unpaidCertificateCount > 0 ? 'certificate' : 'direct'
+
     // Invoice totals
     const totalCertifiedCents = (certificates || []).reduce((sum, c) => sum + (c.certified_amount_cents || 0), 0)
     const totalPaidCents = invoice.amount_paid_cents || invoice.total_paid_cents || 0
@@ -1645,6 +1663,7 @@ export async function getInvoicePaymentInfo(invoiceId: string) {
         total_paid_cents: totalPaidCents,
         total_remaining_cents: invoiceRemainingCents,
         has_certificates: hasCertificates,
+        unpaid_certificate_count: unpaidCertificateCount,
       },
     }
   })

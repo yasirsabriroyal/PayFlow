@@ -232,6 +232,7 @@ interface PaymentInfo {
     total_paid_cents: number
     total_remaining_cents: number
     has_certificates: boolean
+    unpaid_certificate_count: number
   }
 }
 
@@ -812,7 +813,10 @@ export default function InvoiceDetailPage() {
                         <div>
                           <p className="font-medium text-blue-900 dark:text-blue-100">Direct Invoice Payment</p>
                           <p className="text-sm text-blue-700 dark:text-blue-300 mt-1">
-                            This invoice has no payment certificates. Payments will be applied directly against the invoice balance.
+                            {paymentInfo.summary.has_certificates
+                              ? `All ${paymentInfo.summary.certificate_count} payment certificate${paymentInfo.summary.certificate_count !== 1 ? 's' : ''} have been fully paid. You may now pay the remaining invoice balance.`
+                              : 'This invoice has no payment certificates. Payments will be applied directly against the invoice balance.'
+                            }
                           </p>
                         </div>
                       </div>
@@ -957,6 +961,16 @@ export default function InvoiceDetailPage() {
                       </div>
                     </div>
                     
+                    {/* Warning: unpaid certs block invoice balance payment */}
+                    {paymentInfo.summary.unpaid_certificate_count > 0 && (
+                      <div className="p-3 bg-warning/10 border border-warning/30 rounded-lg flex items-start gap-2">
+                        <AlertTriangle className="w-4 h-4 text-warning mt-0.5 flex-shrink-0" />
+                        <p className="text-sm">
+                          <strong>{paymentInfo.summary.unpaid_certificate_count} payment certificate{paymentInfo.summary.unpaid_certificate_count !== 1 ? 's' : ''} must be fully paid</strong> before paying the remaining invoice balance.
+                        </p>
+                      </div>
+                    )}
+
                     {/* Pay All Certificates button */}
                     {canPay && paymentInfo.certificates.some(c => !c.is_fully_paid && c.status === 'approved') && (
                       <Button onClick={openPaymentDialog} className="w-full">
