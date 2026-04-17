@@ -1,24 +1,13 @@
 'use server'
 
-import { createClient } from '@supabase/supabase-js'
-import { 
+import { getSupabaseAdmin } from '@/lib/supabase/admin'
+import {
   PERMISSIONS,
 } from '@/lib/permissions'
 import {
   secureAction,
   // RATE_LIMITS, // Temporarily removed due to bundler issues
 } from '@/lib/security/secureAction'
-
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false,
-    },
-  }
-)
 
 export type CreateUserResult = {
   success: boolean
@@ -52,16 +41,12 @@ type CreateTeamMemberInput = {
 export const createTeamMember = secureAction(
   PERMISSIONS.ADMINISTRATION.MANAGE_USERS,
   async (_user, input: CreateTeamMemberInput) => {
+    const supabaseAdmin = getSupabaseAdmin()
     const { email, firstName, lastName, role, temporaryPassword } = input
-    
+
     // Validate password strength
     if (temporaryPassword.length < 8) {
       throw new Error('Password must be at least 8 characters long.')
-    }
-
-    // Check if service role key exists
-    if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
-      throw new Error('Server configuration error: Admin API not available.')
     }
 
     // Create auth user with temporary password using Admin API
@@ -137,8 +122,9 @@ type UpdateRoleInput = {
 export const updateTeamMemberRole = secureAction(
   PERMISSIONS.ADMINISTRATION.MANAGE_USERS,
   async (_user, input: UpdateRoleInput) => {
+    const supabaseAdmin = getSupabaseAdmin()
     const { userId, newRole } = input
-    
+
     // Update auth user metadata
     const { error: authError } = await supabaseAdmin.auth.admin.updateUserById(userId, {
       user_metadata: { role: newRole },
@@ -186,8 +172,9 @@ export const updateTeamMemberRole = secureAction(
 export const deactivateTeamMember = secureAction(
   PERMISSIONS.ADMINISTRATION.MANAGE_USERS,
   async (_user, input: { userId: string }) => {
+    const supabaseAdmin = getSupabaseAdmin()
     const { userId } = input
-    
+
     // Ban the user in Supabase Auth
     const { error: authError } = await supabaseAdmin.auth.admin.updateUserById(userId, {
       ban_duration: '876000h', // ~100 years
@@ -232,8 +219,9 @@ type ResetPasswordInput = {
 export const resetTeamMemberPassword = secureAction(
   PERMISSIONS.ADMINISTRATION.MANAGE_USERS,
   async (_user, input: ResetPasswordInput) => {
+    const supabaseAdmin = getSupabaseAdmin()
     const { userId, newPassword } = input
-    
+
     if (newPassword.length < 8) {
       throw new Error('Password must be at least 8 characters.')
     }
@@ -276,8 +264,9 @@ type UpdateTeamMemberInput = {
 export const updateTeamMember = secureAction(
   PERMISSIONS.ADMINISTRATION.MANAGE_USERS,
   async (_user, input: UpdateTeamMemberInput) => {
+    const supabaseAdmin = getSupabaseAdmin()
     const { userId, ...updateData } = input
-    
+
     // Update users table
     const { data, error } = await supabaseAdmin
       .from('users')
