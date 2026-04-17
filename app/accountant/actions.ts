@@ -1620,7 +1620,7 @@ export async function getInvoicePaymentInfo(invoiceId: string) {
     })
     
     // paymentMode: 'certificate' when unpaid certs exist; 'direct' when all paid or no certs
-    const unpaidCertificateCount = certificatesWithPayments.filter(c => !c.is_fully_paid).length
+    const unpaidCertificateCount = certificatesWithPayments.filter(c => c.status !== 'paid').length
     const paymentMode = hasCertificates && unpaidCertificateCount > 0 ? 'certificate' : 'direct'
 
     // Invoice totals
