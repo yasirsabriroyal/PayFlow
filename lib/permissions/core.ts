@@ -132,14 +132,14 @@ export async function getCurrentUser(): Promise<CurrentUser | null> {
 
   if (!user) return null
 
-  const { data: profile } = await supabase
-    .from('profiles')
+  const { data: userRecord } = await supabase
+    .from('users')
     .select('role')
-    .eq('id', user.id)
+    .eq('auth_user_id', user.id)
     .single()
 
-  const role: UserRole = profile?.role && ROLES.includes(profile.role as UserRole)
-    ? (profile.role as UserRole)
+  const role: UserRole = userRecord?.role && ROLES.includes(userRecord.role as UserRole)
+    ? (userRecord.role as UserRole)
     : 'contractor'
 
   return {

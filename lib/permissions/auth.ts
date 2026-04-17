@@ -16,7 +16,7 @@ export interface AuthenticatedUser {
 
 /**
  * Get current authenticated user with their role.
- * Role is read from the profiles table (server-side, trusted) — never from
+ * Role is read from the users table (server-side, trusted) — never from
  * user_metadata which is writable by the client via supabase.auth.updateUser().
  */
 export async function getCurrentUser(): Promise<AuthenticatedUser | null> {
@@ -25,14 +25,14 @@ export async function getCurrentUser(): Promise<AuthenticatedUser | null> {
 
   if (!user) return null
 
-  const { data: profile } = await supabase
-    .from('profiles')
+  const { data: userRecord } = await supabase
+    .from('users')
     .select('role')
-    .eq('id', user.id)
+    .eq('auth_user_id', user.id)
     .single()
 
-  const role: UserRole = profile?.role && ROLES.includes(profile.role as UserRole)
-    ? (profile.role as UserRole)
+  const role: UserRole = userRecord?.role && ROLES.includes(userRecord.role as UserRole)
+    ? (userRecord.role as UserRole)
     : 'contractor'
 
   return {

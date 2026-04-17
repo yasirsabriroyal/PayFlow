@@ -7,9 +7,9 @@ import type { Permission, UserRole } from './constants'
 /**
  * Server action: returns the current user's role and permissions.
  *
- * Role is read from the `profiles` table (server-side, trusted) rather than
- * from user_metadata (client-controlled) or the users table. Permissions are
- * fetched from role_permissions and filtered against the known permission list.
+ * Role is read from the `users` table (server-side, trusted) rather than
+ * from user_metadata (client-controlled). Permissions are fetched from
+ * role_permissions and filtered against the known permission list.
  */
 export async function getMyPermissions(): Promise<{
   role: UserRole | null
@@ -20,15 +20,15 @@ export async function getMyPermissions(): Promise<{
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { role: null, permissions: [] }
 
-  // Trusted role source: profiles table, not user_metadata
-  const { data: profile } = await supabase
-    .from('profiles')
+  // Trusted role source: users table, not user_metadata
+  const { data: userRecord } = await supabase
+    .from('users')
     .select('role')
-    .eq('id', user.id)
+    .eq('auth_user_id', user.id)
     .single()
 
-  const role: UserRole = profile?.role && ROLES.includes(profile.role as UserRole)
-    ? (profile.role as UserRole)
+  const role: UserRole = userRecord?.role && ROLES.includes(userRecord.role as UserRole)
+    ? (userRecord.role as UserRole)
     : 'contractor'
 
   const { data: permissionData } = await supabase

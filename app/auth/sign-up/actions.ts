@@ -59,14 +59,5 @@ export async function completeContractorRegistration(input: {
     console.log('[signup] User insert note:', userError.message)
   }
 
-  // Profiles record — the source of truth for role in middleware and server actions
-  const { error: profileError } = await supabase.from('profiles').insert({
-    id: userId,
-    role: 'contractor',
-  })
-  if (profileError) {
-    console.log('[signup] Profile insert note:', profileError.message)
-  }
-
   return { success: true }
 }
