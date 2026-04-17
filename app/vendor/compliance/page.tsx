@@ -1,20 +1,18 @@
 'use client'
 
 import { useState } from 'react'
-import { 
-  CheckCircle, 
+import {
+  CheckCircle,
   FileText,
-  ArrowLeft,
   DollarSign,
-  Building2,
   Shield,
   PenTool,
   Clock,
   FileSignature,
   AlertCircle
 } from 'lucide-react'
-import Link from 'next/link'
 import { Button } from '@/components/ui/button'
+import { AppHeader } from '@/components/app-header'
 import { Input } from '@/components/ui/input'
 import {
   Dialog,
@@ -121,30 +119,7 @@ export default function VendorCompliancePage() {
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Header */}
-      <header className="border-b border-border bg-card">
-        <div className="max-w-7xl mx-auto px-6 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <Link 
-                href="/vendor/portal" 
-                className="p-2 hover:bg-muted rounded-lg transition-colors"
-              >
-                <ArrowLeft className="w-5 h-5" />
-              </Link>
-              <div>
-                <h1 className="text-xl font-semibold">Compliance & Lien Waivers</h1>
-                <p className="text-sm text-muted-foreground">Sign statutory declarations for paid invoices</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-primary/10 rounded-full flex items-center justify-center">
-                <Building2 className="w-5 h-5 text-primary" />
-              </div>
-            </div>
-          </div>
-        </div>
-      </header>
+      <AppHeader pageTitle="Compliance & Lien Waivers" />
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-6 py-8 space-y-6">

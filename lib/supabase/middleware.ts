@@ -68,17 +68,17 @@ export async function updateSession(request: NextRequest) {
 
   // If user is logged in
   if (user) {
-    // Fetch role from database profiles table (not user_metadata, which is user-controlled)
+    // Fetch role from users table (not user_metadata, which is user-controlled)
     let userRole = 'contractor'
     try {
-      const { data: profile } = await supabase
-        .from('profiles')
+      const { data: userRecord } = await supabase
+        .from('users')
         .select('role')
-        .eq('id', user.id)
+        .eq('auth_user_id', user.id)
         .single()
-      if (profile?.role) userRole = profile.role
+      if (userRecord?.role) userRole = userRecord.role
     } catch {
-      // Fall back to default role if profile fetch fails
+      // Fall back to default role if user fetch fails
     }
 
     // If user is on login page and already authenticated, redirect to their dashboard

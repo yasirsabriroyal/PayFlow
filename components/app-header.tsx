@@ -63,12 +63,12 @@ const roleConfig: Record<UserRole, { label: string; icon: typeof Shield; color: 
     bgColor: 'bg-emerald-500/10',
     dashboardPath: '/accountant/dashboard'
   },
-  contractor: { 
-    label: 'Contractor', 
-    icon: Hammer, 
-    color: 'text-orange-600', 
+  contractor: {
+    label: 'Contractor',
+    icon: Hammer,
+    color: 'text-orange-600',
     bgColor: 'bg-orange-500/10',
-    dashboardPath: '/contractor/dashboard'
+    dashboardPath: '/vendor/portal'
   },
 }
 
