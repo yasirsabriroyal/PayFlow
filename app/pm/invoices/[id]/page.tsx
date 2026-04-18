@@ -416,117 +416,167 @@ export default function PMInvoiceDetailPage() {
                 Payment Certificates
               </CardTitle>
             </CardHeader>
-            <CardContent>
+            <CardContent className="p-0">
               {certsLoading ? (
                 <div className="flex justify-center py-8">
                   <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary" />
                 </div>
               ) : certificates.length === 0 ? (
-                <div className="text-center py-8 text-muted-foreground">
+                <div className="text-center py-8 text-muted-foreground px-6">
                   <FileText className="w-10 h-10 mx-auto mb-2 opacity-30" />
                   <p>No payment certificates issued for this invoice.</p>
                 </div>
               ) : (
-                <div className="space-y-4">
-                  {certificates.map((cert) => {
-                    const certStatus = certStatusConfig[cert.status] || { label: cert.status, variant: 'outline' as const }
-                    const isActioning = certActionLoading === cert.id
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b border-border bg-muted/30">
+                        <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Certificate #</th>
+                        <th className="px-4 py-3 text-right text-xs font-semibold text-muted-foreground uppercase tracking-wider">Certified Amount</th>
+                        <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Status</th>
+                        <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Date</th>
+                        <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {certificates.map((cert) => {
+                        const certStatus = certStatusConfig[cert.status] || { label: cert.status, variant: 'outline' as const }
+                        const isActioning = certActionLoading === cert.id
 
-                    return (
-                      <div key={cert.id} className="border border-border rounded-lg p-4 space-y-3">
-                        {/* Header row */}
-                        <div className="flex items-start justify-between gap-2">
-                          <div>
-                            <p className="font-medium">{cert.certificate_number}</p>
-                            <p className="text-sm text-muted-foreground">
-                              ${(cert.certified_amount_cents / 100).toLocaleString('en-US', { minimumFractionDigits: 2 })} certified
-                              {cert.work_period_start && cert.work_period_end && (
-                                <> &bull; {new Date(cert.work_period_start).toLocaleDateString()} – {new Date(cert.work_period_end).toLocaleDateString()}</>
-                              )}
-                            </p>
-                          </div>
-                          <Badge variant={certStatus.variant as 'default' | 'secondary' | 'destructive' | 'outline'}>
-                            {certStatus.label}
-                          </Badge>
-                        </div>
+                        return (
+                          <>
+                            <tr key={cert.id} className="hover:bg-muted/20 transition-colors">
+                              {/* Certificate # */}
+                              <td className="px-4 py-3">
+                                <p className="font-medium text-sm">{cert.certificate_number}</p>
+                                {cert.work_period_start && cert.work_period_end && (
+                                  <p className="text-xs text-muted-foreground mt-0.5">
+                                    {new Date(cert.work_period_start).toLocaleDateString()} – {new Date(cert.work_period_end).toLocaleDateString()}
+                                  </p>
+                                )}
+                              </td>
 
-                        {/* Rejection reason */}
-                        {cert.status === 'rejected' && cert.rejection_reason && (
-                          <div className="p-3 bg-destructive/10 border border-destructive/30 rounded-lg">
-                            <p className="text-xs font-semibold text-destructive uppercase tracking-wide mb-1">Rejection Reason</p>
-                            <p className="text-sm">{cert.rejection_reason}</p>
-                          </div>
-                        )}
+                              {/* Certified Amount — no holdback deduction; certs are paid in full */}
+                              <td className="px-4 py-3 text-right">
+                                <p className="font-medium text-sm">
+                                  ${(cert.certified_amount_cents / 100).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                                </p>
+                              </td>
 
-                        {/* Action buttons */}
-                        <div className="flex flex-wrap gap-2">
-                          {cert.status === 'draft' && (
-                            <Button
-                              size="sm"
-                              onClick={() => handleSubmitCertificate(cert.id)}
-                              disabled={isActioning}
-                              className="gap-2"
-                            >
-                              <Send className="w-3 h-3" />
-                              {isActioning ? 'Submitting…' : 'Submit for Approval'}
-                            </Button>
-                          )}
+                              {/* Status badge */}
+                              <td className="px-4 py-3">
+                                <Badge variant={certStatus.variant as 'default' | 'secondary' | 'destructive' | 'outline'}>
+                                  {certStatus.label}
+                                </Badge>
+                              </td>
 
-                          {cert.status === 'rejected' && (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => handleResubmitCertificate(cert.id)}
-                              disabled={isActioning}
-                              className="gap-2"
-                            >
-                              <RotateCcw className="w-3 h-3" />
-                              {isActioning ? 'Resetting…' : 'Reset to Draft'}
-                            </Button>
-                          )}
+                              {/* Date */}
+                              <td className="px-4 py-3">
+                                <p className="text-sm text-muted-foreground">
+                                  {new Date(cert.created_at).toLocaleDateString()}
+                                </p>
+                              </td>
 
-                          {cert.status === 'pending' && (
-                            roleLoading ? (
-                              <div className="flex items-center gap-2 text-muted-foreground text-sm">
-                                <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-primary" />
-                                Loading…
-                              </div>
-                            ) : canApproveRole ? (
-                              <>
-                                <Button
-                                  size="sm"
-                                  onClick={() => handleApproveCertificate(cert.id)}
-                                  disabled={isActioning}
-                                  className="gap-2"
-                                >
-                                  <CheckCircle className="w-3 h-3" />
-                                  {isActioning ? 'Approving…' : 'Approve'}
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant="destructive"
-                                  onClick={() => {
-                                    setRejectingCertId(cert.id)
-                                    setRejectCertDialogOpen(true)
-                                  }}
-                                  disabled={isActioning}
-                                  className="gap-2"
-                                >
-                                  <XCircle className="w-3 h-3" />
-                                  Reject
-                                </Button>
-                              </>
-                            ) : (
-                              <Badge variant="outline" className="gap-1">
-                                <Clock className="w-3 h-3" />
-                                Awaiting Approval
-                              </Badge>
-                            )
-                          )}
-                        </div>
-                      </div>
-                    )
-                  })}
+                              {/* Actions */}
+                              <td className="px-4 py-3">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  {cert.status === 'draft' && (
+                                    <Button
+                                      size="sm"
+                                      onClick={() => handleSubmitCertificate(cert.id)}
+                                      disabled={isActioning}
+                                      className="gap-1.5"
+                                    >
+                                      <Send className="w-3 h-3" />
+                                      {isActioning ? 'Submitting…' : 'Submit'}
+                                    </Button>
+                                  )}
+
+                                  {cert.status === 'rejected' && (
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      onClick={() => handleResubmitCertificate(cert.id)}
+                                      disabled={isActioning}
+                                      className="gap-1.5"
+                                    >
+                                      <RotateCcw className="w-3 h-3" />
+                                      {isActioning ? 'Resetting…' : 'Resubmit'}
+                                    </Button>
+                                  )}
+
+                                  {cert.status === 'pending' && (
+                                    roleLoading ? (
+                                      <div className="flex items-center gap-1.5 text-muted-foreground text-sm">
+                                        <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-primary" />
+                                        Loading…
+                                      </div>
+                                    ) : canApproveRole ? (
+                                      <>
+                                        <Button
+                                          size="sm"
+                                          onClick={() => handleApproveCertificate(cert.id)}
+                                          disabled={isActioning}
+                                          className="gap-1.5"
+                                        >
+                                          <CheckCircle className="w-3 h-3" />
+                                          {isActioning ? 'Approving…' : 'Approve'}
+                                        </Button>
+                                        <Button
+                                          size="sm"
+                                          variant="destructive"
+                                          onClick={() => {
+                                            setRejectingCertId(cert.id)
+                                            setRejectCertDialogOpen(true)
+                                          }}
+                                          disabled={isActioning}
+                                          className="gap-1.5"
+                                        >
+                                          <XCircle className="w-3 h-3" />
+                                          Reject
+                                        </Button>
+                                      </>
+                                    ) : (
+                                      <Badge variant="outline" className="gap-1">
+                                        <Clock className="w-3 h-3" />
+                                        Awaiting Approval
+                                      </Badge>
+                                    )
+                                  )}
+
+                                  {cert.status === 'approved' && (
+                                    <Badge variant="default" className="gap-1">
+                                      <CheckCircle className="w-3 h-3" />
+                                      Approved
+                                    </Badge>
+                                  )}
+
+                                  {cert.status === 'paid' && (
+                                    <Badge variant="default" className="gap-1">
+                                      <CheckCircle className="w-3 h-3" />
+                                      Paid
+                                    </Badge>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+
+                            {/* Rejection reason sub-row */}
+                            {cert.status === 'rejected' && cert.rejection_reason && (
+                              <tr key={`${cert.id}-reason`} className="bg-destructive/5">
+                                <td colSpan={5} className="px-4 py-2">
+                                  <p className="text-xs text-destructive">
+                                    <span className="font-semibold">Rejection reason: </span>
+                                    {cert.rejection_reason}
+                                  </p>
+                                </td>
+                              </tr>
+                            )}
+                          </>
+                        )
+                      })}
+                    </tbody>
+                  </table>
                 </div>
               )}
             </CardContent>
