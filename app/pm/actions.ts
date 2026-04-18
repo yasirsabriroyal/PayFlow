@@ -253,6 +253,123 @@ export async function createPaymentCertificate(input: CreatePaymentCertificateIn
 }
 
 /**
+ * Update a draft payment certificate (amount, description, work period).
+ * Only draft certificates can be edited.
+ * Business rule: same balance validation as create (excluding this cert from the sum).
+ */
+export async function updatePaymentCertificate(input: {
+  certificate_id: string
+  certified_amount_cents: number
+  description?: string
+  work_period_start?: string
+  work_period_end?: string
+}) {
+  return withPermission(PERMISSIONS.INVOICES.APPROVE_INVOICES, async (userData) => {
+    const supabase = getSupabaseAdmin()
+
+    // 1. Fetch the cert being edited
+    const { data: cert, error: certError } = await supabase
+      .from('payment_certificates')
+      .select('id, certificate_number, status, invoice_id, contractor_id, project_id')
+      .eq('id', input.certificate_id)
+      .single()
+
+    if (certError || !cert) {
+      return { success: false, error: 'Certificate not found' }
+    }
+
+    if (cert.status !== 'draft') {
+      return {
+        success: false,
+        error: `Cannot edit certificate with status '${cert.status}'. Only draft certificates can be edited.`,
+      }
+    }
+
+    if (input.certified_amount_cents <= 0) {
+      return { success: false, error: 'Certificate amount must be greater than 0' }
+    }
+
+    // 2. Fetch invoice totals
+    const { data: invoice, error: invoiceError } = await supabase
+      .from('invoices')
+      .select('id, total_cents, holdback_cents')
+      .eq('id', cert.invoice_id)
+      .single()
+
+    if (invoiceError || !invoice) {
+      return { success: false, error: 'Invoice not found' }
+    }
+
+    // 3. Sum all OTHER certs on this invoice (excluding the one being edited)
+    const { data: otherCerts, error: certsError } = await supabase
+      .from('payment_certificates')
+      .select('certified_amount_cents')
+      .eq('invoice_id', cert.invoice_id)
+      .neq('id', input.certificate_id)
+
+    if (certsError) {
+      return { success: false, error: 'Failed to check existing certificates' }
+    }
+
+    const otherCertifiedCents = (otherCerts || []).reduce(
+      (sum, c) => sum + (c.certified_amount_cents || 0),
+      0
+    )
+
+    const holdbackCents = invoice.holdback_cents || 0
+    const availableCents = invoice.total_cents - holdbackCents - otherCertifiedCents
+
+    if (input.certified_amount_cents > availableCents) {
+      return {
+        success: false,
+        error: `Certificate amount exceeds available balance. Available: $${(availableCents / 100).toFixed(2)}`,
+      }
+    }
+
+    // 4. Update the certificate
+    const remainingAfterThisCents = availableCents - input.certified_amount_cents
+
+    const { data: updated, error: updateError } = await supabase
+      .from('payment_certificates')
+      .update({
+        certified_amount_cents: input.certified_amount_cents,
+        holdback_amount_cents: 0,
+        net_payable_cents: input.certified_amount_cents,
+        remaining_after_this_cents: remainingAfterThisCents,
+        description: input.description ?? null,
+        work_period_start: input.work_period_start ?? null,
+        work_period_end: input.work_period_end ?? null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', input.certificate_id)
+      .select()
+      .single()
+
+    if (updateError) {
+      console.error('Update certificate error:', updateError)
+      return { success: false, error: updateError.message }
+    }
+
+    // 5. Audit log
+    await supabase.from('audit_logs').insert({
+      action: 'certificate_updated',
+      entity_type: 'payment_certificate',
+      entity_id: input.certificate_id,
+      user_id: userData.id,
+      description: `Updated draft certificate ${cert.certificate_number} to $${(input.certified_amount_cents / 100).toFixed(2)}`,
+      new_values: {
+        certified_amount_cents: input.certified_amount_cents,
+        description: input.description,
+        work_period_start: input.work_period_start,
+        work_period_end: input.work_period_end,
+      },
+    })
+
+    return { success: true, certificate: updated }
+  })
+}
+
+/**
  * Submit a draft (or rejected) certificate for accountant approval.
  * Moves status: draft → pending  OR  rejected → pending.
  */

@@ -3,11 +3,13 @@
 import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, FileText, Calendar, Building2, DollarSign, Clock, CheckCircle, XCircle, AlertCircle, Send, RotateCcw } from 'lucide-react'
+import { ArrowLeft, FileText, Calendar, Building2, DollarSign, Clock, CheckCircle, XCircle, AlertCircle, Send, RotateCcw, Pencil } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Textarea } from '@/components/ui/textarea'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import {
   Dialog,
   DialogContent,
@@ -25,6 +27,7 @@ import {
   resubmitCertificate,
   approvePaymentCertificate,
   rejectPaymentCertificate,
+  updatePaymentCertificate,
 } from '../../actions'
 
 type Invoice = {
@@ -104,6 +107,17 @@ export default function PMInvoiceDetailPage() {
   const [rejectingCertId, setRejectingCertId] = useState<string | null>(null)
   const [userRole, setUserRole] = useState<string>('')
   const [roleLoading, setRoleLoading] = useState(true)
+
+  // Edit draft cert state
+  const [editDialogOpen, setEditDialogOpen] = useState(false)
+  const [editingCert, setEditingCert] = useState<PaymentCertificate | null>(null)
+  const [editForm, setEditForm] = useState({
+    certified_amount: '',
+    description: '',
+    work_period_start: '',
+    work_period_end: '',
+  })
+  const [editLoading, setEditLoading] = useState(false)
 
   useEffect(() => {
     async function fetchInvoice() {
@@ -276,6 +290,43 @@ export default function PMInvoiceDetailPage() {
       toast({ title: 'Error', description: result.error || 'Failed to reject certificate', variant: 'destructive' })
     }
     setCertActionLoading(null)
+  }
+
+  const openEditDialog = (cert: PaymentCertificate) => {
+    setEditingCert(cert)
+    setEditForm({
+      certified_amount: (cert.certified_amount_cents / 100).toFixed(2),
+      description: '',
+      work_period_start: cert.work_period_start || '',
+      work_period_end: cert.work_period_end || '',
+    })
+    setEditDialogOpen(true)
+  }
+
+  const handleSaveEdit = async () => {
+    if (!editingCert) return
+    const amountCents = Math.round(parseFloat(editForm.certified_amount || '0') * 100)
+    if (amountCents <= 0) {
+      toast({ title: 'Error', description: 'Amount must be greater than 0', variant: 'destructive' })
+      return
+    }
+    setEditLoading(true)
+    const result = await updatePaymentCertificate({
+      certificate_id: editingCert.id,
+      certified_amount_cents: amountCents,
+      description: editForm.description || undefined,
+      work_period_start: editForm.work_period_start || undefined,
+      work_period_end: editForm.work_period_end || undefined,
+    })
+    if (result.success) {
+      toast({ title: 'Certificate Updated', description: 'Draft certificate has been updated.' })
+      setEditDialogOpen(false)
+      setEditingCert(null)
+      await refreshCertificates()
+    } else {
+      toast({ title: 'Error', description: result.error || 'Failed to update certificate', variant: 'destructive' })
+    }
+    setEditLoading(false)
   }
 
   if (loading) {
@@ -481,15 +532,27 @@ export default function PMInvoiceDetailPage() {
                               <td className="px-4 py-3">
                                 <div className="flex flex-wrap items-center gap-2">
                                   {cert.status === 'draft' && (
-                                    <Button
-                                      size="sm"
-                                      onClick={() => handleSubmitCertificate(cert.id)}
-                                      disabled={isActioning}
-                                      className="gap-1.5"
-                                    >
-                                      <Send className="w-3 h-3" />
-                                      {isActioning ? 'Submitting…' : 'Submit'}
-                                    </Button>
+                                    <>
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        onClick={() => openEditDialog(cert)}
+                                        disabled={isActioning}
+                                        className="gap-1.5"
+                                      >
+                                        <Pencil className="w-3 h-3" />
+                                        Edit
+                                      </Button>
+                                      <Button
+                                        size="sm"
+                                        onClick={() => handleSubmitCertificate(cert.id)}
+                                        disabled={isActioning}
+                                        className="gap-1.5"
+                                      >
+                                        <Send className="w-3 h-3" />
+                                        {isActioning ? 'Submitting…' : 'Submit'}
+                                      </Button>
+                                    </>
                                   )}
 
                                   {cert.status === 'rejected' && (
@@ -655,6 +718,78 @@ export default function PMInvoiceDetailPage() {
               disabled={!rejectCertReason.trim() || certActionLoading !== null}
             >
               {certActionLoading ? 'Rejecting…' : 'Reject Certificate'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Draft Certificate Dialog */}
+      <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Certificate</DialogTitle>
+            <DialogDescription>
+              Update the details of draft certificate {editingCert?.certificate_number}. Only draft certificates can be edited.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="edit-amount">Certified Amount ($)</Label>
+              <Input
+                id="edit-amount"
+                type="number"
+                step="0.01"
+                min="0.01"
+                placeholder="0.00"
+                value={editForm.certified_amount}
+                onChange={(e) => setEditForm(prev => ({ ...prev, certified_amount: e.target.value }))}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="edit-description">Description (optional)</Label>
+              <Input
+                id="edit-description"
+                placeholder="Description of work covered..."
+                value={editForm.description}
+                onChange={(e) => setEditForm(prev => ({ ...prev, description: e.target.value }))}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label htmlFor="edit-period-start">Period From</Label>
+                <Input
+                  id="edit-period-start"
+                  type="date"
+                  value={editForm.work_period_start}
+                  onChange={(e) => setEditForm(prev => ({ ...prev, work_period_start: e.target.value }))}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-period-end">Period To</Label>
+                <Input
+                  id="edit-period-end"
+                  type="date"
+                  value={editForm.work_period_end}
+                  onChange={(e) => setEditForm(prev => ({ ...prev, work_period_end: e.target.value }))}
+                />
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setEditDialogOpen(false)
+                setEditingCert(null)
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSaveEdit}
+              disabled={editLoading || !editForm.certified_amount || parseFloat(editForm.certified_amount) <= 0}
+            >
+              {editLoading ? 'Saving…' : 'Save Changes'}
             </Button>
           </DialogFooter>
         </DialogContent>

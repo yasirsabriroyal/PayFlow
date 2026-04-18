@@ -188,7 +188,7 @@ export default function PaymentsPage() {
   const [approvedCerts, setApprovedCerts] = useState<Array<{
     id: string
     certificate_number: string
-    net_payable_cents: number
+    certified_amount_cents: number
     approved_at: string
     invoice: { id: string; invoice_number: string } | null
     contractor: { id: string; company_name: string } | null
@@ -277,7 +277,7 @@ export default function PaymentsPage() {
           return {
             id: cert.id as string,
             certificate_number: cert.certificate_number as string,
-            net_payable_cents: cert.net_payable_cents as number,
+            certified_amount_cents: cert.certified_amount_cents as number,
             approved_at: cert.approved_at as string,
             invoice: invoiceData ? { id: invoiceData.id as string, invoice_number: invoiceData.invoice_number as string } : null,
             contractor: contractorData ? { id: contractorData.id as string, company_name: contractorData.company_name as string } : null,
@@ -816,12 +816,12 @@ export default function PaymentsPage() {
                       <p className="text-sm">{cert.project ? `${cert.project.project_number} – ${cert.project.name}` : '—'}</p>
                     </td>
                     <td className="px-6 py-4 text-right">
-                      <p className="font-semibold text-success">{formatCurrency(cert.net_payable_cents / 100)}</p>
+                      <p className="font-semibold text-success">{formatCurrency(cert.certified_amount_cents / 100)}</p>
                     </td>
                     <td className="px-6 py-4 text-right">
                       <Button
                         size="sm"
-                        onClick={() => handlePayCertificate(cert.id, cert.net_payable_cents)}
+                        onClick={() => handlePayCertificate(cert.id, cert.certified_amount_cents)}
                         disabled={certPaymentLoading === cert.id || !canProcessPayments}
                         className="gap-1"
                       >
