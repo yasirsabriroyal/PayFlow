@@ -1253,15 +1253,29 @@ export async function recordCertificatePayment(input: {
     if (input.amount_cents <= 0) {
       return { success: false, error: 'Payment amount must be greater than 0' }
     }
-    
+
     if (input.amount_cents > certificate.net_payable_cents) {
-      return { 
-        success: false, 
-        error: `Payment amount ($${(input.amount_cents / 100).toFixed(2)}) exceeds certificate net payable ($${(certificate.net_payable_cents / 100).toFixed(2)})` 
+      return {
+        success: false,
+        error: `Payment amount ($${(input.amount_cents / 100).toFixed(2)}) exceeds certificate net payable ($${(certificate.net_payable_cents / 100).toFixed(2)})`
       }
     }
-    
+
+    // Resolve internal users.id from auth UUID (processed_by FK references users(id))
+    const { data: internalUser, error: userLookupError } = await supabase
+      .from('users')
+      .select('id')
+      .eq('auth_user_id', userData.id)
+      .single()
+
+    if (userLookupError || !internalUser) {
+      console.error('recordCertificatePayment: could not resolve internal user ID', userLookupError)
+      return { success: false, error: 'Could not resolve internal user ID' }
+    }
+
     // 4. Create the payment record
+    // Note: payment_request_id is intentionally omitted — cert payments use
+    // payment_certificate_id instead (migration 041 makes payment_request_id nullable)
     const { data: payment, error: paymentError } = await supabase
       .from('payments')
       .insert({
@@ -1275,7 +1289,7 @@ export async function recordCertificatePayment(input: {
         etransfer_reference: input.etransfer_reference || null,
         wire_reference: input.wire_reference || null,
         notes: input.notes || null,
-        processed_by: userData.id,
+        processed_by: internalUser.id,
       })
       .select()
       .single()
