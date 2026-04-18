@@ -1233,6 +1233,7 @@ export async function recordCertificatePayment(input: {
         invoice_id,
         contractor_id,
         project_id,
+        certified_amount_cents,
         net_payable_cents,
         status
       `)
@@ -1254,10 +1255,11 @@ export async function recordCertificatePayment(input: {
       return { success: false, error: 'Payment amount must be greater than 0' }
     }
 
-    if (input.amount_cents > certificate.net_payable_cents) {
+    // Certs are paid in full certified amount — no holdback deduction per cert
+    if (input.amount_cents > certificate.certified_amount_cents) {
       return {
         success: false,
-        error: `Payment amount ($${(input.amount_cents / 100).toFixed(2)}) exceeds certificate net payable ($${(certificate.net_payable_cents / 100).toFixed(2)})`
+        error: `Payment amount ($${(input.amount_cents / 100).toFixed(2)}) exceeds certificate certified amount ($${(certificate.certified_amount_cents / 100).toFixed(2)})`
       }
     }
 
@@ -1299,8 +1301,8 @@ export async function recordCertificatePayment(input: {
       return { success: false, error: paymentError.message }
     }
     
-    // 5. Update certificate status to paid if fully paid
-    if (input.amount_cents >= certificate.net_payable_cents) {
+    // 5. Update certificate status to paid if fully paid (based on certified amount)
+    if (input.amount_cents >= certificate.certified_amount_cents) {
       await supabase
         .from('payment_certificates')
         .update({

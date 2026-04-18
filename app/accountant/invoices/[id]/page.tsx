@@ -898,7 +898,7 @@ export default function InvoiceDetailPage() {
                             )}
                           </div>
                           
-                          <div className="grid grid-cols-3 gap-3 text-sm">
+                          <div className="grid grid-cols-2 gap-3 text-sm">
                             <div>
                               <p className="text-xs text-muted-foreground">Certified Amount</p>
                               <p className="font-medium">{formatCurrency(cert.certified_amount_cents / 100)}</p>
@@ -906,12 +906,6 @@ export default function InvoiceDetailPage() {
                             <div>
                               <p className="text-xs text-muted-foreground">Paid</p>
                               <p className="font-medium text-success">{formatCurrency(cert.total_paid_cents / 100)}</p>
-                            </div>
-                            <div>
-                              <p className="text-xs text-muted-foreground">Remaining</p>
-                              <p className={`font-medium ${cert.remaining_cents > 0 ? 'text-warning' : 'text-success'}`}>
-                                {formatCurrency(cert.remaining_cents / 100)}
-                              </p>
                             </div>
                           </div>
                           
@@ -923,21 +917,22 @@ export default function InvoiceDetailPage() {
                           
                           {/* Payment button for unpaid approved certificates */}
                           {!cert.is_fully_paid && cert.status === 'approved' && canPay && (
-                            <Button 
-                              size="sm" 
-                              variant="outline" 
+                            <Button
+                              size="sm"
+                              variant="outline"
                               className="mt-3"
                               onClick={() => {
+                                const unpaidAmount = Math.max(0, cert.certified_amount_cents - cert.total_paid_cents)
                                 setSelectedCertificates([cert.id])
                                 setPaymentForm(prev => ({
                                   ...prev,
-                                  amount: (cert.remaining_cents / 100).toFixed(2),
+                                  amount: (unpaidAmount / 100).toFixed(2),
                                 }))
                                 setPaymentDialogOpen(true)
                               }}
                             >
                               <CreditCard className="w-3 h-3 mr-1" />
-                              Pay Certificate ({formatCurrency(cert.remaining_cents / 100)})
+                              Pay Certificate ({formatCurrency(Math.max(0, cert.certified_amount_cents - cert.total_paid_cents) / 100)})
                             </Button>
                           )}
                         </div>
