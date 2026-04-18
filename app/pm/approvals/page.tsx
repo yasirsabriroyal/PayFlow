@@ -137,6 +137,16 @@ export default function PMApprovalsPage() {
   const [applyHoldback, setApplyHoldback] = useState(true)
   const [holdbackPercent, setHoldbackPercent] = useState<number>(10)
   const [description, setDescription] = useState<string>('')
+  // Invoice selection for certificate issuance
+  const [selectedInvoiceId, setSelectedInvoiceId] = useState<string>('')
+  const [availableInvoices, setAvailableInvoices] = useState<Array<{
+    id: string
+    invoice_number: string
+    total_cents: number
+    holdback_cents: number
+    contractor_id: string
+    project_id: string
+  }>>([])
 
   // Fetch user role and load data for deterministic navigation
   useEffect(() => {
@@ -179,6 +189,28 @@ export default function PMApprovalsPage() {
     fetchData()
   }, [])
 
+  // Load invoices for the selected project so the PM can pick which invoice
+  // to issue a certificate against (new cert API requires an existing invoice_id)
+  useEffect(() => {
+    if (!selectedProject) {
+      setAvailableInvoices([])
+      setSelectedInvoiceId('')
+      return
+    }
+    const fetchProjectInvoices = async () => {
+      const supabase = createClient()
+      const { data } = await supabase
+        .from('invoices')
+        .select('id, invoice_number, total_cents, holdback_cents, contractor_id, project_id')
+        .eq('project_id', selectedProject)
+        .not('status', 'in', '(paid,cancelled,rejected)')
+        .order('created_at', { ascending: false })
+      setAvailableInvoices(data || [])
+      setSelectedInvoiceId('')
+    }
+    fetchProjectInvoices()
+  }, [selectedProject])
+
   const handleBackNavigation = () => {
     // Navigate to the user's role-specific dashboard
     const destination = roleDashboardRoutes[userRole] || '/admin/dashboard'
@@ -197,39 +229,46 @@ export default function PMApprovalsPage() {
     setApplyHoldback(true)
     setHoldbackPercent(10)
     setDescription('')
+    setSelectedInvoiceId('')
+    setAvailableInvoices([])
   }
   
   const handleCreateCertificate = async () => {
-    if (!selectedProject || !selectedContractor || grossAmountCents <= 0) {
+    if (!selectedProject || !selectedInvoiceId || grossAmountCents <= 0) {
       toast({
         title: 'Missing Information',
-        description: 'Please select a project, contractor, and enter a valid amount.',
+        description: 'Please select a project, invoice, and enter a valid certified amount.',
         variant: 'destructive',
       })
       return
     }
-    
+
+    const selectedInvoiceRecord = availableInvoices.find(inv => inv.id === selectedInvoiceId)
+    if (!selectedInvoiceRecord) {
+      toast({ title: 'Error', description: 'Selected invoice not found.', variant: 'destructive' })
+      return
+    }
+
     setIsSubmitting(true)
-    
+
     const input: CreatePaymentCertificateInput = {
+      invoice_id: selectedInvoiceId,
       project_id: selectedProject,
-      contractor_id: selectedContractor,
-      gross_amount_cents: grossAmountCents,
-      apply_holdback: applyHoldback,
-      holdback_percent: holdbackPercent,
+      contractor_id: selectedInvoiceRecord.contractor_id,
+      certified_amount_cents: grossAmountCents,
       description: description || undefined,
     }
-    
+
     const result = await createPaymentCertificate(input)
-    
+
     if (result.success) {
       toast({
         title: 'Payment Certificate Created',
-        description: `Certificate ${result.invoice?.invoice_number} has been created and sent to accounting.`,
+        description: `Certificate ${result.certificate?.certificate_number} has been created as a draft.`,
       })
       setIsCreateModalOpen(false)
       resetCertificateForm()
-      setSuccessMessage(`Payment certificate ${result.invoice?.invoice_number} created successfully`)
+      setSuccessMessage(`Payment certificate ${result.certificate?.certificate_number} created successfully`)
       setTimeout(() => setSuccessMessage(null), 5000)
     } else {
       toast({
@@ -238,7 +277,7 @@ export default function PMApprovalsPage() {
         variant: 'destructive',
       })
     }
-    
+
     setIsSubmitting(false)
   }
 
@@ -701,29 +740,30 @@ export default function PMApprovalsPage() {
               </Select>
             </div>
             
-            {/* Contractor Selector */}
+            {/* Invoice Selector — certificates are issued against an existing invoice */}
             <div className="space-y-2">
-              <Label htmlFor="contractor">Contractor *</Label>
-              <Select value={selectedContractor} onValueChange={setSelectedContractor}>
+              <Label htmlFor="invoice">Invoice *</Label>
+              <Select
+                value={selectedInvoiceId}
+                onValueChange={setSelectedInvoiceId}
+                disabled={!selectedProject}
+              >
                 <SelectTrigger>
-                  <SelectValue placeholder="Select a contractor" />
+                  <SelectValue placeholder={selectedProject ? 'Select an invoice' : 'Select a project first'} />
                 </SelectTrigger>
                 <SelectContent>
-                  {contractors.map((contractor) => (
-                    <SelectItem key={contractor.id} value={contractor.id}>
-                      <div className="flex flex-col">
-                        <span>{contractor.company_name}</span>
-                        <span className="text-xs text-muted-foreground">{contractor.contact_name}</span>
-                      </div>
+                  {availableInvoices.map((inv) => (
+                    <SelectItem key={inv.id} value={inv.id}>
+                      <span>{inv.invoice_number}</span>
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
-            
-            {/* Gross Amount */}
+
+            {/* Certified Amount */}
             <div className="space-y-2">
-              <Label htmlFor="amount">Gross Amount (CAD) *</Label>
+              <Label htmlFor="amount">Certified Amount (CAD) *</Label>
               <div className="relative">
                 <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                 <Input
@@ -739,58 +779,16 @@ export default function PMApprovalsPage() {
               </div>
             </div>
             
-            {/* Holdback Toggle */}
-            <div className="flex items-center justify-between p-4 border rounded-lg bg-muted/50">
-              <div className="space-y-1">
-                <Label htmlFor="holdback" className="font-medium">Apply Holdback</Label>
-                <p className="text-sm text-muted-foreground">
-                  Deduct {holdbackPercent}% for statutory holdback
-                </p>
-              </div>
-              <Switch
-                id="holdback"
-                checked={applyHoldback}
-                onCheckedChange={setApplyHoldback}
-              />
-            </div>
-            
-            {/* Holdback Percent (if enabled) */}
-            {applyHoldback && (
-              <div className="space-y-2">
-                <Label htmlFor="holdbackPercent">Holdback Percentage</Label>
-                <Select 
-                  value={holdbackPercent.toString()} 
-                  onValueChange={(v) => setHoldbackPercent(parseInt(v))}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="5">5%</SelectItem>
-                    <SelectItem value="10">10% (Standard)</SelectItem>
-                    <SelectItem value="15">15%</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
-            
-            {/* Amount Summary */}
+            {/* Amount summary — holdback is applied at invoice level, not per certificate */}
             {grossAmountCents > 0 && (
               <div className="p-4 bg-muted/50 rounded-lg space-y-2">
-                <div className="flex justify-between text-sm">
-                  <span>Gross Amount</span>
-                  <span>{formatCurrency(grossAmountCents / 100)}</span>
+                <div className="flex justify-between font-semibold">
+                  <span>Certified Amount</span>
+                  <span className="text-primary">{formatCurrency(grossAmountCents / 100)}</span>
                 </div>
-                {applyHoldback && (
-                  <div className="flex justify-between text-sm text-muted-foreground">
-                    <span>Holdback ({holdbackPercent}%)</span>
-                    <span>-{formatCurrency(holdbackAmount / 100)}</span>
-                  </div>
-                )}
-                <div className="flex justify-between font-semibold pt-2 border-t">
-                  <span>Net Payable</span>
-                  <span className="text-primary">{formatCurrency(netAmount / 100)}</span>
-                </div>
+                <p className="text-xs text-muted-foreground">
+                  Holdback is applied at the invoice level. This certificate will be paid in full.
+                </p>
               </div>
             )}
             
@@ -819,7 +817,7 @@ export default function PMApprovalsPage() {
             </Button>
             <Button 
               onClick={handleCreateCertificate} 
-              disabled={isSubmitting || !selectedProject || !selectedContractor || grossAmountCents <= 0}
+              disabled={isSubmitting || !selectedProject || !selectedInvoiceId || grossAmountCents <= 0}
             >
               {isSubmitting ? (
                 <>

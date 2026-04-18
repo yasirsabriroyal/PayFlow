@@ -88,105 +88,238 @@ export async function getPMInvoices() {
 export const getContractors = getPMContractors
 
 // Type for payment certificate input
+// Holdback is applied at the INVOICE level only — certificates cover the full
+// certified amount with no per-cert holdback deduction.
 export type CreatePaymentCertificateInput = {
+  invoice_id: string
   project_id: string
   contractor_id: string
-  gross_amount_cents: number
-  apply_holdback: boolean
-  holdback_percent: number
+  certified_amount_cents: number
   description?: string
+  work_period_start?: string
+  work_period_end?: string
 }
 
-// Create payment certificate (creates invoice + payment_request)
+/**
+ * Create a payment certificate as a draft.
+ *
+ * Business rules:
+ * - Holdback is reserved at the invoice level; certificates are issued for the
+ *   full certified amount with no holdback deduction (holdback_amount_cents = 0).
+ * - Available balance = invoice_total - invoice_holdback - sum_of_all_existing_certs
+ * - New cert amount must be <= available balance.
+ */
 export async function createPaymentCertificate(input: CreatePaymentCertificateInput) {
-  return withPermission(PERMISSIONS.INVOICES.APPROVE_INVOICES, async () => {
+  return withPermission(PERMISSIONS.INVOICES.APPROVE_INVOICES, async (userData) => {
     const supabase = getSupabaseAdmin()
-    
-    // Calculate holdback/retainage amount
-    const holdbackAmountCents = input.apply_holdback 
-      ? Math.round(input.gross_amount_cents * (input.holdback_percent / 100)) 
-      : 0
-    const netPayableCents = input.gross_amount_cents - holdbackAmountCents
-    
-    // Generate unique numbers
-    const timestamp = Date.now().toString(36).toUpperCase()
-    const invoiceNumber = `PC-INV-${timestamp}`
-    const requestNumber = `PC-${timestamp}`
-    const today = new Date().toISOString().split('T')[0]
-    
-    // First, create an invoice record (payment_requests requires an invoice_id)
-    // Note: invoices table doesn't have a description column, notes go in payment_requests
+
+    // 1. Fetch invoice to snapshot totals and validate it exists
     const { data: invoice, error: invoiceError } = await supabase
       .from('invoices')
-      .insert({
-        contractor_id: input.contractor_id,
-        project_id: input.project_id,
-        invoice_number: invoiceNumber,
-        invoice_date: today,
-        due_date: today, // Due immediately
-        total_cents: input.gross_amount_cents,
-        holdback_cents: holdbackAmountCents,
-        holdback_percent: input.apply_holdback ? input.holdback_percent : 0,
-        net_payable_cents: netPayableCents,
-        subtotal_cents: input.gross_amount_cents,
-        amount_remaining_cents: netPayableCents, // Initially the full net payable amount
-        status: 'submitted',
-        source: 'manual', // Payment certificates created via PM portal
-      })
-      .select()
+      .select('id, invoice_number, total_cents, holdback_cents')
+      .eq('id', input.invoice_id)
       .single()
 
-    if (invoiceError) {
-      console.error('Create invoice for payment certificate error:', invoiceError)
-      return { success: false, error: invoiceError.message }
-    }
-    
-    // Now create the payment request linked to the invoice
-    const { data, error } = await supabase
-      .from('payment_requests')
-      .insert({
-        invoice_id: invoice.id,
-        project_id: input.project_id,
-        contractor_id: input.contractor_id,
-        request_number: requestNumber,
-        requested_amount_cents: input.gross_amount_cents,
-        approved_amount_cents: netPayableCents,
-        description: input.description || `Payment certificate created on ${today}`,
-        status: 'pending_approval',
-        current_approval_tier: 'project_manager',
-        requires_variance_explanation: false,
-        is_anomaly_flagged: false,
-        requires_stat_dec: false,
-      })
-      .select()
-      .single()
-
-    if (error) {
-      console.error('Create payment certificate error:', error)
-      return { success: false, error: error.message }
+    if (invoiceError || !invoice) {
+      return { success: false, error: 'Invoice not found' }
     }
 
-    // Also create a holdback ledger entry if there's retainage
-    if (holdbackAmountCents > 0) {
-      const { error: holdbackError } = await supabase
-        .from('holdback_ledgers')
-        .insert({
-          project_id: input.project_id,
-          contractor_id: input.contractor_id,
-          payment_request_id: data.id,
-          holdback_amount_cents: holdbackAmountCents,
-          holdback_percent: input.holdback_percent,
-          status: 'withheld',
-          countdown_start_date: today,
-        })
-      
-      if (holdbackError) {
-        console.error('Create holdback ledger error:', holdbackError)
-        // Don't fail the whole operation, just log it
+    // 2. Fetch all existing certificates to compute running totals
+    const { data: existingCerts, error: certsError } = await supabase
+      .from('payment_certificates')
+      .select('certified_amount_cents')
+      .eq('invoice_id', input.invoice_id)
+
+    if (certsError) {
+      console.error('Fetch existing certificates error:', certsError)
+      return { success: false, error: 'Failed to check existing certificates' }
+    }
+
+    const existingCount = (existingCerts || []).length
+    const previousCertifiedCents = (existingCerts || []).reduce(
+      (sum, c) => sum + (c.certified_amount_cents || 0),
+      0
+    )
+
+    // 3. Available = invoice_total - holdback_reserved - previously_certified
+    const holdbackCents = invoice.holdback_cents || 0
+    const availableCents = invoice.total_cents - holdbackCents - previousCertifiedCents
+
+    // 4. Validate
+    if (input.certified_amount_cents <= 0) {
+      return { success: false, error: 'Certificate amount must be greater than 0' }
+    }
+
+    if (availableCents <= 0) {
+      return {
+        success: false,
+        error: 'Cannot issue certificate: remaining balance does not exceed the holdback amount',
       }
     }
 
-    return { success: true, certificate: data, invoice }
+    if (input.certified_amount_cents > availableCents) {
+      return {
+        success: false,
+        error: `Certificate amount exceeds available balance. Available: $${(availableCents / 100).toFixed(2)}`,
+      }
+    }
+
+    // 5. Generate certificate number (e.g. INV-ABC123-PC01, INV-ABC123-PC02, ...)
+    const certificateNumber = `${invoice.invoice_number}-PC${String(existingCount + 1).padStart(2, '0')}`
+
+    // 6. Holdback is at invoice level only — no per-cert holdback deduction
+    const remainingAfterThisCents = availableCents - input.certified_amount_cents
+
+    // 7. Insert into payment_certificates as draft
+    const { data: certificate, error: insertError } = await supabase
+      .from('payment_certificates')
+      .insert({
+        certificate_number: certificateNumber,
+        invoice_id: input.invoice_id,
+        contractor_id: input.contractor_id,
+        project_id: input.project_id,
+        certified_amount_cents: input.certified_amount_cents,
+        holdback_amount_cents: 0,
+        net_payable_cents: input.certified_amount_cents,
+        invoice_total_cents: invoice.total_cents,
+        previous_certified_cents: previousCertifiedCents,
+        remaining_after_this_cents: remainingAfterThisCents,
+        status: 'draft',
+        description: input.description || null,
+        work_period_start: input.work_period_start || null,
+        work_period_end: input.work_period_end || null,
+        created_by: userData.id,
+      })
+      .select()
+      .single()
+
+    if (insertError) {
+      console.error('Create payment certificate error:', insertError)
+      return { success: false, error: insertError.message }
+    }
+
+    // 8. Audit log
+    await supabase.from('audit_logs').insert({
+      action: 'certificate_created',
+      entity_type: 'payment_certificate',
+      entity_id: certificate.id,
+      user_id: userData.id,
+      description: `Created payment certificate ${certificateNumber} for $${(input.certified_amount_cents / 100).toFixed(2)}`,
+      new_values: {
+        certificate_number: certificateNumber,
+        certified_amount_cents: input.certified_amount_cents,
+        invoice_id: input.invoice_id,
+        status: 'draft',
+      },
+    })
+
+    return { success: true, certificate }
+  })
+}
+
+/**
+ * Submit a draft (or rejected) certificate for accountant approval.
+ * Moves status: draft → pending  OR  rejected → pending.
+ */
+export async function submitCertificate(input: { certificate_id: string }) {
+  return withPermission(PERMISSIONS.INVOICES.APPROVE_INVOICES, async (userData) => {
+    const supabase = getSupabaseAdmin()
+
+    const { data: cert, error: fetchError } = await supabase
+      .from('payment_certificates')
+      .select('id, status, certificate_number')
+      .eq('id', input.certificate_id)
+      .single()
+
+    if (fetchError || !cert) {
+      return { success: false, error: 'Certificate not found' }
+    }
+
+    if (!['draft', 'rejected'].includes(cert.status)) {
+      return {
+        success: false,
+        error: `Cannot submit certificate with status '${cert.status}'. Only draft or rejected certificates can be submitted.`,
+      }
+    }
+
+    const { data: updated, error: updateError } = await supabase
+      .from('payment_certificates')
+      .update({
+        status: 'pending',
+        submitted_at: new Date().toISOString(),
+      })
+      .eq('id', input.certificate_id)
+      .select()
+      .single()
+
+    if (updateError) {
+      console.error('Submit certificate error:', updateError)
+      return { success: false, error: updateError.message }
+    }
+
+    await supabase.from('audit_logs').insert({
+      action: 'certificate_submitted',
+      entity_type: 'payment_certificate',
+      entity_id: input.certificate_id,
+      user_id: userData.id,
+      description: `Submitted certificate ${cert.certificate_number} for approval`,
+      old_values: { status: cert.status },
+      new_values: { status: 'pending' },
+    })
+
+    return { success: true, certificate: updated }
+  })
+}
+
+/**
+ * Reset a rejected certificate back to draft so the PM can revise and
+ * re-submit it. Moves status: rejected → draft.
+ * The PM then edits the certificate and calls submitCertificate() again.
+ */
+export async function resubmitCertificate(input: { certificate_id: string }) {
+  return withPermission(PERMISSIONS.INVOICES.APPROVE_INVOICES, async (userData) => {
+    const supabase = getSupabaseAdmin()
+
+    const { data: cert, error: fetchError } = await supabase
+      .from('payment_certificates')
+      .select('id, status, certificate_number')
+      .eq('id', input.certificate_id)
+      .single()
+
+    if (fetchError || !cert) {
+      return { success: false, error: 'Certificate not found' }
+    }
+
+    if (cert.status !== 'rejected') {
+      return {
+        success: false,
+        error: `Cannot resubmit certificate with status '${cert.status}'. Only rejected certificates can be resubmitted.`,
+      }
+    }
+
+    const { data: updated, error: updateError } = await supabase
+      .from('payment_certificates')
+      .update({ status: 'draft' })
+      .eq('id', input.certificate_id)
+      .select()
+      .single()
+
+    if (updateError) {
+      console.error('Resubmit certificate error:', updateError)
+      return { success: false, error: updateError.message }
+    }
+
+    await supabase.from('audit_logs').insert({
+      action: 'certificate_reset_to_draft',
+      entity_type: 'payment_certificate',
+      entity_id: input.certificate_id,
+      user_id: userData.id,
+      description: `Reset certificate ${cert.certificate_number} to draft for revision`,
+      old_values: { status: 'rejected' },
+      new_values: { status: 'draft' },
+    })
+
+    return { success: true, certificate: updated }
   })
 }
 
