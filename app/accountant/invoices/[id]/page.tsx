@@ -898,14 +898,10 @@ export default function InvoiceDetailPage() {
                             )}
                           </div>
                           
-                          <div className="grid grid-cols-4 gap-3 text-sm">
+                          <div className="grid grid-cols-3 gap-3 text-sm">
                             <div>
-                              <p className="text-xs text-muted-foreground">Certified</p>
+                              <p className="text-xs text-muted-foreground">Certified Amount</p>
                               <p className="font-medium">{formatCurrency(cert.certified_amount_cents / 100)}</p>
-                            </div>
-                            <div>
-                              <p className="text-xs text-muted-foreground">Net Payable</p>
-                              <p className="font-medium">{formatCurrency(cert.net_payable_cents / 100)}</p>
                             </div>
                             <div>
                               <p className="text-xs text-muted-foreground">Paid</p>

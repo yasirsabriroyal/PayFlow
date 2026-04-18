@@ -170,7 +170,7 @@ function AccountantQueueContent() {
   
   // Navigate to invoice with context
   const goToInvoice = useCallback((invoice: typeof mockInvoices[0]) => {
-    navigateTo(`/invoices/${invoice.id}`, { title: invoice.invoiceNumber })
+    navigateTo(`/accountant/invoices/${invoice.id}`, { title: invoice.invoiceNumber })
   }, [navigateTo])
   
   // Initialize state from URL params
