@@ -49,7 +49,7 @@ import { WorkflowLink } from '@/components/workflow-link'
 
 // Compliance status types
 type ComplianceIssue = {
-  type: 'wcb_expired' | 'no_lien_waiver' | 'needs_statutory_declaration'
+  type: 'wcb_expired' | 'no_lien_waiver' | 'needs_statutory_declaration' | 'has_unpaid_certs'
   message: string
 }
 
@@ -220,6 +220,7 @@ export default function PaymentsPage() {
           wcbExpiry: ((inv.contractor as Record<string, unknown>)?.wcb_clearance_expiry as string) || '',
           hasLienWaiver: true as boolean, // Would come from separate table in production
           hasStatutoryDeclaration: false as boolean,
+          hasUnpaidCerts: (inv as Record<string, unknown>).has_unpaid_certs as boolean || false,
         })))
       } else {
         // No approved invoices - show empty state (don't use mock data to avoid confusion)
@@ -346,6 +347,14 @@ export default function PaymentsPage() {
       issues.push({
         type: 'needs_statutory_declaration',
         message: `Invoice exceeds $${paymentSettings.statutory_declaration_threshold.toLocaleString()} - statutory declaration required`,
+      })
+    }
+
+    // Check for unpaid payment certificates — cert payments must be processed first
+    if ((invoice as typeof invoice & { hasUnpaidCerts?: boolean }).hasUnpaidCerts) {
+      issues.push({
+        type: 'has_unpaid_certs',
+        message: 'Has unpaid certificates — pay certs first',
       })
     }
 

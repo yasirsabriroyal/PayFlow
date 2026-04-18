@@ -1124,7 +1124,7 @@ export async function getContractorById(contractorId: string) {
 export async function getApprovedInvoices(options?: { limit?: number }) {
   return withPermission(PERMISSIONS.PAYMENTS.PROCESS_PAYMENTS, async () => {
     const supabase = getSupabaseAdmin()
-    
+
     const { data, error } = await supabase
       .from('invoices')
       .select(`
@@ -1135,7 +1135,7 @@ export async function getApprovedInvoices(options?: { limit?: number }) {
         total_cents,
         holdback_cents,
         contractor:contractors(
-          id, 
+          id,
           company_name,
           wcb_clearance_expiry,
           bank_institution_number,
@@ -1147,13 +1147,36 @@ export async function getApprovedInvoices(options?: { limit?: number }) {
       .eq('status', 'approved')
       .order('updated_at', { ascending: false })
       .limit(options?.limit || 100)
-    
+
     if (error) {
       console.error('Get approved invoices error:', error)
       return { success: false, error: error.message, invoices: [] }
     }
-    
-    return { success: true, invoices: data || [] }
+
+    const invoices = data || []
+
+    if (invoices.length === 0) {
+      return { success: true, invoices: [] }
+    }
+
+    // Check which invoices have any unpaid certificates (status not in 'paid', 'cancelled').
+    // These invoices must have their certs paid first before an EFT can be issued.
+    const invoiceIds = invoices.map(inv => inv.id)
+    const { data: unpaidCerts } = await supabase
+      .from('payment_certificates')
+      .select('invoice_id')
+      .in('invoice_id', invoiceIds)
+      .not('status', 'in', '("paid","cancelled")')
+
+    const invoiceIdsWithUnpaidCerts = new Set((unpaidCerts || []).map(c => c.invoice_id))
+
+    return {
+      success: true,
+      invoices: invoices.map(inv => ({
+        ...inv,
+        has_unpaid_certs: invoiceIdsWithUnpaidCerts.has(inv.id),
+      })),
+    }
   })
 }
 
