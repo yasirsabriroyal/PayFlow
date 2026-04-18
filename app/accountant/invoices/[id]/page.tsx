@@ -389,7 +389,7 @@ export default function InvoiceDetailPage() {
           const cert = paymentInfo.certificates.find(c => c.id === certId)
           if (!cert || cert.is_fully_paid) continue
           
-          const certPaymentAmount = cert.remaining_cents
+          const certPaymentAmount = Math.max(0, cert.certified_amount_cents - cert.total_paid_cents)
           
           const result = await recordCertificatePayment({
             certificate_id: certId,
@@ -446,7 +446,7 @@ export default function InvoiceDetailPage() {
     if (!paymentInfo) return 0
     return paymentInfo.certificates
       .filter(c => selectedCertificates.includes(c.id) && !c.is_fully_paid)
-      .reduce((sum, c) => sum + c.remaining_cents, 0)
+      .reduce((sum, c) => sum + Math.max(0, c.certified_amount_cents - c.total_paid_cents), 0)
   }
 
   const handleReject = async () => {
@@ -1304,7 +1304,7 @@ export default function InvoiceDetailPage() {
                           <div>
                             <p className="font-medium text-sm">{cert.certificate_number}</p>
                             <p className="text-xs text-muted-foreground">
-                              Remaining: {formatCurrency(cert.remaining_cents / 100)}
+                              Remaining: {formatCurrency(Math.max(0, cert.certified_amount_cents - cert.total_paid_cents) / 100)}
                             </p>
                           </div>
                         </div>

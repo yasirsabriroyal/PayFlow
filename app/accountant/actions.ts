@@ -1640,11 +1640,13 @@ export async function getInvoicePaymentInfo(invoiceId: string) {
     const hasCertificates = certificateCount > 0
 
     // Calculate certificate-level details
+    // Business rule: certs are paid at full certified amount — no per-cert holdback.
+    // Use certified_amount_cents (not net_payable_cents) for remaining calculation.
     const certificatesWithPayments = (certificates || []).map(cert => {
       const certPayments = certificatePayments.filter(p => p.payment_certificate_id === cert.id)
       const totalPaidCents = certPayments.reduce((sum, p) => sum + (p.amount_cents || 0), 0)
-      const remainingCents = (cert.net_payable_cents || 0) - totalPaidCents
-      
+      const remainingCents = (cert.certified_amount_cents || 0) - totalPaidCents
+
       return {
         ...cert,
         payments: certPayments,
