@@ -323,7 +323,26 @@ export const executeEFTPayment = secureAction(
     if (invalidInvoices?.length) {
       throw new Error(`${invalidInvoices.length} invoice(s) are not in valid status for EFT`)
     }
-    
+
+    // Block EFT if any invoice has payment certificates that are not fully paid.
+    // Same status-based check as recordDirectInvoicePayment() — prevents the
+    // legacy payment_requests fallback from bypassing unpaid/draft certificates.
+    const { data: unpaidCerts, error: certCheckError } = await supabase
+      .from('payment_certificates')
+      .select('id')
+      .in('invoice_id', input.invoice_ids)
+      .neq('status', 'paid')
+
+    if (certCheckError) {
+      throw new Error(certCheckError.message)
+    }
+
+    if (unpaidCerts && unpaidCerts.length > 0) {
+      throw new Error(
+        `${unpaidCerts.length} payment certificate${unpaidCerts.length > 1 ? 's' : ''} must be fully paid before paying this invoice balance.`
+      )
+    }
+
     const batchReference = input.batch_reference || `EFT-${Date.now()}`
     const totalAmount = invoices?.reduce((sum, inv) => sum + (inv.net_payable_cents || 0), 0) || 0
     
