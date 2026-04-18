@@ -210,7 +210,7 @@ export function secureAction<TInput, TOutput>(
       
       // Handle unexpected errors
       console.error(`[secureAction] Error in ${actionName}:`, error)
-      
+
       await logSecurityEvent({
         type: SecurityEventType.ACTION_ERROR,
         userId: requestMetadata.userId,
@@ -223,10 +223,10 @@ export function secureAction<TInput, TOutput>(
           duration: Date.now() - startTime,
         },
       })
-      
+
       return {
         success: false,
-        error: 'An unexpected error occurred',
+        error: error instanceof Error ? error.message : 'An unexpected error occurred',
         code: 'INTERNAL_ERROR',
       }
     }
