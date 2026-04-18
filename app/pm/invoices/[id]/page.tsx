@@ -20,6 +20,7 @@ import { useToast } from '@/hooks/use-toast'
 import { createClient } from '@/lib/supabase/client'
 import { AppHeader } from '@/components/app-header'
 import {
+  getCertificatesForInvoice,
   submitCertificate,
   resubmitCertificate,
   approvePaymentCertificate,
@@ -141,13 +142,13 @@ export default function PMInvoiceDetailPage() {
 
   useEffect(() => {
     async function fetchCertificates() {
-      const supabase = createClient()
-      const { data } = await supabase
-        .from('payment_certificates')
-        .select('id, certificate_number, certified_amount_cents, net_payable_cents, status, created_at, submitted_at, approved_at, rejection_reason, work_period_start, work_period_end')
-        .eq('invoice_id', invoiceId)
-        .order('created_at', { ascending: true })
-      setCertificates((data as PaymentCertificate[]) || [])
+      const result = await getCertificatesForInvoice(invoiceId)
+      if (result.success) {
+        console.log('[PMInvoicePage] certificates fetched:', result.certificates)
+        setCertificates(result.certificates as PaymentCertificate[])
+      } else {
+        console.error('[PMInvoicePage] failed to fetch certificates:', result.error)
+      }
       setCertsLoading(false)
     }
 
@@ -161,10 +162,11 @@ export default function PMInvoiceDetailPage() {
             .select('role')
             .eq('auth_user_id', user.id)
             .single()
+          console.log('[PMInvoicePage] user role fetched:', userData?.role)
           if (userData?.role) setUserRole(userData.role)
         }
       } catch (err) {
-        console.error('Error fetching user role:', err)
+        console.error('[PMInvoicePage] error fetching user role:', err)
       } finally {
         setRoleLoading(false)
       }
@@ -177,13 +179,10 @@ export default function PMInvoiceDetailPage() {
   }, [invoiceId])
 
   const refreshCertificates = async () => {
-    const supabase = createClient()
-    const { data } = await supabase
-      .from('payment_certificates')
-      .select('id, certificate_number, certified_amount_cents, net_payable_cents, status, created_at, submitted_at, approved_at, rejection_reason, work_period_start, work_period_end')
-      .eq('invoice_id', invoiceId)
-      .order('created_at', { ascending: true })
-    setCertificates((data as PaymentCertificate[]) || [])
+    const result = await getCertificatesForInvoice(invoiceId)
+    if (result.success) {
+      setCertificates(result.certificates as PaymentCertificate[])
+    }
   }
 
   const handleApprove = async () => {

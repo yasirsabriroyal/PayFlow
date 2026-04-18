@@ -14,6 +14,41 @@ import { withPermission } from '@/lib/permissions'
 import { PERMISSIONS } from '@/lib/permissions/constants'
 import { getSupabaseAdmin } from '@/lib/supabase/admin'
 
+/**
+ * Fetch payment certificates for a specific invoice.
+ * Uses admin client to bypass RLS — consistent with all other server actions.
+ */
+export async function getCertificatesForInvoice(invoiceId: string) {
+  return withPermission(PERMISSIONS.INVOICES.VIEW_AP_QUEUE, async () => {
+    const supabase = getSupabaseAdmin()
+
+    const { data, error } = await supabase
+      .from('payment_certificates')
+      .select(`
+        id,
+        certificate_number,
+        certified_amount_cents,
+        net_payable_cents,
+        status,
+        created_at,
+        submitted_at,
+        approved_at,
+        rejection_reason,
+        work_period_start,
+        work_period_end
+      `)
+      .eq('invoice_id', invoiceId)
+      .order('created_at', { ascending: true })
+
+    if (error) {
+      console.error('getCertificatesForInvoice error:', error)
+      return { success: false, error: error.message, certificates: [] }
+    }
+
+    return { success: true, certificates: data || [] }
+  })
+}
+
 export async function getPMProjects() {
   return withPermission(PERMISSIONS.PROJECTS.VIEW_PROJECTS, async () => {
     const supabase = getSupabaseAdmin()
