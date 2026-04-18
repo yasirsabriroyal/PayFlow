@@ -722,12 +722,17 @@ export default function InvoiceDetailPage() {
               {/* Payment Status Section */}
               <Separator className="my-4" />
               {(() => {
-                // Calculate actual paid amount - if status is 'paid' but amount_paid_cents is 0, assume fully paid
-                const isPaidStatus = invoice.status === 'paid'
-                const calculatedPaidAmount = invoice.amount_paid_cents || (isPaidStatus ? invoice.net_payable_cents : 0)
-                const calculatedRemainingAmount = isPaidStatus ? 0 : (invoice.amount_remaining_cents ?? invoice.net_payable_cents)
-                const paymentProgress = invoice.net_payable_cents > 0 
-                  ? Math.round((calculatedPaidAmount / invoice.net_payable_cents) * 100) 
+                // Use paymentInfo totals (computed from actual payment records) when available;
+                // fall back to invoice fields only when paymentInfo hasn't loaded yet.
+                const totalCertified = paymentInfo?.summary.total_certified_cents ?? invoice.net_payable_cents
+                const calculatedPaidAmount = paymentInfo
+                  ? paymentInfo.summary.total_paid_cents
+                  : (invoice.amount_paid_cents || 0)
+                const calculatedRemainingAmount = paymentInfo
+                  ? paymentInfo.summary.total_remaining_cents
+                  : Math.max(0, invoice.net_payable_cents - calculatedPaidAmount)
+                const paymentProgress = totalCertified > 0
+                  ? Math.min(100, Math.round((calculatedPaidAmount / totalCertified) * 100))
                   : 0
                 const totalPaymentRecords = payments.length + paymentRequests.filter(pr => pr.status === 'paid').length
                 
@@ -758,7 +763,7 @@ export default function InvoiceDetailPage() {
                         <p className="text-xs text-muted-foreground mt-1">
                           {totalPaymentRecords > 0 
                             ? `${totalPaymentRecords} payment${totalPaymentRecords !== 1 ? 's' : ''} recorded`
-                            : isPaidStatus ? 'Paid via EFT' : 'No payments yet'}
+                            : invoice.status === 'paid' ? 'Paid via EFT' : 'No payments yet'}
                         </p>
                       </div>
                       <div className={`rounded-lg p-3 ${calculatedRemainingAmount > 0 ? 'bg-warning/10' : 'bg-success/10'}`}>

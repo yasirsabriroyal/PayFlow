@@ -1660,10 +1660,10 @@ export async function getInvoicePaymentInfo(invoiceId: string) {
     const unpaidCertificateCount = certificatesWithPayments.filter(c => c.status !== 'paid').length
     const paymentMode = hasCertificates && unpaidCertificateCount > 0 ? 'certificate' : 'direct'
 
-    // Invoice totals
+    // Invoice totals — computed from actual cert payment records, not stale invoice fields
     const totalCertifiedCents = (certificates || []).reduce((sum, c) => sum + (c.certified_amount_cents || 0), 0)
-    const totalPaidCents = invoice.amount_paid_cents || invoice.total_paid_cents || 0
-    const invoiceRemainingCents = Math.max(0, invoice.net_payable_cents - totalPaidCents)
+    const totalPaidCents = certificatesWithPayments.reduce((sum, c) => sum + c.total_paid_cents, 0)
+    const invoiceRemainingCents = Math.max(0, totalCertifiedCents - totalPaidCents)
     
     return {
       success: true,
