@@ -3,13 +3,28 @@
 import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, FileText, Calendar, Building2, DollarSign, Clock, CheckCircle, XCircle, AlertCircle } from 'lucide-react'
+import { ArrowLeft, FileText, Calendar, Building2, DollarSign, Clock, CheckCircle, XCircle, AlertCircle, Send, RotateCcw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Textarea } from '@/components/ui/textarea'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { useToast } from '@/hooks/use-toast'
 import { createClient } from '@/lib/supabase/client'
 import { AppHeader } from '@/components/app-header'
+import {
+  submitCertificate,
+  resubmitCertificate,
+  approvePaymentCertificate,
+  rejectPaymentCertificate,
+} from '../../actions'
 
 type Invoice = {
   id: string
@@ -32,6 +47,20 @@ type Invoice = {
   } | null
 }
 
+type PaymentCertificate = {
+  id: string
+  certificate_number: string
+  certified_amount_cents: number
+  net_payable_cents: number
+  status: string
+  created_at: string
+  submitted_at: string | null
+  approved_at: string | null
+  rejection_reason: string | null
+  work_period_start: string | null
+  work_period_end: string | null
+}
+
 const statusConfig: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline'; icon: React.ReactNode }> = {
   draft: { label: 'Draft', variant: 'secondary', icon: <FileText className="w-4 h-4" /> },
   submitted: { label: 'Submitted', variant: 'outline', icon: <Clock className="w-4 h-4" /> },
@@ -43,21 +72,41 @@ const statusConfig: Record<string, { label: string; variant: 'default' | 'second
   disputed: { label: 'Disputed', variant: 'destructive', icon: <AlertCircle className="w-4 h-4" /> },
 }
 
+const certStatusConfig: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' }> = {
+  draft: { label: 'Draft', variant: 'secondary' },
+  pending: { label: 'Pending Approval', variant: 'outline' },
+  approved: { label: 'Approved', variant: 'default' },
+  rejected: { label: 'Rejected', variant: 'destructive' },
+  paid: { label: 'Paid', variant: 'default' },
+  partially_paid: { label: 'Partially Paid', variant: 'outline' },
+  cancelled: { label: 'Cancelled', variant: 'secondary' },
+}
+
 export default function PMInvoiceDetailPage() {
   const params = useParams()
   const router = useRouter()
   const invoiceId = params.id as string
-  
+  const { toast } = useToast()
+
   const [invoice, setInvoice] = useState<Invoice | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [actionLoading, setActionLoading] = useState(false)
   const [notes, setNotes] = useState('')
 
+  // Certificate state
+  const [certificates, setCertificates] = useState<PaymentCertificate[]>([])
+  const [certsLoading, setCertsLoading] = useState(true)
+  const [certActionLoading, setCertActionLoading] = useState<string | null>(null)
+  const [rejectCertDialogOpen, setRejectCertDialogOpen] = useState(false)
+  const [rejectCertReason, setRejectCertReason] = useState('')
+  const [rejectingCertId, setRejectingCertId] = useState<string | null>(null)
+  const [userRole, setUserRole] = useState<string>('')
+
   useEffect(() => {
     async function fetchInvoice() {
       const supabase = createClient()
-      
+
       const { data, error } = await supabase
         .from('invoices')
         .select(`
@@ -89,10 +138,51 @@ export default function PMInvoiceDetailPage() {
     }
   }, [invoiceId])
 
+  useEffect(() => {
+    async function fetchCertificates() {
+      const supabase = createClient()
+      const { data } = await supabase
+        .from('payment_certificates')
+        .select('id, certificate_number, certified_amount_cents, net_payable_cents, status, created_at, submitted_at, approved_at, rejection_reason, work_period_start, work_period_end')
+        .eq('invoice_id', invoiceId)
+        .order('created_at', { ascending: true })
+      setCertificates((data as PaymentCertificate[]) || [])
+      setCertsLoading(false)
+    }
+
+    async function fetchUserRole() {
+      const supabase = createClient()
+      const { data: { user } } = await supabase.auth.getUser()
+      if (user) {
+        const { data: userData } = await supabase
+          .from('users')
+          .select('role')
+          .eq('auth_user_id', user.id)
+          .single()
+        if (userData) setUserRole(userData.role)
+      }
+    }
+
+    if (invoiceId) {
+      fetchCertificates()
+      fetchUserRole()
+    }
+  }, [invoiceId])
+
+  const refreshCertificates = async () => {
+    const supabase = createClient()
+    const { data } = await supabase
+      .from('payment_certificates')
+      .select('id, certificate_number, certified_amount_cents, net_payable_cents, status, created_at, submitted_at, approved_at, rejection_reason, work_period_start, work_period_end')
+      .eq('invoice_id', invoiceId)
+      .order('created_at', { ascending: true })
+    setCertificates((data as PaymentCertificate[]) || [])
+  }
+
   const handleApprove = async () => {
     setActionLoading(true)
     const supabase = createClient()
-    
+
     const { error } = await supabase
       .from('invoices')
       .update({ status: 'approved' })
@@ -112,10 +202,10 @@ export default function PMInvoiceDetailPage() {
       alert('Please provide a reason for rejection')
       return
     }
-    
+
     setActionLoading(true)
     const supabase = createClient()
-    
+
     const { error } = await supabase
       .from('invoices')
       .update({ status: 'rejected' })
@@ -128,6 +218,58 @@ export default function PMInvoiceDetailPage() {
       setInvoice(prev => prev ? { ...prev, status: 'rejected' } : null)
     }
     setActionLoading(false)
+  }
+
+  const handleSubmitCertificate = async (certId: string) => {
+    setCertActionLoading(certId)
+    const result = await submitCertificate({ certificate_id: certId })
+    if (result.success) {
+      toast({ title: 'Certificate Submitted', description: 'Certificate sent for approval.' })
+      await refreshCertificates()
+    } else {
+      toast({ title: 'Error', description: result.error || 'Failed to submit certificate', variant: 'destructive' })
+    }
+    setCertActionLoading(null)
+  }
+
+  const handleResubmitCertificate = async (certId: string) => {
+    setCertActionLoading(certId)
+    const result = await resubmitCertificate({ certificate_id: certId })
+    if (result.success) {
+      toast({ title: 'Certificate Reset', description: 'Certificate reset to draft for revision.' })
+      await refreshCertificates()
+    } else {
+      toast({ title: 'Error', description: result.error || 'Failed to reset certificate', variant: 'destructive' })
+    }
+    setCertActionLoading(null)
+  }
+
+  const handleApproveCertificate = async (certId: string) => {
+    setCertActionLoading(certId)
+    const result = await approvePaymentCertificate({ certificate_id: certId })
+    if (result.success) {
+      toast({ title: 'Certificate Approved', description: 'Certificate approved for payment.' })
+      await refreshCertificates()
+    } else {
+      toast({ title: 'Error', description: result.error || 'Failed to approve certificate', variant: 'destructive' })
+    }
+    setCertActionLoading(null)
+  }
+
+  const handleRejectCertificate = async () => {
+    if (!rejectingCertId || !rejectCertReason.trim()) return
+    setCertActionLoading(rejectingCertId)
+    const result = await rejectPaymentCertificate({ certificate_id: rejectingCertId, reason: rejectCertReason })
+    if (result.success) {
+      toast({ title: 'Certificate Rejected', description: 'Certificate has been rejected.' })
+      setRejectCertDialogOpen(false)
+      setRejectCertReason('')
+      setRejectingCertId(null)
+      await refreshCertificates()
+    } else {
+      toast({ title: 'Error', description: result.error || 'Failed to reject certificate', variant: 'destructive' })
+    }
+    setCertActionLoading(null)
   }
 
   if (loading) {
@@ -162,14 +304,15 @@ export default function PMInvoiceDetailPage() {
 
   const status = statusConfig[invoice.status] || statusConfig.submitted
   const canTakeAction = ['submitted', 'pending_approval'].includes(invoice.status)
+  const canApproveRole = ['admin', 'project_manager'].includes(userRole)
 
   return (
     <div className="min-h-screen bg-background">
-      <AppHeader 
+      <AppHeader
         pageTitle={invoice.invoice_number}
         pageDescription="Invoice Details"
       />
-      
+
       <div className="max-w-4xl mx-auto p-6">
         {/* Status Badge */}
         <div className="flex justify-end mb-4">
@@ -259,7 +402,126 @@ export default function PMInvoiceDetailPage() {
             </CardContent>
           </Card>
 
-          {/* Actions */}
+          {/* Payment Certificates */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <FileText className="w-5 h-5" />
+                Payment Certificates
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {certsLoading ? (
+                <div className="flex justify-center py-8">
+                  <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary" />
+                </div>
+              ) : certificates.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <FileText className="w-10 h-10 mx-auto mb-2 opacity-30" />
+                  <p>No payment certificates issued for this invoice.</p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {certificates.map((cert) => {
+                    const certStatus = certStatusConfig[cert.status] || { label: cert.status, variant: 'outline' as const }
+                    const isActioning = certActionLoading === cert.id
+
+                    return (
+                      <div key={cert.id} className="border border-border rounded-lg p-4 space-y-3">
+                        {/* Header row */}
+                        <div className="flex items-start justify-between gap-2">
+                          <div>
+                            <p className="font-medium">{cert.certificate_number}</p>
+                            <p className="text-sm text-muted-foreground">
+                              ${(cert.certified_amount_cents / 100).toLocaleString('en-US', { minimumFractionDigits: 2 })} certified
+                              {cert.work_period_start && cert.work_period_end && (
+                                <> &bull; {new Date(cert.work_period_start).toLocaleDateString()} – {new Date(cert.work_period_end).toLocaleDateString()}</>
+                              )}
+                            </p>
+                          </div>
+                          <Badge variant={certStatus.variant as 'default' | 'secondary' | 'destructive' | 'outline'}>
+                            {certStatus.label}
+                          </Badge>
+                        </div>
+
+                        {/* Rejection reason */}
+                        {cert.status === 'rejected' && cert.rejection_reason && (
+                          <div className="p-3 bg-destructive/10 border border-destructive/30 rounded-lg">
+                            <p className="text-xs font-semibold text-destructive uppercase tracking-wide mb-1">Rejection Reason</p>
+                            <p className="text-sm">{cert.rejection_reason}</p>
+                          </div>
+                        )}
+
+                        {/* Action buttons */}
+                        <div className="flex flex-wrap gap-2">
+                          {cert.status === 'draft' && (
+                            <Button
+                              size="sm"
+                              onClick={() => handleSubmitCertificate(cert.id)}
+                              disabled={isActioning}
+                              className="gap-2"
+                            >
+                              <Send className="w-3 h-3" />
+                              {isActioning ? 'Submitting…' : 'Submit for Approval'}
+                            </Button>
+                          )}
+
+                          {cert.status === 'rejected' && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleResubmitCertificate(cert.id)}
+                              disabled={isActioning}
+                              className="gap-2"
+                            >
+                              <RotateCcw className="w-3 h-3" />
+                              {isActioning ? 'Resetting…' : 'Reset to Draft'}
+                            </Button>
+                          )}
+
+                          {cert.status === 'pending' && canApproveRole && (
+                            <>
+                              <Button
+                                size="sm"
+                                onClick={() => handleApproveCertificate(cert.id)}
+                                disabled={isActioning}
+                                className="gap-2"
+                              >
+                                <CheckCircle className="w-3 h-3" />
+                                {isActioning ? 'Approving…' : 'Approve'}
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="destructive"
+                                onClick={() => {
+                                  setRejectingCertId(cert.id)
+                                  setRejectCertDialogOpen(true)
+                                }}
+                                disabled={isActioning}
+                                className="gap-2"
+                              >
+                                <XCircle className="w-3 h-3" />
+                                Reject
+                              </Button>
+                            </>
+                          )}
+
+                          {cert.status === 'pending' && !canApproveRole && (
+                            <Badge variant="outline" className="gap-1">
+                              <Clock className="w-3 h-3" />
+                              Awaiting Approval
+                            </Badge>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Invoice Review Actions */}
           {canTakeAction && (
             <Card>
               <CardHeader>
@@ -276,17 +538,17 @@ export default function PMInvoiceDetailPage() {
                   />
                 </div>
                 <div className="flex gap-3">
-                  <Button 
-                    onClick={handleApprove} 
+                  <Button
+                    onClick={handleApprove}
                     disabled={actionLoading}
                     className="gap-2"
                   >
                     <CheckCircle className="w-4 h-4" />
                     Approve Invoice
                   </Button>
-                  <Button 
-                    variant="destructive" 
-                    onClick={handleReject} 
+                  <Button
+                    variant="destructive"
+                    onClick={handleReject}
                     disabled={actionLoading}
                     className="gap-2"
                   >
@@ -299,6 +561,43 @@ export default function PMInvoiceDetailPage() {
           )}
         </div>
       </div>
+
+      {/* Reject Certificate Dialog */}
+      <Dialog open={rejectCertDialogOpen} onOpenChange={setRejectCertDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Reject Certificate</DialogTitle>
+            <DialogDescription>
+              Please provide a reason for rejecting this payment certificate. The PM will be able to revise and resubmit it.
+            </DialogDescription>
+          </DialogHeader>
+          <Textarea
+            placeholder="Enter rejection reason..."
+            value={rejectCertReason}
+            onChange={(e) => setRejectCertReason(e.target.value)}
+            rows={4}
+          />
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setRejectCertDialogOpen(false)
+                setRejectCertReason('')
+                setRejectingCertId(null)
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleRejectCertificate}
+              disabled={!rejectCertReason.trim() || certActionLoading !== null}
+            >
+              {certActionLoading ? 'Rejecting…' : 'Reject Certificate'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

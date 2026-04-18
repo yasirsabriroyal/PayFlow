@@ -879,10 +879,16 @@ export default function InvoiceDetailPage() {
                             <div className="flex items-center gap-2">
                               <span className="font-medium">{cert.certificate_number}</span>
                               <Badge variant={
-                                cert.is_fully_paid ? 'default' : 
-                                cert.status === 'approved' ? 'secondary' : 'outline'
+                                cert.is_fully_paid ? 'default' :
+                                cert.status === 'approved' ? 'secondary' :
+                                cert.status === 'rejected' ? 'destructive' : 'outline'
                               }>
-                                {cert.is_fully_paid ? 'Paid' : cert.status}
+                                {cert.is_fully_paid ? 'Paid' :
+                                 cert.status === 'pending' ? 'Pending Approval' :
+                                 cert.status === 'approved' ? 'Approved' :
+                                 cert.status === 'rejected' ? 'Rejected' :
+                                 cert.status === 'draft' ? 'Draft' :
+                                 cert.status}
                               </Badge>
                             </div>
                             {cert.approved_at && (

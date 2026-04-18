@@ -41,7 +41,7 @@ import {
 import { useToast } from '@/hooks/use-toast'
 import { sendBatchPaymentNotifications } from '@/lib/notifications'
 import { createClient } from '@/lib/supabase/client'
-import { executeEFTPayment, processPayments, getApprovedInvoices } from '../actions'
+import { executeEFTPayment, processPayments, getApprovedInvoices, getApprovedCertificatesForPayment, recordCertificatePayment } from '../actions'
 import { usePermissions } from '@/hooks/use-permissions'
 import { AppHeader } from '@/components/app-header'
 import { useListStatePreservation } from '@/lib/workflow-navigation'
@@ -184,6 +184,19 @@ export default function PaymentsPage() {
   const [paymentSettings, setPaymentSettings] = useState<PaymentSettings>(defaultSettings)
   const [settingsLoaded, setSettingsLoaded] = useState(false)
 
+  // Approved certificates state
+  const [approvedCerts, setApprovedCerts] = useState<Array<{
+    id: string
+    certificate_number: string
+    net_payable_cents: number
+    approved_at: string
+    invoice: { id: string; invoice_number: string } | null
+    contractor: { id: string; company_name: string } | null
+    project: { id: string; name: string; project_number: string } | null
+  }>>([])
+  const [certsLoading, setCertsLoading] = useState(true)
+  const [certPaymentLoading, setCertPaymentLoading] = useState<string | null>(null)
+
   // Fetch approved invoices from server action
   useEffect(() => {
     const fetchApprovedInvoices = async () => {
@@ -251,6 +264,55 @@ export default function PaymentsPage() {
 
     fetchSettings()
   }, [])
+
+  // Fetch approved payment certificates
+  useEffect(() => {
+    const fetchApprovedCerts = async () => {
+      const result = await getApprovedCertificatesForPayment()
+      if (result.success && Array.isArray(result.certificates)) {
+        setApprovedCerts(result.certificates.map((cert: Record<string, unknown>) => {
+          const invoiceData = cert.invoice as Record<string, unknown> | null
+          const projectData = cert.project as Record<string, unknown> | null
+          const contractorData = invoiceData?.contractor as Record<string, unknown> | null
+          return {
+            id: cert.id as string,
+            certificate_number: cert.certificate_number as string,
+            net_payable_cents: cert.net_payable_cents as number,
+            approved_at: cert.approved_at as string,
+            invoice: invoiceData ? { id: invoiceData.id as string, invoice_number: invoiceData.invoice_number as string } : null,
+            contractor: contractorData ? { id: contractorData.id as string, company_name: contractorData.company_name as string } : null,
+            project: projectData ? { id: projectData.id as string, name: projectData.name as string, project_number: projectData.project_number as string } : null,
+          }
+        }))
+      }
+      setCertsLoading(false)
+    }
+    fetchApprovedCerts()
+  }, [])
+
+  const handlePayCertificate = async (certId: string, amountCents: number) => {
+    setCertPaymentLoading(certId)
+    const result = await recordCertificatePayment({
+      certificate_id: certId,
+      amount_cents: amountCents,
+      payment_method: 'eft',
+      payment_date: new Date().toISOString().split('T')[0],
+    })
+    if (result.success) {
+      toast({
+        title: 'Certificate Paid',
+        description: result.message || 'Payment recorded successfully.',
+      })
+      setApprovedCerts(prev => prev.filter(c => c.id !== certId))
+    } else {
+      toast({
+        title: 'Payment Failed',
+        description: result.error || 'Failed to record certificate payment.',
+        variant: 'destructive',
+      })
+    }
+    setCertPaymentLoading(null)
+  }
 
   // Check compliance for an invoice based on active settings
   const checkCompliance = (invoice: typeof mockApprovedInvoices[0]): InvoiceCompliance => {
@@ -696,6 +758,84 @@ export default function PaymentsPage() {
           )}
         </div>
       </main>
+
+      {/* Approved Payment Certificates */}
+      <div className="bg-card border border-border rounded-xl overflow-hidden">
+        <div className="px-6 py-4 border-b border-border bg-muted/30">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-base font-semibold">Approved Payment Certificates</h2>
+              <p className="text-sm text-muted-foreground">Certificates approved by a project manager and ready for individual payment</p>
+            </div>
+            {approvedCerts.length > 0 && (
+              <span className="text-sm font-medium text-muted-foreground">{approvedCerts.length} ready</span>
+            )}
+          </div>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead>
+              <tr className="border-b border-border">
+                <th className="px-6 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Contractor</th>
+                <th className="px-6 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Invoice #</th>
+                <th className="px-6 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Certificate #</th>
+                <th className="px-6 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Project</th>
+                <th className="px-6 py-3 text-right text-xs font-semibold text-muted-foreground uppercase tracking-wider">Amount</th>
+                <th className="px-6 py-3 text-right text-xs font-semibold text-muted-foreground uppercase tracking-wider">Action</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {certsLoading ? (
+                <tr>
+                  <td colSpan={6} className="px-6 py-8 text-center text-muted-foreground">
+                    <div className="flex justify-center">
+                      <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-primary" />
+                    </div>
+                  </td>
+                </tr>
+              ) : approvedCerts.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="px-6 py-10 text-center text-muted-foreground">
+                    <CreditCard className="w-10 h-10 mx-auto mb-2 opacity-20" />
+                    <p>No approved certificates awaiting payment</p>
+                  </td>
+                </tr>
+              ) : (
+                approvedCerts.map((cert) => (
+                  <tr key={cert.id} className="hover:bg-muted/30 transition-colors">
+                    <td className="px-6 py-4">
+                      <p className="font-medium">{cert.contractor?.company_name || 'Unknown'}</p>
+                    </td>
+                    <td className="px-6 py-4">
+                      <p className="font-mono text-sm">{cert.invoice?.invoice_number || '—'}</p>
+                    </td>
+                    <td className="px-6 py-4">
+                      <p className="font-mono text-sm">{cert.certificate_number}</p>
+                    </td>
+                    <td className="px-6 py-4">
+                      <p className="text-sm">{cert.project ? `${cert.project.project_number} – ${cert.project.name}` : '—'}</p>
+                    </td>
+                    <td className="px-6 py-4 text-right">
+                      <p className="font-semibold text-success">{formatCurrency(cert.net_payable_cents / 100)}</p>
+                    </td>
+                    <td className="px-6 py-4 text-right">
+                      <Button
+                        size="sm"
+                        onClick={() => handlePayCertificate(cert.id, cert.net_payable_cents)}
+                        disabled={certPaymentLoading === cert.id || !canProcessPayments}
+                        className="gap-1"
+                      >
+                        <Banknote className="w-3 h-3" />
+                        {certPaymentLoading === cert.id ? 'Paying…' : 'Pay'}
+                      </Button>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
 
       {/* Success Dialog */}
       <Dialog open={successDialogOpen} onOpenChange={setSuccessDialogOpen}>
