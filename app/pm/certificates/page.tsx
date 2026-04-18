@@ -148,7 +148,7 @@ export default function PMCertificatesPage() {
                   {filteredInvoices.map((invoice) => (
                     <WorkflowLink 
                       key={invoice.id} 
-                      href={`/invoices/${invoice.id}`}
+                      href={`/pm/invoices/${invoice.id}`}
                       contextTitle={invoice.invoice_number}
                       className="bg-card border border-border rounded-xl p-5 hover:border-primary/30 hover:shadow-sm transition-all group"
                     >
@@ -209,7 +209,7 @@ export default function PMCertificatesPage() {
                   {filteredInvoices.map((invoice) => (
                     <WorkflowLink 
                       key={invoice.id} 
-                      href={`/invoices/${invoice.id}`}
+                      href={`/pm/invoices/${invoice.id}`}
                       contextTitle={invoice.invoice_number}
                       className="bg-card border border-border rounded-xl p-5 hover:border-primary/30 hover:shadow-sm transition-all group"
                     >

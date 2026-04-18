@@ -271,7 +271,7 @@ export default function PMProjectDetailPage({ params }: { params: Promise<{ id: 
                     {invoices.map((invoice) => (
                       <WorkflowLink 
                         key={invoice.id}
-                        href={`/invoices/${invoice.id}`}
+                        href={`/pm/invoices/${invoice.id}`}
                         contextTitle={invoice.invoice_number}
                         className="flex items-center justify-between p-3 bg-muted/50 rounded-lg hover:bg-muted transition-colors"
                       >

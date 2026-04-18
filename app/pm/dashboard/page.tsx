@@ -340,7 +340,7 @@ export default function PMDashboardPage() {
                       {invoices.slice(0, 5).map((invoice) => (
                         <WorkflowLink 
                           key={invoice.id} 
-                          href={`/invoices/${invoice.id}`}
+                          href={`/pm/invoices/${invoice.id}`}
                           contextTitle={invoice.invoice_number}
                           className="flex items-center justify-between p-3 bg-muted/50 rounded-lg hover:bg-muted transition-colors cursor-pointer"
                         >

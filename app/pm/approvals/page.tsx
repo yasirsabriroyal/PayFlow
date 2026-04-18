@@ -502,7 +502,7 @@ export default function PMApprovalsPage() {
                       <tr 
                         key={invoice.id} 
                         className="hover:bg-muted/30 transition-colors cursor-pointer"
-                        onClick={() => window.location.href = `/invoices/${invoice.id}`}
+                        onClick={() => window.location.href = `/pm/invoices/${invoice.id}`}
                       >
                         <td className="px-6 py-4">
                           <div>
@@ -621,7 +621,7 @@ export default function PMApprovalsPage() {
                         <tr 
                           key={invoice.id} 
                           className="hover:bg-muted/30 transition-colors cursor-pointer"
-                          onClick={() => window.location.href = `/invoices/${invoice.id}`}
+                          onClick={() => window.location.href = `/pm/invoices/${invoice.id}`}
                         >
                           <td className="px-6 py-4">
                             <div>
@@ -654,7 +654,7 @@ export default function PMApprovalsPage() {
                             <Button
                               size="sm"
                               variant="ghost"
-                              onClick={() => window.location.href = `/invoices/${invoice.id}`}
+                              onClick={() => window.location.href = `/pm/invoices/${invoice.id}`}
                             >
                               View Details
                             </Button>

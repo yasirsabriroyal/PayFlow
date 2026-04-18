@@ -672,7 +672,7 @@ export default function PMContractorProfilePage({ params }: { params: Promise<{ 
                     return (
                       <Link 
                         key={invoice.id}
-                        href={`/invoices/${invoice.id}`}
+                        href={`/pm/invoices/${invoice.id}`}
                         className="flex items-center justify-between p-3 bg-muted/50 rounded-lg hover:bg-muted transition-colors"
                       >
                         <div className="flex items-center gap-3">
@@ -789,7 +789,7 @@ export default function PMContractorProfilePage({ params }: { params: Promise<{ 
                       return (
                         <Link 
                           key={invoice.id}
-                          href={`/invoices/${invoice.id}`}
+                          href={`/pm/invoices/${invoice.id}`}
                           className="flex items-center justify-between p-4 bg-muted/50 rounded-lg hover:bg-muted transition-colors"
                         >
                           <div className="flex items-center gap-4">
