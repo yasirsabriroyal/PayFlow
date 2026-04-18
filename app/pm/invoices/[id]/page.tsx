@@ -102,6 +102,7 @@ export default function PMInvoiceDetailPage() {
   const [rejectCertReason, setRejectCertReason] = useState('')
   const [rejectingCertId, setRejectingCertId] = useState<string | null>(null)
   const [userRole, setUserRole] = useState<string>('')
+  const [roleLoading, setRoleLoading] = useState(true)
 
   useEffect(() => {
     async function fetchInvoice() {
@@ -151,15 +152,21 @@ export default function PMInvoiceDetailPage() {
     }
 
     async function fetchUserRole() {
-      const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
-      if (user) {
-        const { data: userData } = await supabase
-          .from('users')
-          .select('role')
-          .eq('auth_user_id', user.id)
-          .single()
-        if (userData) setUserRole(userData.role)
+      try {
+        const supabase = createClient()
+        const { data: { user } } = await supabase.auth.getUser()
+        if (user) {
+          const { data: userData } = await supabase
+            .from('users')
+            .select('role')
+            .eq('auth_user_id', user.id)
+            .single()
+          if (userData?.role) setUserRole(userData.role)
+        }
+      } catch (err) {
+        console.error('Error fetching user role:', err)
+      } finally {
+        setRoleLoading(false)
       }
     }
 
@@ -479,38 +486,43 @@ export default function PMInvoiceDetailPage() {
                             </Button>
                           )}
 
-                          {cert.status === 'pending' && canApproveRole && (
-                            <>
-                              <Button
-                                size="sm"
-                                onClick={() => handleApproveCertificate(cert.id)}
-                                disabled={isActioning}
-                                className="gap-2"
-                              >
-                                <CheckCircle className="w-3 h-3" />
-                                {isActioning ? 'Approving…' : 'Approve'}
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="destructive"
-                                onClick={() => {
-                                  setRejectingCertId(cert.id)
-                                  setRejectCertDialogOpen(true)
-                                }}
-                                disabled={isActioning}
-                                className="gap-2"
-                              >
-                                <XCircle className="w-3 h-3" />
-                                Reject
-                              </Button>
-                            </>
-                          )}
-
-                          {cert.status === 'pending' && !canApproveRole && (
-                            <Badge variant="outline" className="gap-1">
-                              <Clock className="w-3 h-3" />
-                              Awaiting Approval
-                            </Badge>
+                          {cert.status === 'pending' && (
+                            roleLoading ? (
+                              <div className="flex items-center gap-2 text-muted-foreground text-sm">
+                                <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-primary" />
+                                Loading…
+                              </div>
+                            ) : canApproveRole ? (
+                              <>
+                                <Button
+                                  size="sm"
+                                  onClick={() => handleApproveCertificate(cert.id)}
+                                  disabled={isActioning}
+                                  className="gap-2"
+                                >
+                                  <CheckCircle className="w-3 h-3" />
+                                  {isActioning ? 'Approving…' : 'Approve'}
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="destructive"
+                                  onClick={() => {
+                                    setRejectingCertId(cert.id)
+                                    setRejectCertDialogOpen(true)
+                                  }}
+                                  disabled={isActioning}
+                                  className="gap-2"
+                                >
+                                  <XCircle className="w-3 h-3" />
+                                  Reject
+                                </Button>
+                              </>
+                            ) : (
+                              <Badge variant="outline" className="gap-1">
+                                <Clock className="w-3 h-3" />
+                                Awaiting Approval
+                              </Badge>
+                            )
                           )}
                         </div>
                       </div>
