@@ -915,26 +915,34 @@ export default function InvoiceDetailPage() {
                             </p>
                           )}
                           
-                          {/* Payment button for unpaid approved certificates */}
-                          {!cert.is_fully_paid && cert.status === 'approved' && canPay && (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="mt-3"
-                              onClick={() => {
-                                const unpaidAmount = Math.max(0, cert.certified_amount_cents - cert.total_paid_cents)
-                                setSelectedCertificates([cert.id])
-                                setPaymentForm(prev => ({
-                                  ...prev,
-                                  amount: (unpaidAmount / 100).toFixed(2),
-                                }))
-                                setPaymentDialogOpen(true)
-                              }}
-                            >
-                              <CreditCard className="w-3 h-3 mr-1" />
-                              Pay Certificate ({formatCurrency(Math.max(0, cert.certified_amount_cents - cert.total_paid_cents) / 100)})
-                            </Button>
-                          )}
+                          <div className="flex flex-wrap items-center gap-2 mt-3">
+                            {/* Pay button — unpaid approved certs only */}
+                            {!cert.is_fully_paid && cert.status === 'approved' && canPay && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => {
+                                  const unpaidAmount = Math.max(0, cert.certified_amount_cents - cert.total_paid_cents)
+                                  setSelectedCertificates([cert.id])
+                                  setPaymentForm(prev => ({
+                                    ...prev,
+                                    amount: (unpaidAmount / 100).toFixed(2),
+                                  }))
+                                  setPaymentDialogOpen(true)
+                                }}
+                              >
+                                <CreditCard className="w-3 h-3 mr-1" />
+                                Pay Certificate ({formatCurrency(Math.max(0, cert.certified_amount_cents - cert.total_paid_cents) / 100)})
+                              </Button>
+                            )}
+                            {/* View is always visible */}
+                            <Link href={`/invoices/${invoiceId}/certificates/${cert.id}`}>
+                              <Button size="sm" variant="ghost">
+                                <ExternalLink className="w-3 h-3 mr-1" />
+                                View
+                              </Button>
+                            </Link>
+                          </div>
                         </div>
                       ))}
                     </div>

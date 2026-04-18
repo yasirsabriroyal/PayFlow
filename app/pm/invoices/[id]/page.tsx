@@ -620,6 +620,14 @@ export default function PMInvoiceDetailPage() {
                                       Paid
                                     </Badge>
                                   )}
+
+                                  {/* View is always visible regardless of status */}
+                                  <Link href={`/invoices/${invoiceId}/certificates/${cert.id}`}>
+                                    <Button size="sm" variant="ghost" className="gap-1.5">
+                                      <FileText className="w-3 h-3" />
+                                      View
+                                    </Button>
+                                  </Link>
                                 </div>
                               </td>
                             </tr>
