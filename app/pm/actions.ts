@@ -323,6 +323,146 @@ export async function resubmitCertificate(input: { certificate_id: string }) {
   })
 }
 
+/**
+ * Approve a pending payment certificate.
+ * Permission: admin or project_manager.
+ * Moves status: pending → approved.
+ * Sets approved_by and approved_at.
+ */
+export async function approvePaymentCertificate(input: { certificate_id: string }) {
+  return withPermission(PERMISSIONS.INVOICES.APPROVE_INVOICES, async (userData) => {
+    if (!['admin', 'project_manager'].includes(userData.role)) {
+      return { success: false, error: 'Permission denied: admin or project manager role required' }
+    }
+
+    const supabase = getSupabaseAdmin()
+
+    const { data: cert, error: fetchError } = await supabase
+      .from('payment_certificates')
+      .select('id, status, certificate_number')
+      .eq('id', input.certificate_id)
+      .single()
+
+    if (fetchError || !cert) {
+      return { success: false, error: 'Certificate not found' }
+    }
+
+    if (cert.status !== 'pending') {
+      return {
+        success: false,
+        error: `Cannot approve certificate with status '${cert.status}'. Only pending certificates can be approved.`,
+      }
+    }
+
+    const now = new Date().toISOString()
+
+    const { data: updated, error: updateError } = await supabase
+      .from('payment_certificates')
+      .update({
+        status: 'approved',
+        approved_by: userData.id,
+        approved_at: now,
+      })
+      .eq('id', input.certificate_id)
+      .select()
+      .single()
+
+    if (updateError) {
+      console.error('Approve certificate error:', updateError)
+      return { success: false, error: updateError.message }
+    }
+
+    await supabase.from('audit_logs').insert({
+      action: 'certificate_approved',
+      entity_type: 'payment_certificate',
+      entity_id: input.certificate_id,
+      user_id: userData.id,
+      description: `Approved certificate ${cert.certificate_number}`,
+      old_values: { status: 'pending' },
+      new_values: { status: 'approved', approved_by: userData.id, approved_at: now },
+    })
+
+    return { success: true, certificate: updated }
+  })
+}
+
+/**
+ * Reject a pending payment certificate with a mandatory reason.
+ * Permission: admin or project_manager.
+ * Moves status: pending → rejected.
+ * Sets rejection_reason, rejected_by, and rejected_at.
+ * PM can then call resubmitCertificate() to reset to draft for revision.
+ */
+export async function rejectPaymentCertificate(input: {
+  certificate_id: string
+  reason: string
+}) {
+  return withPermission(PERMISSIONS.INVOICES.APPROVE_INVOICES, async (userData) => {
+    if (!['admin', 'project_manager'].includes(userData.role)) {
+      return { success: false, error: 'Permission denied: admin or project manager role required' }
+    }
+
+    if (!input.reason?.trim()) {
+      return { success: false, error: 'Rejection reason is required' }
+    }
+
+    const supabase = getSupabaseAdmin()
+
+    const { data: cert, error: fetchError } = await supabase
+      .from('payment_certificates')
+      .select('id, status, certificate_number')
+      .eq('id', input.certificate_id)
+      .single()
+
+    if (fetchError || !cert) {
+      return { success: false, error: 'Certificate not found' }
+    }
+
+    if (cert.status !== 'pending') {
+      return {
+        success: false,
+        error: `Cannot reject certificate with status '${cert.status}'. Only pending certificates can be rejected.`,
+      }
+    }
+
+    const now = new Date().toISOString()
+
+    const { data: updated, error: updateError } = await supabase
+      .from('payment_certificates')
+      .update({
+        status: 'rejected',
+        rejection_reason: input.reason,
+        rejected_by: userData.id,
+        rejected_at: now,
+      })
+      .eq('id', input.certificate_id)
+      .select()
+      .single()
+
+    if (updateError) {
+      console.error('Reject certificate error:', updateError)
+      return { success: false, error: updateError.message }
+    }
+
+    await supabase.from('audit_logs').insert({
+      action: 'certificate_rejected',
+      entity_type: 'payment_certificate',
+      entity_id: input.certificate_id,
+      user_id: userData.id,
+      description: `Rejected certificate ${cert.certificate_number}: ${input.reason}`,
+      old_values: { status: 'pending' },
+      new_values: {
+        status: 'rejected',
+        rejection_reason: input.reason,
+        rejected_by: userData.id,
+        rejected_at: now,
+      },
+    })
+
+    return { success: true, certificate: updated }
+  })
+}
+
 // Get pending approvals (invoices and payment requests awaiting PM approval)
 export async function getPendingApprovals() {
   return withPermission(PERMISSIONS.INVOICES.VIEW_AP_QUEUE, async () => {
