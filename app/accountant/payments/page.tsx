@@ -184,6 +184,7 @@ export default function PaymentsPage() {
   const [paidInvoices, setPaidInvoices] = useState<typeof mockApprovedInvoices>([])
   const [paymentSettings, setPaymentSettings] = useState<PaymentSettings>(defaultSettings)
   const [settingsLoaded, setSettingsLoaded] = useState(false)
+  const [eftReviewOpen, setEftReviewOpen] = useState(false)
 
   // Approved certificates state
   const [approvedCerts, setApprovedCerts] = useState<Array<{
@@ -414,7 +415,13 @@ export default function PaymentsPage() {
   const selectedInvoices = invoices.filter(inv => selectedIds.has(inv.id))
   const totalSelected = selectedInvoices.reduce((sum, inv) => sum + inv.netPayable, 0)
 
+  const openEFTReview = () => {
+    if (selectedIds.size === 0) return
+    setEftReviewOpen(true)
+  }
+
   const handleGenerateEFT = async () => {
+    setEftReviewOpen(false)
     // Call server action with permission enforcement
     const invoiceIds = Array.from(selectedIds)
     const totalAmountCents = selectedInvoices.reduce((sum, inv) => sum + Math.round(inv.netPayable * 100), 0)
@@ -570,13 +577,13 @@ export default function PaymentsPage() {
             />
             <Button
               size="lg"
-              onClick={handleGenerateEFT}
+              onClick={openEFTReview}
               disabled={selectedIds.size === 0 || !canExecuteEFT}
               className="bg-primary hover:bg-primary/90"
               title={!canExecuteEFT ? 'You do not have permission to execute EFT payments' : undefined}
             >
               <FileSpreadsheet className="w-5 h-5 mr-2" />
-              Generate EFT Batch (CPA-005)
+              Review & Generate EFT (CPA-005)
             </Button>
           </div>
         </div>
@@ -766,11 +773,11 @@ export default function PaymentsPage() {
                   </p>
                 </div>
                 <Button
-                  onClick={handleGenerateEFT}
+                  onClick={openEFTReview}
                   className="bg-primary hover:bg-primary/90"
                 >
                   <FileSpreadsheet className="w-4 h-4 mr-2" />
-                  Generate EFT Batch
+                  Review & Generate EFT
                 </Button>
               </div>
             </div>
@@ -879,6 +886,107 @@ export default function PaymentsPage() {
           </table>
         </div>
       </div>
+
+      {/* EFT Review Dialog */}
+      <Dialog open={eftReviewOpen} onOpenChange={setEftReviewOpen}>
+        <DialogContent className="sm:max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-xl">Review EFT Payment Batch</DialogTitle>
+            <DialogDescription>Please review all invoices before confirming payment.</DialogDescription>
+          </DialogHeader>
+
+          {/* Missing bank account warning */}
+          {selectedInvoices.some(inv => inv.bankInfo === 'Not set') && (
+            <div className="flex items-start gap-3 rounded-lg bg-warning/10 border border-warning/30 px-4 py-3">
+              <AlertTriangle className="w-4 h-4 text-warning mt-0.5 flex-shrink-0" />
+              <p className="text-sm text-warning font-medium">
+                Some invoices have no bank account set. Please update contractor banking details before proceeding.
+              </p>
+            </div>
+          )}
+
+          {/* Invoice review table */}
+          <div className="rounded-lg border border-border overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-muted/40 border-b border-border">
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Contractor</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Project</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Invoice #</th>
+                    <th className="px-4 py-3 text-right text-xs font-semibold text-muted-foreground uppercase tracking-wider">Amount</th>
+                    <th className="px-4 py-3 text-right text-xs font-semibold text-muted-foreground uppercase tracking-wider">Holdback</th>
+                    <th className="px-4 py-3 text-right text-xs font-semibold text-muted-foreground uppercase tracking-wider">Net Payable</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Bank Account</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {selectedInvoices.map((invoice) => (
+                    <tr key={invoice.id} className="hover:bg-muted/20">
+                      <td className="px-4 py-3 font-medium">{invoice.contractor}</td>
+                      <td className="px-4 py-3 text-muted-foreground">{invoice.project}</td>
+                      <td className="px-4 py-3">
+                        <a
+                          href={`/accountant/invoices/${invoice.id}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="font-mono inline-flex items-center gap-1 text-primary hover:underline"
+                        >
+                          {invoice.invoiceNumber}
+                          <ExternalLink className="w-3 h-3 opacity-70" />
+                        </a>
+                      </td>
+                      <td className="px-4 py-3 text-right">{formatCurrency(invoice.amount)}</td>
+                      <td className="px-4 py-3 text-right text-muted-foreground">-{formatCurrency(invoice.holdback)}</td>
+                      <td className="px-4 py-3 text-right font-semibold text-success">{formatCurrency(invoice.netPayable)}</td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-1.5">
+                          <CreditCard className={`w-3.5 h-3.5 ${invoice.bankInfo === 'Not set' ? 'text-warning' : 'text-muted-foreground'}`} />
+                          <span className={`font-mono text-xs ${invoice.bankInfo === 'Not set' ? 'text-warning font-semibold' : ''}`}>
+                            {invoice.bankInfo}
+                          </span>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Payment details & total */}
+          <div className="rounded-lg bg-muted/30 border border-border px-4 py-4 space-y-2 text-sm">
+            <div className="flex justify-between text-muted-foreground">
+              <span>Payment Method</span>
+              <span className="font-medium text-foreground">EFT (Electronic Funds Transfer)</span>
+            </div>
+            <div className="flex justify-between text-muted-foreground">
+              <span>Payment Date</span>
+              <span className="font-medium text-foreground">
+                {new Date().toLocaleDateString('en-CA', { year: 'numeric', month: 'long', day: 'numeric' })}
+              </span>
+            </div>
+            <div className="border-t border-border pt-2 flex justify-between font-semibold text-base">
+              <span>Total Payment</span>
+              <span className="text-success">{formatCurrency(totalSelected)}</span>
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setEftReviewOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleGenerateEFT}
+              className="bg-primary hover:bg-primary/90"
+              disabled={!canExecuteEFT}
+            >
+              <FileSpreadsheet className="w-4 h-4 mr-2" />
+              Confirm & Generate EFT
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Success Dialog */}
       <Dialog open={successDialogOpen} onOpenChange={setSuccessDialogOpen}>
