@@ -43,6 +43,7 @@ import {
   TabsTrigger,
 } from '@/components/ui/tabs'
 import Link from 'next/link'
+import { RoleTabBar } from '@/components/role-tab-bar'
 
 interface Project {
   id: string
@@ -378,6 +379,7 @@ export default function ProjectDetailsPage({ params }: { params: Promise<{ id: s
 
   return (
     <div className="min-h-screen bg-background">
+      <RoleTabBar role="admin" />
       {/* Header */}
       <header className="border-b border-border bg-card">
         <div className="container mx-auto px-6 py-4">

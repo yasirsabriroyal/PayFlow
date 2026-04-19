@@ -21,6 +21,7 @@ import {
 import { useToast } from '@/hooks/use-toast'
 import { createClient } from '@/lib/supabase/client'
 import { AppHeader } from '@/components/app-header'
+import { RoleTabBar } from '@/components/role-tab-bar'
 import {
   getCertificatesForInvoice,
   submitCertificate,
@@ -369,6 +370,7 @@ export default function PMInvoiceDetailPage() {
         pageTitle={invoice.invoice_number}
         pageDescription="Invoice Details"
       />
+      <RoleTabBar role="project_manager" />
 
       <div className="max-w-4xl mx-auto p-6">
         {/* Status Badge */}

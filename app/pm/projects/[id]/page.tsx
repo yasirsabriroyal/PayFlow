@@ -22,6 +22,7 @@ import {
 } from 'lucide-react'
 import { getPMProjects, getPMInvoices, getPMContractors } from '../../actions'
 import { AppHeader } from '@/components/app-header'
+import { RoleTabBar } from '@/components/role-tab-bar'
 import { WorkflowLink } from '@/components/workflow-link'
 
 type Project = {
@@ -125,6 +126,7 @@ export default function PMProjectDetailPage({ params }: { params: Promise<{ id: 
     return (
       <div className="min-h-screen bg-background">
         <AppHeader pageTitle="Project Not Found" />
+        <RoleTabBar role="project_manager" />
         <main className="max-w-7xl mx-auto px-4 py-12 text-center">
           <Briefcase className="w-12 h-12 text-muted-foreground/50 mx-auto mb-4" />
           <p className="text-muted-foreground">Project not found or you don&apos;t have access</p>
@@ -138,10 +140,11 @@ export default function PMProjectDetailPage({ params }: { params: Promise<{ id: 
 
   return (
     <div className="min-h-screen bg-background">
-      <AppHeader 
+      <AppHeader
         pageTitle={project.name}
         pageDescription={project.project_number}
       />
+      <RoleTabBar role="project_manager" />
 
       <main className="max-w-7xl mx-auto px-4 py-6 space-y-6">
         {/* Project Overview Cards */}

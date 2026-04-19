@@ -32,6 +32,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Checkbox } from "@/components/ui/checkbox"
+import { RoleTabBar } from "@/components/role-tab-bar"
 
 const provinces = [
   { value: "AB", label: "Alberta" },
@@ -188,6 +189,7 @@ export default function VendorOnboardingPage() {
 
   return (
     <div className="min-h-screen bg-background">
+      <RoleTabBar role="contractor" />
       {/* Header */}
       <header className="border-b border-border bg-card">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
