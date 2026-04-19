@@ -4,6 +4,7 @@ import { Briefcase, Building2, FileText, DollarSign, Clock, Shield, ChevronRight
 import { Button } from '@/components/ui/button'
 import { LogoutButton } from '@/components/auth/logout-button'
 import { AppHeader } from '@/components/app-header'
+import { RoleTabBar } from '@/components/role-tab-bar'
 import { WorkflowLink } from '@/components/workflow-link'
 
 export default async function VendorPortalPage() {
@@ -24,6 +25,7 @@ export default async function VendorPortalPage() {
   return (
     <div className="min-h-screen bg-background">
       <AppHeader pageTitle="Contractor Portal" />
+      <RoleTabBar role="contractor" />
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">

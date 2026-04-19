@@ -42,6 +42,7 @@ import { useToast } from '@/hooks/use-toast'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
 import { AppHeader } from '@/components/app-header'
+import { RoleTabBar } from '@/components/role-tab-bar'
 import { useListStatePreservation } from '@/lib/workflow-navigation'
 import { 
   createPaymentCertificate, 
@@ -369,10 +370,11 @@ export default function PMApprovalsPage() {
 
   return (
     <div className="min-h-screen bg-background">
-      <AppHeader 
+      <AppHeader
         pageTitle="PM Approvals"
         pageDescription="Review and approve invoices for your projects"
       />
+      <RoleTabBar role="project_manager" />
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-6 py-8 space-y-6">

@@ -38,6 +38,7 @@ import { createClient } from '@/lib/supabase/client'
 import { usePermissions } from '@/hooks/use-permissions'
 import { useToast } from '@/hooks/use-toast'
 import { AppHeader } from '@/components/app-header'
+import { RoleTabBar } from '@/components/role-tab-bar'
 import { useListStatePreservation, useWorkflowNavigation } from '@/lib/workflow-navigation'
 import { WorkflowLink } from '@/components/workflow-link'
 
@@ -353,10 +354,11 @@ function AccountantQueueContent() {
 
 return (
     <div className="min-h-screen bg-background">
-      <AppHeader 
+      <AppHeader
         pageTitle="AP Inbox"
         pageDescription="Review, verify, and process incoming invoices and payment requests."
       />
+      <RoleTabBar role="accountant" />
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 md:py-8 pb-20 md:pb-8">

@@ -45,6 +45,7 @@ import { createClient } from '@/lib/supabase/client'
 import { executeEFTPayment, processPayments, getApprovedInvoices, getApprovedCertificatesForPayment, recordCertificatePayment } from '../actions'
 import { usePermissions } from '@/hooks/use-permissions'
 import { AppHeader } from '@/components/app-header'
+import { RoleTabBar } from '@/components/role-tab-bar'
 import { useListStatePreservation } from '@/lib/workflow-navigation'
 import { WorkflowLink } from '@/components/workflow-link'
 
@@ -493,10 +494,11 @@ export default function PaymentsPage() {
 
   return (
     <div className="min-h-screen bg-background">
-      <AppHeader 
+      <AppHeader
         pageTitle="Payment Run"
         pageDescription="Generate EFT batches for approved invoices"
       />
+      <RoleTabBar role="accountant" />
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-6 py-8 space-y-6">

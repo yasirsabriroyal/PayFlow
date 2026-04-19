@@ -20,6 +20,7 @@ import {
 } from 'lucide-react'
 import { getPMInvoices } from '../actions'
 import { AppHeader } from '@/components/app-header'
+import { RoleTabBar } from '@/components/role-tab-bar'
 import { useListStatePreservation } from '@/lib/workflow-navigation'
 import { WorkflowLink } from '@/components/workflow-link'
 
@@ -100,10 +101,11 @@ export default function PMCertificatesPage() {
 
   return (
     <div className="min-h-screen bg-background">
-      <AppHeader 
+      <AppHeader
         pageTitle="Payment Certificates"
         pageDescription="Create and manage payment certificates for invoices"
       />
+      <RoleTabBar role="project_manager" />
       
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="space-y-6">

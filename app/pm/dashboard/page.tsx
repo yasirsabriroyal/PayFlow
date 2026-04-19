@@ -33,6 +33,7 @@ import {
 import { getPMProjects, getContractors, getPMInvoices } from '../actions'
 import { createClient } from '@/lib/supabase/client'
 import { AppHeader } from '@/components/app-header'
+import { RoleTabBar } from '@/components/role-tab-bar'
 import { WorkflowLink } from '@/components/workflow-link'
 
 // Safe type definitions with defaults
@@ -148,6 +149,7 @@ export default function PMDashboardPage() {
   return (
     <div className="min-h-screen bg-background">
       <AppHeader pageTitle="PM Dashboard" />
+      <RoleTabBar role="project_manager" />
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">

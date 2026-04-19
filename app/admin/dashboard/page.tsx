@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { KYCVerificationQueue } from '@/components/admin/kyc-verification-queue'
 import { LogoutButton } from '@/components/auth/logout-button'
 import { AppHeader } from '@/components/app-header'
+import { RoleTabBar } from '@/components/role-tab-bar'
 import { WorkflowLink } from '@/components/workflow-link'
 
 export default async function AdminDashboardPage() {
@@ -25,6 +26,7 @@ export default async function AdminDashboardPage() {
   return (
     <div className="min-h-screen bg-background">
       <AppHeader pageTitle="Admin Dashboard" />
+      <RoleTabBar role="admin" />
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">

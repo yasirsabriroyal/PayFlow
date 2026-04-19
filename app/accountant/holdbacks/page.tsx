@@ -27,6 +27,7 @@ import { getHoldbacks, releaseHoldback } from '../actions'
 import { usePermissions } from '@/hooks/use-permissions'
 import { useToast } from '@/hooks/use-toast'
 import { AppHeader } from '@/components/app-header'
+import { RoleTabBar } from '@/components/role-tab-bar'
 import { useListStatePreservation } from '@/lib/workflow-navigation'
 
 // Mock holdback data
@@ -308,10 +309,11 @@ export default function HoldbackLedgerPage() {
 
   return (
     <div className="min-h-screen bg-background">
-      <AppHeader 
+      <AppHeader
         pageTitle="Holdback Ledger"
         pageDescription="45-Day Statutory Holdback Tracking"
       />
+      <RoleTabBar role="accountant" />
 
       <main className="max-w-7xl mx-auto px-6 py-8 space-y-6">
         {/* Stats Cards */}

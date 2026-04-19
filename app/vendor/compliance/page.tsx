@@ -13,6 +13,7 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { AppHeader } from '@/components/app-header'
+import { RoleTabBar } from '@/components/role-tab-bar'
 import { Input } from '@/components/ui/input'
 import {
   Dialog,
@@ -120,6 +121,7 @@ export default function VendorCompliancePage() {
   return (
     <div className="min-h-screen bg-background">
       <AppHeader pageTitle="Compliance & Lien Waivers" />
+      <RoleTabBar role="contractor" />
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-6 py-8 space-y-6">
