@@ -8,7 +8,7 @@ import {
   CheckCircle2, Clock, AlertTriangle, XCircle, Download,
   Send, CreditCard, Banknote, History, Paperclip, User,
   MapPin, Phone, Mail, Hash, RefreshCw, Printer, MoreHorizontal,
-  ChevronRight, ExternalLink, Shield, Receipt
+  ChevronRight, ChevronDown, ExternalLink, Shield, Receipt
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -266,6 +266,7 @@ export default function InvoiceDetailPage() {
   
   // Payment state
   const [paymentInfo, setPaymentInfo] = useState<PaymentInfo | null>(null)
+  const [expandedPaymentId, setExpandedPaymentId] = useState<string | null>(null)
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false)
   const [paymentLoading, setPaymentLoading] = useState(false)
   const [selectedCertificates, setSelectedCertificates] = useState<string[]>([])
@@ -1011,37 +1012,84 @@ export default function InvoiceDetailPage() {
                   <p>No payments recorded yet</p>
                 </div>
               ) : (
-                <div className="space-y-3">
+                <div className="space-y-2">
                   {payments.map((payment) => {
                     const isCleared = ['completed', 'cleared'].includes(payment.status)
+                    const isExpanded = expandedPaymentId === payment.id
+                    const reference = payment.batch_reference || payment.cheque_number || payment.etransfer_reference || payment.wire_reference || null
                     return (
-                    <div key={payment.id} className="flex items-center justify-between p-3 bg-muted/30 rounded-lg">
-                      <div className="flex items-center gap-3">
-                        <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                          isCleared ? 'bg-success/10' : 'bg-warning/10'
-                        }`}>
-                          {payment.payment_method === 'eft' ? (
-                            <Banknote className={`w-5 h-5 ${isCleared ? 'text-success' : 'text-warning'}`} />
-                          ) : (
-                            <CreditCard className={`w-5 h-5 ${isCleared ? 'text-success' : 'text-warning'}`} />
-                          )}
+                      <div key={payment.id} className="bg-muted/30 rounded-lg overflow-hidden">
+                        <div
+                          className="flex items-center justify-between p-3 cursor-pointer hover:bg-muted/50 transition-colors"
+                          onClick={() => setExpandedPaymentId(isExpanded ? null : payment.id)}
+                        >
+                          <div className="flex items-center gap-3">
+                            <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                              isCleared ? 'bg-success/10' : 'bg-warning/10'
+                            }`}>
+                              {payment.payment_method === 'eft' ? (
+                                <Banknote className={`w-5 h-5 ${isCleared ? 'text-success' : 'text-warning'}`} />
+                              ) : (
+                                <CreditCard className={`w-5 h-5 ${isCleared ? 'text-success' : 'text-warning'}`} />
+                              )}
+                            </div>
+                            <div>
+                              <p className="font-medium">{formatCurrency(payment.amount_cents / 100)}</p>
+                              <p className="text-xs text-muted-foreground">
+                                {payment.payment_method?.toUpperCase()}
+                                {reference && ` • ${reference}`}
+                              </p>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <div className="text-right">
+                              <Badge variant={isCleared ? 'default' : 'secondary'} className="mb-1">
+                                {payment.status}
+                              </Badge>
+                              <p className="text-xs text-muted-foreground">{formatDate(payment.created_at)}</p>
+                            </div>
+                            <ChevronDown className={`w-4 h-4 text-muted-foreground transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`} />
+                          </div>
                         </div>
-                        <div>
-                          <p className="font-medium">{formatCurrency(payment.amount_cents / 100)}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {payment.payment_method?.toUpperCase()} 
-                            {payment.batch_reference && ` • ${payment.batch_reference}`}
-                          </p>
-                        </div>
+                        {isExpanded && (
+                          <div className="px-4 pb-4 pt-1 border-t border-border space-y-2 text-sm">
+                            <div className="flex justify-between">
+                              <span className="text-muted-foreground">Payment ID</span>
+                              <span className="font-mono text-xs">{payment.id}</span>
+                            </div>
+                            {reference && (
+                              <div className="flex justify-between">
+                                <span className="text-muted-foreground">Reference</span>
+                                <span>{reference}</span>
+                              </div>
+                            )}
+                            <div className="flex justify-between">
+                              <span className="text-muted-foreground">Method</span>
+                              <span>{payment.payment_method?.toUpperCase()}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-muted-foreground">Status</span>
+                              <Badge variant={isCleared ? 'default' : 'secondary'}>{payment.status}</Badge>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-muted-foreground">Date</span>
+                              <span>{formatDate(payment.payment_date || payment.created_at)}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-muted-foreground">Amount</span>
+                              <span className="font-semibold">{formatCurrency(payment.amount_cents / 100)}</span>
+                            </div>
+                            {payment.notes && (
+                              <div className="flex justify-between">
+                                <span className="text-muted-foreground">Notes</span>
+                                <span className="text-right max-w-[60%]">{payment.notes}</span>
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
-                      <div className="text-right">
-                        <Badge variant={isCleared ? 'default' : 'secondary'} className="mb-1">
-                          {payment.status}
-                        </Badge>
-                        <p className="text-xs text-muted-foreground">{formatDate(payment.created_at)}</p>
-                      </div>
-                    </div>
-                  )})}
+                    )
+                  })}
                 </div>
               )}
             </div>
