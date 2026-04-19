@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { RoleTabBar } from '@/components/role-tab-bar'
 import Link from 'next/link'
 import { 
   Building2, Shield, Clock, CheckCircle2, AlertTriangle, XCircle,
@@ -268,6 +269,7 @@ export default function AccountingSyncPage() {
 
   return (
     <div className="min-h-screen bg-background">
+      <RoleTabBar role="admin" />
       {/* Header */}
       <header className="border-b border-border bg-card">
         <div className="max-w-7xl mx-auto px-6 py-4">

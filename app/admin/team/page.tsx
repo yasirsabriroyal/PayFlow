@@ -65,6 +65,7 @@ import { Switch } from '@/components/ui/switch'
 import { MobileNav } from '@/components/layout/mobile-nav'
 import { DataCard, DataCardHeader } from '@/components/ui/responsive-table'
 import { useListStatePreservation } from '@/lib/workflow-navigation'
+import { RoleTabBar } from '@/components/role-tab-bar'
 
 type UserRole = 'admin' | 'project_manager' | 'accountant'
 
@@ -542,6 +543,7 @@ if (invites && invites.length > 0) {
 
   return (
     <div className="min-h-screen bg-background">
+      <RoleTabBar role="admin" />
       {/* Mobile Header */}
       <header className="sticky top-0 z-40 bg-background/95 backdrop-blur border-b border-border md:hidden">
         <div className="flex items-center justify-between h-14 px-4">

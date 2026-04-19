@@ -22,6 +22,7 @@ import {
 } from 'lucide-react'
 import { getPMContractors } from '../actions'
 import { AppHeader } from '@/components/app-header'
+import { RoleTabBar } from '@/components/role-tab-bar'
 import { useListStatePreservation } from '@/lib/workflow-navigation'
 import { WorkflowLink } from '@/components/workflow-link'
 import { usePermissions } from '@/hooks/use-permissions'
@@ -72,10 +73,11 @@ export default function PMContractorsPage() {
 
   return (
     <div className="min-h-screen bg-background">
-      <AppHeader 
+      <AppHeader
         pageTitle="Contractors"
         pageDescription={`${contractors.length} contractor${contractors.length !== 1 ? 's' : ''} registered`}
       />
+      <RoleTabBar role="project_manager" />
 
       <main className="max-w-7xl mx-auto px-4 py-6">
         {/* Search and Actions */}

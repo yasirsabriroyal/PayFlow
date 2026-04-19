@@ -21,6 +21,7 @@ import {
 } from 'lucide-react'
 import { getPMProjects } from '../actions'
 import { AppHeader } from '@/components/app-header'
+import { RoleTabBar } from '@/components/role-tab-bar'
 import { useListStatePreservation } from '@/lib/workflow-navigation'
 import { WorkflowLink } from '@/components/workflow-link'
 
@@ -87,10 +88,11 @@ export default function PMProjectsPage() {
 
   return (
     <div className="min-h-screen bg-background">
-      <AppHeader 
+      <AppHeader
         pageTitle="My Projects"
         pageDescription={`${projects.length} project${projects.length !== 1 ? 's' : ''} assigned`}
       />
+      <RoleTabBar role="project_manager" />
 
       <main className="max-w-7xl mx-auto px-4 py-6">
         {/* Search */}
