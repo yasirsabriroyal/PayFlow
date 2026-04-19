@@ -744,8 +744,9 @@ export default function InvoiceDetailPage() {
                 const totalCertifiedCents = paymentInfo.summary.total_certified_cents
                 const calculatedPaidAmount = paymentInfo.summary.total_paid_cents
                 const calculatedRemainingAmount = paymentInfo.summary.total_remaining_cents
-                const paymentProgress = totalCertifiedCents > 0
-                  ? Math.min(100, Math.round((calculatedPaidAmount / totalCertifiedCents) * 100))
+                const progressBase = totalCertifiedCents > 0 ? totalCertifiedCents : invoice.net_payable_cents
+                const paymentProgress = progressBase > 0
+                  ? Math.min(100, Math.round((calculatedPaidAmount / progressBase) * 100))
                   : 0
                 const uncertifiedCents = invoice.net_payable_cents - totalCertifiedCents
 
@@ -791,7 +792,7 @@ export default function InvoiceDetailPage() {
                       </div>
                     </div>
 
-                    {uncertifiedCents > 0 && (
+                    {paymentInfo.paymentMode === 'certificate' && uncertifiedCents > 0 && (
                       <p className="text-xs text-muted-foreground pt-1">
                         {formatCurrency(uncertifiedCents / 100)} not yet certified
                       </p>
