@@ -90,7 +90,6 @@ interface FormData {
   voidChequeFile: File | null
   t5018Consent: boolean
 
-  // Step 3: Documents
   wcbClearanceFile: File | null
 }
 
@@ -621,7 +620,6 @@ export default function VendorOnboardingPage() {
               </div>
             )}
 
-            {/* Step 3: Documents */}
             {currentStep === 3 && (
               <div className="space-y-6">
                 <div className="space-y-1">

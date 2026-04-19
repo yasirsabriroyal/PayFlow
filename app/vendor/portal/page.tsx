@@ -31,7 +31,7 @@ export default async function VendorPortalPage() {
           <div>
             <h1 className="text-3xl font-semibold tracking-tight">Vendor Portal</h1>
             <p className="text-muted-foreground mt-1">
-              Manage your invoices and track payment status. This portal will be fully implemented in Step 3.
+              Manage your invoices and track payment status.
             </p>
           </div>
 
