@@ -546,14 +546,6 @@ export default function InvoiceHubPage() {
           <TabsContent value="certificates" className="space-y-4">
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-semibold">Payment Certificates</h2>
-              {summary.remaining_balance_cents > 0 && (
-                <Button asChild>
-                  <WorkflowLink href={`/invoices/${invoiceId}/certificates/new`} contextTitle="New Certificate">
-                    <Plus className="w-4 h-4 mr-2" />
-                    New Certificate
-                  </WorkflowLink>
-                </Button>
-              )}
             </div>
 
             {certificates.length === 0 ? (
@@ -563,14 +555,6 @@ export default function InvoiceHubPage() {
                 <p className="text-sm text-muted-foreground mb-4">
                   Create a payment certificate to certify work for payment.
                 </p>
-                {summary.remaining_balance_cents > 0 && (
-                  <Button asChild>
-                    <WorkflowLink href={`/invoices/${invoiceId}/certificates/new`} contextTitle="New Certificate">
-                      <Plus className="w-4 h-4 mr-2" />
-                      Create First Certificate
-                    </WorkflowLink>
-                  </Button>
-                )}
               </div>
             ) : (
               <div className="bg-card border border-border rounded-xl overflow-hidden">
@@ -586,9 +570,6 @@ export default function InvoiceHubPage() {
                         </th>
                         <th className="px-6 py-4 text-right text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                           Certified Amount
-                        </th>
-                        <th className="px-6 py-4 text-right text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                          Net Payable
                         </th>
                         <th className="px-6 py-4 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                           Status
@@ -619,14 +600,6 @@ export default function InvoiceHubPage() {
                             </td>
                             <td className="px-6 py-4 text-right">
                               <p className="font-semibold">{formatCurrency(cert.certified_amount_cents / 100)}</p>
-                            </td>
-                            <td className="px-6 py-4 text-right">
-                              <p className="font-semibold text-primary">{formatCurrency(cert.net_payable_cents / 100)}</p>
-                              {cert.holdback_amount_cents > 0 && (
-                                <p className="text-xs text-muted-foreground">
-                                  Holdback: {formatCurrency(cert.holdback_amount_cents / 100)}
-                                </p>
-                              )}
                             </td>
                             <td className="px-6 py-4">
                               <Badge variant={certStatus.variant}>
