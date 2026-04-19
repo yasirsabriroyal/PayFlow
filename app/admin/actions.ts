@@ -2,7 +2,7 @@
 
 import { createClient } from '@supabase/supabase-js'
 import { revalidatePath } from 'next/cache'
-import { PERMISSIONS } from '@/lib/permissions'
+import { PERMISSIONS, withPermission } from '@/lib/permissions'
 import { secureAction } from '@/lib/security/secureAction'
 
 // Create admin client for server actions
@@ -257,4 +257,68 @@ export async function getActiveProjects(): Promise<GetProjectsResult> {
     console.error('Get projects error:', err)
     return { success: false, projects: [], error: 'Failed to load projects' }
   }
+}
+
+// =====================================================
+// COMPANY SETTINGS ACTIONS
+// =====================================================
+
+export async function getCompanySettings() {
+  return withPermission(PERMISSIONS.ADMINISTRATION.MANAGE_USERS, async () => {
+    const supabase = getSupabaseAdmin()
+
+    const { data, error } = await supabase
+      .from('company_settings')
+      .select('*')
+      .limit(1)
+      .single()
+
+    if (error) {
+      console.error('Get company settings error:', error)
+      return { success: false, error: error.message }
+    }
+
+    return { success: true, settings: data }
+  })
+}
+
+export interface UpdateCompanySettingsInput {
+  company_name?: string
+  address?: string
+  city?: string
+  province?: string
+  postal_code?: string
+  phone?: string
+  email?: string
+  website?: string
+  hst_number?: string
+}
+
+export async function updateCompanySettings(data: UpdateCompanySettingsInput) {
+  return withPermission(PERMISSIONS.ADMINISTRATION.MANAGE_USERS, async () => {
+    const supabase = getSupabaseAdmin()
+
+    const { data: existing } = await supabase
+      .from('company_settings')
+      .select('id')
+      .limit(1)
+      .single()
+
+    const { error } = existing
+      ? await supabase
+          .from('company_settings')
+          .update({ ...data, updated_at: new Date().toISOString() })
+          .eq('id', existing.id)
+      : await supabase
+          .from('company_settings')
+          .insert({ ...data, updated_at: new Date().toISOString() })
+
+    if (error) {
+      console.error('Update company settings error:', error)
+      return { success: false, error: error.message }
+    }
+
+    revalidatePath('/admin')
+    return { success: true }
+  })
 }
