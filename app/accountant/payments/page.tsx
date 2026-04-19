@@ -198,6 +198,8 @@ export default function PaymentsPage() {
   }>>([])
   const [certsLoading, setCertsLoading] = useState(true)
   const [certPaymentLoading, setCertPaymentLoading] = useState<string | null>(null)
+  const [certReviewDialogOpen, setCertReviewDialogOpen] = useState(false)
+  const [certToReview, setCertToReview] = useState<typeof approvedCerts[0] | null>(null)
 
   // Fetch approved invoices from server action
   useEffect(() => {
@@ -871,12 +873,12 @@ export default function PaymentsPage() {
                     <td className="px-6 py-4 text-right">
                       <Button
                         size="sm"
-                        onClick={() => handlePayCertificate(cert.id, cert.certified_amount_cents)}
+                        onClick={() => { setCertToReview(cert); setCertReviewDialogOpen(true) }}
                         disabled={certPaymentLoading === cert.id || !canProcessPayments}
                         className="gap-1"
                       >
                         <Banknote className="w-3 h-3" />
-                        {certPaymentLoading === cert.id ? 'Paying…' : 'Pay'}
+                        {certPaymentLoading === cert.id ? 'Paying…' : 'Review & Pay'}
                       </Button>
                     </td>
                   </tr>
@@ -886,6 +888,92 @@ export default function PaymentsPage() {
           </table>
         </div>
       </div>
+
+      {/* Certificate Review & Pay Dialog */}
+      <Dialog open={certReviewDialogOpen} onOpenChange={setCertReviewDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Review Certificate Payment</DialogTitle>
+            <DialogDescription>Review the details below before confirming payment.</DialogDescription>
+          </DialogHeader>
+          {certToReview && (
+            <div className="space-y-3 text-sm">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Certificate #</span>
+                {certToReview.invoice?.id ? (
+                  <a
+                    href={`/invoices/${certToReview.invoice.id}/certificates/${certToReview.id}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="font-mono inline-flex items-center gap-1 text-primary hover:underline"
+                  >
+                    {certToReview.certificate_number}
+                    <ExternalLink className="w-3 h-3 opacity-70" />
+                  </a>
+                ) : (
+                  <span className="font-mono">{certToReview.certificate_number}</span>
+                )}
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Invoice #</span>
+                {certToReview.invoice?.id ? (
+                  <a
+                    href={`/accountant/invoices/${certToReview.invoice.id}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="font-mono inline-flex items-center gap-1 text-primary hover:underline"
+                  >
+                    {certToReview.invoice.invoice_number}
+                    <ExternalLink className="w-3 h-3 opacity-70" />
+                  </a>
+                ) : (
+                  <span className="font-mono text-muted-foreground">—</span>
+                )}
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Contractor</span>
+                <span className="font-medium">{certToReview.contractor?.company_name || '—'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Project</span>
+                <span className="font-medium">{certToReview.project ? `${certToReview.project.project_number} – ${certToReview.project.name}` : '—'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Certified Amount</span>
+                <span className="font-semibold text-success">{formatCurrency(certToReview.certified_amount_cents / 100)}</span>
+              </div>
+              <div className="border-t border-border pt-3 space-y-2">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Payment Method</span>
+                  <span className="font-medium">EFT</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Payment Date</span>
+                  <span className="font-medium">
+                    {new Date().toLocaleDateString('en-CA', { year: 'numeric', month: 'short', day: 'numeric' })}
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setCertReviewDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                if (!certToReview) return
+                setCertReviewDialogOpen(false)
+                handlePayCertificate(certToReview.id, certToReview.certified_amount_cents)
+              }}
+              disabled={!certToReview || certPaymentLoading === certToReview?.id}
+            >
+              <Banknote className="w-4 h-4 mr-2" />
+              Confirm Payment
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* EFT Review Dialog */}
       <Dialog open={eftReviewOpen} onOpenChange={setEftReviewOpen}>
