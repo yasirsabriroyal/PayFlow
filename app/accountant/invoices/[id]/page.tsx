@@ -338,8 +338,8 @@ export default function InvoiceDetailPage() {
     if (!paymentInfo) return
     
     const amountCents = Math.round(parseFloat(paymentForm.amount || '0') * 100)
-    
-    if (amountCents <= 0) {
+
+    if (paymentInfo.paymentMode === 'direct' && amountCents <= 0) {
       toast({ title: 'Error', description: 'Please enter a valid payment amount', variant: 'destructive' })
       return
     }
