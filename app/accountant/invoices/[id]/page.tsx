@@ -721,77 +721,80 @@ export default function InvoiceDetailPage() {
                 </div>
               </div>
               
-              {/* Payment Status Section */}
+              {/* Invoice Financials */}
               <Separator className="my-4" />
-              {(() => {
-                // Use paymentInfo totals (computed from actual payment records) when available;
-                // fall back to invoice fields only when paymentInfo hasn't loaded yet.
-                const totalCertified = paymentInfo?.summary.total_certified_cents ?? invoice.net_payable_cents
-                const calculatedPaidAmount = paymentInfo
-                  ? paymentInfo.summary.total_paid_cents
-                  : (invoice.amount_paid_cents || 0)
-                const calculatedRemainingAmount = paymentInfo
-                  ? paymentInfo.summary.total_remaining_cents
-                  : Math.max(0, invoice.net_payable_cents - calculatedPaidAmount)
-                const paymentProgress = totalCertified > 0
-                  ? Math.min(100, Math.round((calculatedPaidAmount / totalCertified) * 100))
+              <div className="space-y-2">
+                <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Invoice Financials</h3>
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Invoice Total</span>
+                  <span>{formatCurrency(invoice.total_cents / 100)}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Holdback (10%)</span>
+                  <span className="text-orange-500">-{formatCurrency(invoice.holdback_cents / 100)}</span>
+                </div>
+                <div className="flex justify-between text-sm font-bold">
+                  <span className="text-muted-foreground">Net Payable</span>
+                  <span className="text-blue-600 dark:text-blue-400">{formatCurrency(invoice.net_payable_cents / 100)}</span>
+                </div>
+              </div>
+
+              {/* Payment Progress */}
+              {paymentInfo && (() => {
+                const totalCertifiedCents = paymentInfo.summary.total_certified_cents
+                const calculatedPaidAmount = paymentInfo.summary.total_paid_cents
+                const calculatedRemainingAmount = paymentInfo.summary.total_remaining_cents
+                const paymentProgress = totalCertifiedCents > 0
+                  ? Math.min(100, Math.round((calculatedPaidAmount / totalCertifiedCents) * 100))
                   : 0
-                const totalPaymentRecords = payments.length + paymentRequests.filter(pr => pr.status === 'paid').length
-                
+                const uncertifiedCents = invoice.net_payable_cents - totalCertifiedCents
+
                 return (
-                  <div className="space-y-3">
-                    <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Payment Status</h3>
-                    
-                    {/* Payment Progress Bar */}
-                    <div className="space-y-2">
+                  <div className="space-y-3 pt-4">
+                    <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Payment Progress</h3>
+
+                    <div className="space-y-1">
                       <div className="flex justify-between text-sm">
-                        <span className="text-muted-foreground">Payment Progress</span>
+                        <span className="text-muted-foreground">Progress</span>
                         <span className="font-medium">{paymentProgress}%</span>
                       </div>
                       <div className="h-2 bg-muted rounded-full overflow-hidden">
-                        <div 
+                        <div
                           className="h-full bg-success transition-all duration-500"
-                          style={{ width: `${Math.min(100, paymentProgress)}%` }}
+                          style={{ width: `${paymentProgress}%` }}
                         />
                       </div>
                     </div>
-                    
-                    <div className="grid grid-cols-2 gap-4 pt-2">
-                      <div className="bg-success/10 rounded-lg p-3">
-                        <p className="text-xs text-muted-foreground">Amount Paid</p>
-                        <p className="text-lg font-semibold text-success">
-                          {formatCurrency(calculatedPaidAmount / 100)}
-                        </p>
-                        <p className="text-xs text-muted-foreground mt-1">
-                          {totalPaymentRecords > 0 
-                            ? `${totalPaymentRecords} payment${totalPaymentRecords !== 1 ? 's' : ''} recorded`
-                            : invoice.status === 'paid' ? 'Paid via EFT' : 'No payments yet'}
-                        </p>
-                      </div>
-                      <div className={`rounded-lg p-3 ${calculatedRemainingAmount > 0 ? 'bg-warning/10' : 'bg-success/10'}`}>
-                        <p className="text-xs text-muted-foreground">Amount Remaining</p>
-                        <p className={`text-lg font-semibold ${calculatedRemainingAmount > 0 ? 'text-warning' : 'text-success'}`}>
-                          {formatCurrency(calculatedRemainingAmount / 100)}
-                        </p>
-                        <p className="text-xs text-muted-foreground mt-1">
-                          {calculatedRemainingAmount > 0 ? 'Outstanding balance' : 'Fully paid'}
-                        </p>
-                      </div>
-                    </div>
-                    
-                    {/* Last Payment Info */}
-                    {(payments.length > 0 || paymentRequests.some(pr => pr.status === 'paid')) && (
-                      <div className="flex items-center justify-between text-sm pt-2 border-t border-border">
-                        <span className="text-muted-foreground">Last Payment</span>
-                        <span className="font-medium">
-                          {payments.length > 0 
-                            ? `${formatCurrency((payments[0] as Payment).amount_cents / 100)} on ${formatDate((payments[0] as Payment).created_at)}`
-                            : paymentRequests.filter(pr => pr.status === 'paid')[0]
-                              ? `${formatCurrency(paymentRequests.filter(pr => pr.status === 'paid')[0].approved_amount_cents / 100)} via ${paymentRequests.filter(pr => pr.status === 'paid')[0].payment_method?.toUpperCase() || 'EFT'}`
-                              : 'N/A'
-                          }
+
+                    <div className="space-y-2 pt-1">
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">Total Certified</span>
+                        <span className="text-muted-foreground text-xs">
+                          {formatCurrency(totalCertifiedCents / 100)} of {formatCurrency(invoice.net_payable_cents / 100)}
                         </span>
                       </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">Total Paid</span>
+                        <span className="font-medium text-success">{formatCurrency(calculatedPaidAmount / 100)}</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">Total Remaining</span>
+                        <span className={`font-medium ${calculatedRemainingAmount > 0 ? 'text-warning' : 'text-success'}`}>
+                          {formatCurrency(calculatedRemainingAmount / 100)}
+                        </span>
+                      </div>
+                      <div className="flex justify-between text-sm pt-1 border-t border-border">
+                        <span className="text-muted-foreground">Status</span>
+                        <span className={`font-medium text-xs ${calculatedRemainingAmount === 0 ? 'text-success' : 'text-warning'}`}>
+                          {calculatedRemainingAmount === 0 ? 'Fully paid' : 'Outstanding balance'}
+                        </span>
+                      </div>
+                    </div>
+
+                    {uncertifiedCents > 0 && (
+                      <p className="text-xs text-muted-foreground pt-1">
+                        {formatCurrency(uncertifiedCents / 100)} not yet certified
+                      </p>
                     )}
                   </div>
                 )
