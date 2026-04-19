@@ -1685,8 +1685,11 @@ export async function getInvoicePaymentInfo(invoiceId: string) {
 
     // Invoice totals — computed from actual cert payment records, not stale invoice fields
     const totalCertifiedCents = (certificates || []).reduce((sum, c) => sum + (c.certified_amount_cents || 0), 0)
-    const totalPaidCents = certificatesWithPayments.reduce((sum, c) => sum + c.total_paid_cents, 0)
-    const invoiceRemainingCents = Math.max(0, totalCertifiedCents - totalPaidCents)
+    const totalCertPaidCents = certificatesWithPayments.reduce((sum, c) => sum + c.total_paid_cents, 0)
+    const totalDirectPaidCents = (directPayments || []).reduce((sum, p) => sum + (p.amount_cents || 0), 0)
+    const totalPaidCents = totalCertPaidCents + totalDirectPaidCents
+    const invoiceBaseCents = totalCertifiedCents > 0 ? totalCertifiedCents : (invoice.net_payable_cents || 0)
+    const invoiceRemainingCents = Math.max(0, invoiceBaseCents - totalPaidCents)
     
     return {
       success: true,
