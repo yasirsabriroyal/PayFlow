@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { 
-  CheckCircle, 
+  CheckCircle,
   Download,
   FileText,
   ArrowLeft,
@@ -18,7 +18,8 @@ import {
   AlertTriangle,
   ShieldAlert,
   Ban,
-  FileWarning
+  FileWarning,
+  ExternalLink
 } from 'lucide-react'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
@@ -715,7 +716,16 @@ export default function PaymentsPage() {
                           <p className={`text-sm ${isBlocked ? 'text-muted-foreground' : ''}`}>{invoice.project}</p>
                         </td>
                         <td className="px-6 py-4">
-                          <p className={`font-mono text-sm ${isBlocked ? 'text-muted-foreground' : ''}`}>{invoice.invoiceNumber}</p>
+                          <a
+                            href={`/accountant/invoices/${invoice.id}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={(e) => e.stopPropagation()}
+                            className={`font-mono text-sm inline-flex items-center gap-1 hover:underline ${isBlocked ? 'text-muted-foreground' : 'text-primary'}`}
+                          >
+                            {invoice.invoiceNumber}
+                            <ExternalLink className="w-3 h-3 opacity-70" />
+                          </a>
                           <p className="text-xs text-muted-foreground">Approved: {invoice.approvedDate}</p>
                         </td>
                         <td className="px-6 py-4 text-right">
@@ -816,10 +826,34 @@ export default function PaymentsPage() {
                       <p className="font-medium">{cert.contractor?.company_name || 'Unknown'}</p>
                     </td>
                     <td className="px-6 py-4">
-                      <p className="font-mono text-sm">{cert.invoice?.invoice_number || '—'}</p>
+                      {cert.invoice?.id ? (
+                        <a
+                          href={`/accountant/invoices/${cert.invoice.id}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="font-mono text-sm inline-flex items-center gap-1 text-primary hover:underline"
+                        >
+                          {cert.invoice.invoice_number || '—'}
+                          <ExternalLink className="w-3 h-3 opacity-70" />
+                        </a>
+                      ) : (
+                        <p className="font-mono text-sm text-muted-foreground">—</p>
+                      )}
                     </td>
                     <td className="px-6 py-4">
-                      <p className="font-mono text-sm">{cert.certificate_number}</p>
+                      {cert.invoice?.id ? (
+                        <a
+                          href={`/invoices/${cert.invoice.id}/certificates/${cert.id}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="font-mono text-sm inline-flex items-center gap-1 text-primary hover:underline"
+                        >
+                          {cert.certificate_number}
+                          <ExternalLink className="w-3 h-3 opacity-70" />
+                        </a>
+                      ) : (
+                        <p className="font-mono text-sm">{cert.certificate_number}</p>
+                      )}
                     </td>
                     <td className="px-6 py-4">
                       <p className="text-sm">{cert.project ? `${cert.project.project_number} – ${cert.project.name}` : '—'}</p>
