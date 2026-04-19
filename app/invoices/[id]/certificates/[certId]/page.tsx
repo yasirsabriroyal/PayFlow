@@ -248,15 +248,6 @@ export default function CertificateDetailPage() {
                 <p className="text-sm text-muted-foreground">Certified Amount</p>
                 <p className="text-2xl font-bold">{formatCurrency(certificate.certified_amount_cents / 100)}</p>
               </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Holdback Deduction</p>
-                <p className="text-lg font-semibold text-destructive">-{formatCurrency(certificate.holdback_amount_cents / 100)}</p>
-              </div>
-              <Separator />
-              <div>
-                <p className="text-sm text-muted-foreground">Net Payable</p>
-                <p className="text-2xl font-bold text-primary">{formatCurrency(certificate.net_payable_cents / 100)}</p>
-              </div>
             </div>
 
             <div className="space-y-4">
