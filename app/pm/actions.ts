@@ -755,12 +755,12 @@ export async function getPMApprovedInvoices() {
 
 // Approve an invoice
 export async function approveInvoice(invoiceId: string) {
-  return withPermission(PERMISSIONS.INVOICES.APPROVE_INVOICES, async () => {
+  return withPermission(PERMISSIONS.INVOICES.APPROVE_INVOICES, async (userData) => {
     const supabase = getSupabaseAdmin()
-    
+
     const { data, error } = await supabase
       .from('invoices')
-      .update({ 
+      .update({
         status: 'approved',
         updated_at: new Date().toISOString()
       })
@@ -773,18 +773,30 @@ export async function approveInvoice(invoiceId: string) {
       return { success: false, error: error.message }
     }
 
+    const auditUserId = await resolveInternalUserId(userData.id, supabase)
+    if (auditUserId) {
+      await supabase.from('audit_logs').insert({
+        action: 'invoice_approved',
+        entity_type: 'invoice',
+        entity_id: invoiceId,
+        user_id: auditUserId,
+        description: `Approved invoice`,
+        new_values: { status: 'approved' },
+      })
+    }
+
     return { success: true, invoice: data }
   })
 }
 
 // Reject an invoice
 export async function rejectInvoice(invoiceId: string, reason: string) {
-  return withPermission(PERMISSIONS.INVOICES.APPROVE_INVOICES, async () => {
+  return withPermission(PERMISSIONS.INVOICES.APPROVE_INVOICES, async (userData) => {
     const supabase = getSupabaseAdmin()
-    
+
     const { data, error } = await supabase
       .from('invoices')
-      .update({ 
+      .update({
         status: 'rejected',
         rejection_reason: reason,
         updated_at: new Date().toISOString()
@@ -796,6 +808,18 @@ export async function rejectInvoice(invoiceId: string, reason: string) {
     if (error) {
       console.error('Reject invoice error:', error)
       return { success: false, error: error.message }
+    }
+
+    const auditUserId = await resolveInternalUserId(userData.id, supabase)
+    if (auditUserId) {
+      await supabase.from('audit_logs').insert({
+        action: 'invoice_rejected',
+        entity_type: 'invoice',
+        entity_id: invoiceId,
+        user_id: auditUserId,
+        description: `Rejected invoice: ${reason}`,
+        new_values: { status: 'rejected', rejection_reason: reason },
+      })
     }
 
     return { success: true, invoice: data }
