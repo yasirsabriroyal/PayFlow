@@ -16,6 +16,7 @@ const TAB_MAP: Record<string, Tab[]> = {
     { label: 'Projects', href: '/admin/projects' },
     { label: 'Contractors', href: '/admin/contractors' },
     { label: 'Accounting', href: '/admin/accounting' },
+    { label: 'Settings', href: '/admin/settings' },
   ],
   accountant: [
     { label: 'Queue', href: '/accountant/queue' },
