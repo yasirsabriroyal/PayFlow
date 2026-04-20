@@ -1496,7 +1496,7 @@ export async function recordDirectInvoicePayment(input: {
         payment_reference: input.payment_reference || `Direct payment for ${invoice.invoice_number}`,
         processed_by: internalUser.id,
         processed_at: new Date().toISOString(),
-        created_by: userData.id,
+        created_by: internalUser.id,
         description: 'Direct invoice payment (no certificates)',
       })
       .select('id')
@@ -1761,7 +1761,19 @@ export async function executeCertificateEFTBatch(input: {
     
     const batchReference = input.batch_reference || `EFT-CERT-${Date.now()}`
     const totalAmount = certificates?.reduce((sum, c) => sum + (c.net_payable_cents || 0), 0) || 0
-    
+
+    // Resolve internal users.id from auth UUID (processed_by FK references users(id))
+    const { data: internalUser, error: userLookupError } = await supabase
+      .from('users')
+      .select('id')
+      .eq('auth_user_id', userData.id)
+      .single()
+
+    if (userLookupError || !internalUser) {
+      console.error('User lookup error:', userLookupError)
+      return { success: false, error: 'Could not resolve internal user ID' }
+    }
+
     // Process each certificate
     for (const cert of certificates || []) {
       // Create payment record
@@ -1774,7 +1786,7 @@ export async function executeCertificateEFTBatch(input: {
           payment_method: 'eft',
           payment_date: new Date().toISOString().split('T')[0],
           status: 'cleared',
-          processed_by: userData.id,
+          processed_by: internalUser.id,
         })
       
       // Update certificate to paid
