@@ -1372,11 +1372,12 @@ export async function recordCertificatePayment(input: {
     }
     
     // 7. Log the action
+    const auditUserId = await resolveInternalUserId(userData.id, supabase)
     await supabase.from('audit_logs').insert({
       action: 'payment_recorded',
       entity_type: 'payment',
       entity_id: payment.id,
-      user_id: userData.id,
+      user_id: auditUserId,
       description: `Recorded payment of $${(input.amount_cents / 100).toFixed(2)} for certificate ${certificate.certificate_number}`,
       new_values: {
         amount_cents: input.amount_cents,
