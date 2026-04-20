@@ -1758,7 +1758,35 @@ export async function executeCertificateEFTBatch(input: {
     if (invalidCerts?.length) {
       return { success: false, error: `${invalidCerts.length} certificate(s) are not in approved status` }
     }
-    
+
+    // Block batch if any invoice has OTHER unpaid certificates not included in this batch
+    const uniqueInvoiceIds = [...new Set((certificates || []).map(c => c.invoice_id))]
+    for (const invoiceId of uniqueInvoiceIds) {
+      const { data: otherUnpaid, error: otherUnpaidError } = await supabase
+        .from('payment_certificates')
+        .select('id')
+        .eq('invoice_id', invoiceId)
+        .not('status', 'in', '("paid","cancelled")')
+        .not('id', 'in', `(${input.certificate_ids.map(id => `"${id}"`).join(',')})`)
+
+      if (otherUnpaidError) {
+        console.error('Unpaid cert check error:', otherUnpaidError)
+        return { success: false, error: otherUnpaidError.message }
+      }
+
+      if (otherUnpaid && otherUnpaid.length > 0) {
+        const { data: inv } = await supabase
+          .from('invoices')
+          .select('invoice_number')
+          .eq('id', invoiceId)
+          .single()
+        return {
+          success: false,
+          error: `Invoice ${inv?.invoice_number ?? invoiceId} has unpaid certificates that must be paid before processing this batch. All certificates on an invoice must be paid together.`,
+        }
+      }
+    }
+
     const batchReference = input.batch_reference || `EFT-CERT-${Date.now()}`
     const totalAmount = certificates?.reduce((sum, c) => sum + (c.net_payable_cents || 0), 0) || 0
 
