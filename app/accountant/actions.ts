@@ -1467,9 +1467,21 @@ export async function recordDirectInvoicePayment(input: {
       }
     }
     
-    // 7. Create a payment request for tracking
+    // 7. Resolve internal users.id from auth UUID (processed_by FK references users(id))
+    const { data: internalUser, error: userLookupError } = await supabase
+      .from('users')
+      .select('id')
+      .eq('auth_user_id', userData.id)
+      .single()
+
+    if (userLookupError || !internalUser) {
+      console.error('User lookup error:', userLookupError)
+      return { success: false, error: 'Could not resolve internal user ID' }
+    }
+
+    // 8. Create a payment request for tracking
     const requestNumber = `PR-INV-${Date.now()}-${Math.random().toString(36).substring(2, 7).toUpperCase()}`
-    
+
     const { data: paymentRequest, error: prError } = await supabase
       .from('payment_requests')
       .insert({
@@ -1482,7 +1494,7 @@ export async function recordDirectInvoicePayment(input: {
         status: 'paid',
         payment_method: input.payment_method,
         payment_reference: input.payment_reference || `Direct payment for ${invoice.invoice_number}`,
-        processed_by: userData.id,
+        processed_by: internalUser.id,
         processed_at: new Date().toISOString(),
         created_by: userData.id,
         description: 'Direct invoice payment (no certificates)',
@@ -1509,16 +1521,16 @@ export async function recordDirectInvoicePayment(input: {
         etransfer_reference: input.etransfer_reference || null,
         wire_reference: input.wire_reference || null,
         notes: input.notes ? `Direct Invoice Payment: ${input.notes}` : `Direct payment for invoice ${invoice.invoice_number}`,
-        processed_by: userData.id,
+        processed_by: internalUser.id,
       })
       .select()
       .single()
-    
+
     if (paymentError) {
       console.error('Create payment error:', paymentError)
       return { success: false, error: paymentError.message }
     }
-    
+
     // 9. Update invoice payment totals
     const newTotalPaid = currentPaid + input.amount_cents
     const newRemainingAmount = invoice.net_payable_cents - newTotalPaid
