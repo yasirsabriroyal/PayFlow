@@ -34,6 +34,8 @@ import {
   removeProjectAssignment
 } from './project-actions'
 import { useListStatePreservation } from '@/lib/workflow-navigation'
+import { AppHeader } from '@/components/app-header'
+import { RoleTabBar } from '@/components/role-tab-bar'
 
 // Type definitions
 type ProjectAssignment = {
@@ -308,7 +310,10 @@ export default function AdminProjectsPage() {
   const activeCount = safeArray(projects).filter(p => p?.is_active).length
 
   return (
-    <div className="p-8">
+    <div className="min-h-screen bg-background">
+      <AppHeader pageTitle="Projects" />
+      <RoleTabBar role="admin" />
+      <div className="p-8">
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold">Projects</h1>
@@ -417,7 +422,7 @@ export default function AdminProjectsPage() {
                   <TableRow 
                     key={project.id}
                     className="cursor-pointer hover:bg-muted/50 transition-colors"
-                    onClick={() => router.push(`/projects/${project.id}`)}
+                    onClick={() => router.push(`/admin/projects/${project.id}`)}
                   >
                     <TableCell>
                       <div>
@@ -452,7 +457,7 @@ export default function AdminProjectsPage() {
                     <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                       <div className="flex justify-end gap-2">
                         <Button variant="ghost" size="sm" asChild>
-                          <Link href={`/projects/${project.id}`}>
+                          <Link href={`/admin/projects/${project.id}`}>
                             <Eye className="h-4 w-4" />
                           </Link>
                         </Button>
@@ -732,6 +737,7 @@ export default function AdminProjectsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      </div>
     </div>
   )
 }
