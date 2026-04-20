@@ -10,6 +10,7 @@ import {
   // RATE_LIMITS, // temporarily disabled
 } from '@/lib/security/secureAction'
 import { getSupabaseAdmin } from '@/lib/supabase/admin'
+import { resolveInternalUserId } from '@/lib/utils/resolve-user'
 
 // =====================================================
 // INVOICE APPROVAL / REJECTION ACTIONS
@@ -1307,14 +1308,9 @@ export async function recordCertificatePayment(input: {
     }
 
     // Resolve internal users.id from auth UUID (processed_by FK references users(id))
-    const { data: internalUser, error: userLookupError } = await supabase
-      .from('users')
-      .select('id')
-      .eq('auth_user_id', userData.id)
-      .single()
-
-    if (userLookupError || !internalUser) {
-      console.error('recordCertificatePayment: could not resolve internal user ID', userLookupError)
+    const internalUserId = await resolveInternalUserId(userData.id, supabase)
+    if (!internalUserId) {
+      console.error('recordCertificatePayment: could not resolve internal user ID')
       return { success: false, error: 'Could not resolve internal user ID' }
     }
 
@@ -1334,7 +1330,7 @@ export async function recordCertificatePayment(input: {
         etransfer_reference: input.etransfer_reference || null,
         wire_reference: input.wire_reference || null,
         notes: input.notes || null,
-        processed_by: internalUser.id,
+        processed_by: internalUserId,
       })
       .select()
       .single()
@@ -1488,14 +1484,9 @@ export async function recordDirectInvoicePayment(input: {
     }
     
     // 7. Resolve internal users.id from auth UUID (processed_by FK references users(id))
-    const { data: internalUser, error: userLookupError } = await supabase
-      .from('users')
-      .select('id')
-      .eq('auth_user_id', userData.id)
-      .single()
-
-    if (userLookupError || !internalUser) {
-      console.error('User lookup error:', userLookupError)
+    const internalUserId = await resolveInternalUserId(userData.id, supabase)
+    if (!internalUserId) {
+      console.error('recordDirectInvoicePayment: could not resolve internal user ID')
       return { success: false, error: 'Could not resolve internal user ID' }
     }
 
@@ -1514,9 +1505,9 @@ export async function recordDirectInvoicePayment(input: {
         status: 'paid',
         payment_method: input.payment_method,
         payment_reference: input.payment_reference || `Direct payment for ${invoice.invoice_number}`,
-        processed_by: internalUser.id,
+        processed_by: internalUserId,
         processed_at: new Date().toISOString(),
-        created_by: internalUser.id,
+        created_by: internalUserId,
         description: 'Direct invoice payment (no certificates)',
       })
       .select('id')
@@ -1541,7 +1532,7 @@ export async function recordDirectInvoicePayment(input: {
         etransfer_reference: input.etransfer_reference || null,
         wire_reference: input.wire_reference || null,
         notes: input.notes ? `Direct Invoice Payment: ${input.notes}` : `Direct payment for invoice ${invoice.invoice_number}`,
-        processed_by: internalUser.id,
+        processed_by: internalUserId,
       })
       .select()
       .single()
@@ -1811,14 +1802,9 @@ export async function executeCertificateEFTBatch(input: {
     const totalAmount = certificates?.reduce((sum, c) => sum + (c.net_payable_cents || 0), 0) || 0
 
     // Resolve internal users.id from auth UUID (processed_by FK references users(id))
-    const { data: internalUser, error: userLookupError } = await supabase
-      .from('users')
-      .select('id')
-      .eq('auth_user_id', userData.id)
-      .single()
-
-    if (userLookupError || !internalUser) {
-      console.error('User lookup error:', userLookupError)
+    const internalUserId = await resolveInternalUserId(userData.id, supabase)
+    if (!internalUserId) {
+      console.error('executeCertificateEFTBatch: could not resolve internal user ID')
       return { success: false, error: 'Could not resolve internal user ID' }
     }
 
@@ -1837,7 +1823,7 @@ export async function executeCertificateEFTBatch(input: {
           payment_method: 'eft',
           payment_date: new Date().toISOString().split('T')[0],
           status: 'cleared',
-          processed_by: internalUser.id,
+          processed_by: internalUserId,
         })
         .select('id')
         .single()

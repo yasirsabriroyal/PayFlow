@@ -13,6 +13,7 @@
 import { withPermission } from '@/lib/permissions'
 import { PERMISSIONS } from '@/lib/permissions/constants'
 import { getSupabaseAdmin } from '@/lib/supabase/admin'
+import { resolveInternalUserId } from '@/lib/utils/resolve-user'
 
 /**
  * Fetch payment certificates for a specific invoice.
@@ -507,14 +508,9 @@ export async function approvePaymentCertificate(input: { certificate_id: string 
     }
 
     // Resolve internal users.id from auth UUID (approved_by FK references users(id))
-    const { data: internalUser, error: userLookupError } = await supabase
-      .from('users')
-      .select('id')
-      .eq('auth_user_id', userData.id)
-      .single()
-
-    if (userLookupError || !internalUser) {
-      console.error('approvePaymentCertificate: could not resolve internal user ID', userLookupError)
+    const internalUserId = await resolveInternalUserId(userData.id, supabase)
+    if (!internalUserId) {
+      console.error('approvePaymentCertificate: could not resolve internal user ID')
       return { success: false, error: 'Could not resolve internal user ID' }
     }
 
@@ -524,7 +520,7 @@ export async function approvePaymentCertificate(input: { certificate_id: string 
       .from('payment_certificates')
       .update({
         status: 'approved',
-        approved_by: internalUser.id,
+        approved_by: internalUserId,
         approved_at: now,
       })
       .eq('id', input.certificate_id)
@@ -543,7 +539,7 @@ export async function approvePaymentCertificate(input: { certificate_id: string 
       user_id: userData.id,
       description: `Approved certificate ${cert.certificate_number}`,
       old_values: { status: 'pending' },
-      new_values: { status: 'approved', approved_by: internalUser.id, approved_at: now },
+      new_values: { status: 'approved', approved_by: internalUserId, approved_at: now },
     })
 
     return { success: true, certificate: updated }
@@ -590,14 +586,9 @@ export async function rejectPaymentCertificate(input: {
     }
 
     // Resolve internal users.id from auth UUID (rejected_by FK references users(id))
-    const { data: internalUser, error: userLookupError } = await supabase
-      .from('users')
-      .select('id')
-      .eq('auth_user_id', userData.id)
-      .single()
-
-    if (userLookupError || !internalUser) {
-      console.error('rejectPaymentCertificate: could not resolve internal user ID', userLookupError)
+    const internalUserId = await resolveInternalUserId(userData.id, supabase)
+    if (!internalUserId) {
+      console.error('rejectPaymentCertificate: could not resolve internal user ID')
       return { success: false, error: 'Could not resolve internal user ID' }
     }
 
@@ -608,7 +599,7 @@ export async function rejectPaymentCertificate(input: {
       .update({
         status: 'rejected',
         rejection_reason: input.reason,
-        rejected_by: internalUser.id,
+        rejected_by: internalUserId,
         rejected_at: now,
       })
       .eq('id', input.certificate_id)
@@ -630,7 +621,7 @@ export async function rejectPaymentCertificate(input: {
       new_values: {
         status: 'rejected',
         rejection_reason: input.reason,
-        rejected_by: internalUser.id,
+        rejected_by: internalUserId,
         rejected_at: now,
       },
     })
