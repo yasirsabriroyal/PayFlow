@@ -1887,11 +1887,11 @@ export async function executeCertificateEFTBatch(input: {
       payment_method: 'eft',
       invoice_count: input.certificate_ids.length,
       total_amount_cents: totalAmount,
-      executed_by_user_id: userData.id,
+      executed_by_user_id: internalUserId,
       executed_at: new Date().toISOString(),
       status: 'completed',
     })
-    
+
     // Log the action
     await supabase.from('audit_logs').insert({
       action: 'eft_certificate_batch_executed',
