@@ -213,51 +213,55 @@ export const createDirectPayment = secureAction(
 /**
  * Get all active contractors for the payment form dropdown
  */
-export async function getActiveContractors(): Promise<GetContractorsResult> {
-  try {
-    const supabase = getSupabaseAdmin()
-    
-    const { data, error } = await supabase
-      .from('contractors')
-      .select('id, company_name, contact_name, email, status')
-      .eq('status', 'active')
-      .order('company_name')
-    
-    if (error) {
-      console.error('Get contractors error:', error)
-      return { success: false, contractors: [], error: error.message }
+export async function getActiveContractors() {
+  return withPermission(PERMISSIONS.VENDORS.VIEW_VENDORS, async () => {
+    try {
+      const supabase = getSupabaseAdmin()
+
+      const { data, error } = await supabase
+        .from('contractors')
+        .select('id, company_name, contact_name, email, status')
+        .eq('status', 'active')
+        .order('company_name')
+
+      if (error) {
+        console.error('Get contractors error:', error)
+        return { success: false, contractors: [], error: error.message }
+      }
+
+      return { success: true, contractors: data || [] }
+    } catch (err) {
+      console.error('Get contractors error:', err)
+      return { success: false, contractors: [], error: 'Failed to load contractors' }
     }
-    
-    return { success: true, contractors: data || [] }
-  } catch (err) {
-    console.error('Get contractors error:', err)
-    return { success: false, contractors: [], error: 'Failed to load contractors' }
-  }
+  })
 }
 
 /**
  * Get all active projects for the payment form dropdown
  */
-export async function getActiveProjects(): Promise<GetProjectsResult> {
-  try {
-    const supabase = getSupabaseAdmin()
-    
-    const { data, error } = await supabase
-      .from('projects')
-      .select('id, name, project_number')
-      .eq('is_active', true)
-      .order('project_number')
-    
-    if (error) {
-      console.error('Get projects error:', error)
-      return { success: false, projects: [], error: error.message }
+export async function getActiveProjects() {
+  return withPermission(PERMISSIONS.PROJECTS.VIEW_PROJECTS, async () => {
+    try {
+      const supabase = getSupabaseAdmin()
+
+      const { data, error } = await supabase
+        .from('projects')
+        .select('id, name, project_number')
+        .eq('is_active', true)
+        .order('project_number')
+
+      if (error) {
+        console.error('Get projects error:', error)
+        return { success: false, projects: [], error: error.message }
+      }
+
+      return { success: true, projects: data || [] }
+    } catch (err) {
+      console.error('Get projects error:', err)
+      return { success: false, projects: [], error: 'Failed to load projects' }
     }
-    
-    return { success: true, projects: data || [] }
-  } catch (err) {
-    console.error('Get projects error:', err)
-    return { success: false, projects: [], error: 'Failed to load projects' }
-  }
+  })
 }
 
 // =====================================================
