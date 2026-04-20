@@ -1053,42 +1053,20 @@ export async function getPMContractorById(contractorId: string) {
 }
 
 export async function getPMInvoicesForList() {
-  return withPermission(PERMISSIONS.INVOICES.VIEW_AP_QUEUE, async (userData) => {
+  return withPermission(PERMISSIONS.INVOICES.VIEW_AP_QUEUE, async () => {
     const supabase = getSupabaseAdmin()
-
-    const internalUserId = await resolveInternalUserId(userData.id, supabase)
-    if (!internalUserId) {
-      return { success: true, invoices: [] }
-    }
-
-    const { data: assignments } = await supabase
-      .from('project_assignments')
-      .select('project_id')
-      .eq('user_id', internalUserId)
-
-    const projectIds = (assignments ?? []).map((a: { project_id: string }) => a.project_id)
-
-    if (projectIds.length === 0) {
-      return { success: true, invoices: [] }
-    }
-
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('invoices')
       .select(`
-        id,
-        invoice_number,
-        status,
-        amount_cents,
-        net_payable_cents,
-        holdback_amount_cents,
-        created_at,
-        contractor:contractors ( company_name ),
-        project:projects ( name ),
-        payment_certificates ( id, certified_amount_cents, status )
+        id, invoice_number, status, amount_cents,
+        net_payable_cents, holdback_amount_cents, created_at,
+        contractor:contractors(company_name),
+        project:projects(name),
+        payment_certificates(id, certified_amount_cents, status)
       `)
-      .in('project_id', projectIds)
       .order('created_at', { ascending: false })
 
+    if (error) return { success: false, error: error.message }
     return { success: true, invoices: data ?? [] }
   })
 }
