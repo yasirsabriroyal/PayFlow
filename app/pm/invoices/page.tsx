@@ -28,22 +28,26 @@ export interface SummaryStats {
 }
 
 export default async function PMInvoicesPage() {
-  const authClient = await createClient()
-  const { data: { user } } = await authClient.auth.getUser()
-  const supabase = getSupabaseAdmin()
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  const adminClient = getSupabaseAdmin()
+
+  console.log('[PM Invoices] auth user id:', user?.id)
 
   // Resolve internal user ID
   let projectIds: string[] = []
 
   if (user) {
-    const { data: userRecord } = await supabase
+    const { data: userRecord } = await adminClient
       .from('users')
       .select('id')
       .eq('auth_user_id', user.id)
       .single()
 
+    console.log('[PM Invoices] internal user id:', userRecord?.id)
+
     if (userRecord) {
-      const { data: assignments } = await supabase
+      const { data: assignments } = await adminClient
         .from('project_assignments')
         .select('project_id')
         .eq('user_id', userRecord.id)
@@ -52,10 +56,12 @@ export default async function PMInvoicesPage() {
     }
   }
 
+  console.log('[PM Invoices] project ids:', projectIds)
+
   let rows: EnrichedInvoiceRow[] = []
 
   if (projectIds.length > 0) {
-    const { data: invoices } = await supabase
+    const { data: invoices } = await adminClient
       .from('invoices')
       .select(`
         id,
@@ -112,6 +118,8 @@ export default async function PMInvoicesPage() {
       }
     })
   }
+
+  console.log('[PM Invoices] invoice count:', rows.length)
 
   const stats: SummaryStats = {
     total_invoices: rows.length,
