@@ -35,6 +35,7 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Checkbox } from '@/components/ui/checkbox'
 import { RoleTabBar } from '@/components/role-tab-bar'
+import { PaymentReceiptModal } from '@/components/payment-receipt-modal'
 import { 
   getInvoiceById, 
   approveInvoice, 
@@ -1085,6 +1086,18 @@ export default function InvoiceDetailPage() {
                                 <span className="text-right max-w-[60%]">{payment.notes}</span>
                               </div>
                             )}
+                            <div className="pt-2">
+                              <PaymentReceiptModal
+                                paymentId={payment.id}
+                                invoiceNumber={invoice.invoice_number}
+                                trigger={
+                                  <button className="flex items-center gap-1.5 text-xs text-blue-600 hover:text-blue-800 font-medium transition-colors">
+                                    <Receipt className="w-3.5 h-3.5" />
+                                    View Receipt
+                                  </button>
+                                }
+                              />
+                            </div>
                           </div>
                         )}
                       </div>

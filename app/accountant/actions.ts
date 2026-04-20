@@ -1827,11 +1827,179 @@ export async function executeCertificateEFTBatch(input: {
     revalidatePath('/accountant/queue')
     
     return { 
-      success: true, 
+      success: true,
       batchReference,
       totalAmount,
       certificateCount: input.certificate_ids.length,
       message: `EFT batch executed: ${input.certificate_ids.length} certificates, $${(totalAmount / 100).toFixed(2)}`
     }
   })
+}
+
+// =====================================================
+// PAYMENT RECEIPT DATA
+// =====================================================
+
+export async function getPaymentReceiptData(paymentId: string) {
+  try {
+    const supabase = getSupabaseAdmin()
+
+    // Fetch payment core fields
+    const { data: payment, error: paymentError } = await supabase
+      .from('payments')
+      .select('id, amount_cents, payment_date, payment_method, status, notes, payment_certificate_id, payment_request_id, processed_by')
+      .eq('id', paymentId)
+      .single()
+
+    if (paymentError || !payment) {
+      return { success: false, error: paymentError?.message ?? 'Payment not found' }
+    }
+
+    // Fetch processed_by user
+    let processedByUser: { full_name: string | null; role: string | null } | null = null
+    if (payment.processed_by) {
+      const { data: pUser } = await supabase
+        .from('users')
+        .select('full_name, role')
+        .eq('id', payment.processed_by)
+        .single()
+      if (pUser) processedByUser = pUser
+    }
+
+    // Fetch company settings
+    const { data: companySettings } = await supabase
+      .from('company_settings')
+      .select('*')
+      .limit(1)
+      .single()
+
+    let invoiceData: {
+      invoice_number: string
+      amount_cents: number
+      net_payable_cents: number
+      holdback_amount_cents: number
+      contractor_name: string
+      project_name: string
+    } | null = null
+    let certificateData: {
+      certificate_number: string
+      certified_amount_cents: number
+      approved_by_name: string | null
+    } | null = null
+    let approvedByName: string | null = null
+
+    if (payment.payment_certificate_id) {
+      // Certificate-based payment
+      const { data: cert } = await supabase
+        .from('payment_certificates')
+        .select(`
+          certificate_number,
+          certified_amount_cents,
+          approved_by,
+          invoice:invoices (
+            invoice_number,
+            total_cents,
+            net_payable_cents,
+            holdback_cents,
+            contractor:contractors ( company_name ),
+            project:projects ( name )
+          )
+        `)
+        .eq('id', payment.payment_certificate_id)
+        .single()
+
+      if (cert) {
+        if (cert.approved_by) {
+          const { data: abUser } = await supabase
+            .from('users')
+            .select('full_name')
+            .eq('id', cert.approved_by)
+            .single()
+          approvedByName = abUser?.full_name ?? null
+        }
+        certificateData = {
+          certificate_number: cert.certificate_number,
+          certified_amount_cents: cert.certified_amount_cents,
+          approved_by_name: approvedByName,
+        }
+        const inv = cert.invoice as unknown as {
+          invoice_number: string
+          total_cents: number
+          net_payable_cents: number
+          holdback_cents: number
+          contractor: { company_name: string } | { company_name: string }[] | null
+          project: { name: string } | { name: string }[] | null
+        } | null
+        if (inv) {
+          invoiceData = {
+            invoice_number: inv.invoice_number,
+            amount_cents: inv.total_cents,
+            net_payable_cents: inv.net_payable_cents,
+            holdback_amount_cents: inv.holdback_cents,
+            contractor_name: Array.isArray(inv.contractor) ? (inv.contractor[0]?.company_name ?? '') : (inv.contractor?.company_name ?? ''),
+            project_name: Array.isArray(inv.project) ? (inv.project[0]?.name ?? '') : (inv.project?.name ?? ''),
+          }
+        }
+      }
+    } else if (payment.payment_request_id) {
+      // Direct payment via payment request
+      const { data: pr } = await supabase
+        .from('payment_requests')
+        .select(`
+          invoice:invoices (
+            invoice_number,
+            total_cents,
+            net_payable_cents,
+            holdback_cents,
+            contractor:contractors ( company_name ),
+            project:projects ( name )
+          )
+        `)
+        .eq('id', payment.payment_request_id)
+        .single()
+
+      if (pr) {
+        const inv = pr.invoice as unknown as {
+          invoice_number: string
+          total_cents: number
+          net_payable_cents: number
+          holdback_cents: number
+          contractor: { company_name: string } | { company_name: string }[] | null
+          project: { name: string } | { name: string }[] | null
+        } | null
+        if (inv) {
+          invoiceData = {
+            invoice_number: inv.invoice_number,
+            amount_cents: inv.total_cents,
+            net_payable_cents: inv.net_payable_cents,
+            holdback_amount_cents: inv.holdback_cents,
+            contractor_name: Array.isArray(inv.contractor) ? (inv.contractor[0]?.company_name ?? '') : (inv.contractor?.company_name ?? ''),
+            project_name: Array.isArray(inv.project) ? (inv.project[0]?.name ?? '') : (inv.project?.name ?? ''),
+          }
+        }
+      }
+    }
+
+    return {
+      success: true,
+      data: {
+        payment: {
+          id: payment.id,
+          amount_cents: payment.amount_cents,
+          payment_date: payment.payment_date,
+          payment_method: payment.payment_method,
+          status: payment.status,
+          notes: payment.notes,
+        },
+        certificate: certificateData,
+        invoice: invoiceData,
+        approvedByName: certificateData ? approvedByName : null,
+        processedBy: processedByUser,
+        companySettings: companySettings ?? null,
+      },
+    }
+  } catch (err) {
+    console.error('getPaymentReceiptData error:', err)
+    return { success: false, error: 'Failed to load receipt data' }
+  }
 }
