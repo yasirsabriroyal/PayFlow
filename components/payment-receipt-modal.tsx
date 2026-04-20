@@ -103,7 +103,15 @@ export function PaymentReceiptModal({ paymentId, invoiceNumber, trigger }: Payme
             <span className="text-sm font-medium text-gray-600">Payment Receipt — {invoiceNumber}</span>
             <div className="flex items-center gap-2">
               <button
-                onClick={() => window.print()}
+                onClick={() => {
+                  const printContent = document.getElementById('payment-receipt-content')
+                  if (!printContent) return
+                  const originalBody = document.body.innerHTML
+                  document.body.innerHTML = printContent.innerHTML
+                  window.print()
+                  document.body.innerHTML = originalBody
+                  window.location.reload()
+                }}
                 className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
               >
                 <Printer className="w-3.5 h-3.5" />
@@ -119,7 +127,7 @@ export function PaymentReceiptModal({ paymentId, invoiceNumber, trigger }: Payme
           </div>
 
           {/* Receipt body */}
-          <div id="receipt-print-area" className="p-8 bg-white print:p-6">
+          <div id="payment-receipt-content" className="p-8 bg-white">
             {loading && (
               <div className="flex items-center justify-center py-16 text-gray-400">
                 <Loader2 className="w-6 h-6 animate-spin mr-2" />
@@ -274,13 +282,6 @@ export function PaymentReceiptModal({ paymentId, invoiceNumber, trigger }: Payme
         </DialogContent>
       </Dialog>
 
-      <style>{`
-        @media print {
-          body > *:not(#receipt-print-root) { display: none !important; }
-          .print\\:hidden { display: none !important; }
-          #receipt-print-area { padding: 24px !important; }
-        }
-      `}</style>
     </>
   )
 }
