@@ -787,10 +787,9 @@ export default function PaymentsPage() {
             </div>
           )}
         </div>
-      </main>
 
-      {/* Approved Payment Certificates */}
-      <div className="bg-card border border-border rounded-xl overflow-hidden">
+        {/* Approved Payment Certificates */}
+        <div className="bg-card border border-border rounded-xl overflow-hidden">
         <div className="px-6 py-4 border-b border-border bg-muted/30">
           <div className="flex items-center justify-between">
             <div>
@@ -890,6 +889,7 @@ export default function PaymentsPage() {
           </table>
         </div>
       </div>
+      </main>
 
       {/* Certificate Review & Pay Dialog */}
       <Dialog open={certReviewDialogOpen} onOpenChange={setCertReviewDialogOpen}>

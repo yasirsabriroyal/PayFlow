@@ -503,7 +503,6 @@ export default function InvoiceDetailPage() {
 
   return (
     <div className="min-h-screen bg-background">
-      <RoleTabBar role="accountant" />
       {/* Header */}
       <header className="sticky top-0 z-40 bg-background/95 backdrop-blur border-b border-border">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
@@ -596,6 +595,7 @@ export default function InvoiceDetailPage() {
           </div>
         </div>
       </header>
+      <RoleTabBar role="accountant" />
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
