@@ -28,8 +28,11 @@ interface ReceiptData {
     contractor_name: string
     project_name: string
   } | null
-  approvedByName: string | null
-  processedBy: { full_name: string | null; role: string | null } | null
+  approved_by_name: string | null
+  approved_by_role: string | null
+  processed_by_name: string | null
+  processed_by_role: string | null
+  payment_type: 'certificate' | 'direct'
   companySettings: {
     company_name: string
     address?: string | null
@@ -243,15 +246,15 @@ export function PaymentReceiptModal({ paymentId, invoiceNumber, trigger }: Payme
                     <div>
                       <p className="text-gray-500 text-xs">Approved By</p>
                       <p className="font-medium mt-0.5">
-                        {data.approvedByName ?? 'N/A — Direct Payment'}
+                        {data.approved_by_name ?? 'N/A — Direct Payment'}
                       </p>
                     </div>
                     <div>
                       <p className="text-gray-500 text-xs">Processed By</p>
                       <p className="font-medium mt-0.5">
-                        {data.processedBy?.full_name ?? '—'}
-                        {data.processedBy?.role && (
-                          <span className="text-gray-400 font-normal ml-1">({data.processedBy.role})</span>
+                        {data.processed_by_name ?? '—'}
+                        {data.processed_by_role && (
+                          <span className="text-gray-400 font-normal ml-1">({data.processed_by_role})</span>
                         )}
                       </p>
                     </div>

@@ -1887,6 +1887,7 @@ export async function getPaymentReceiptData(paymentId: string) {
       approved_by_name: string | null
     } | null = null
     let approvedByName: string | null = null
+    let approvedByRole: string | null = null
 
     if (payment.payment_certificate_id) {
       // Certificate-based payment
@@ -1912,10 +1913,11 @@ export async function getPaymentReceiptData(paymentId: string) {
         if (cert.approved_by) {
           const { data: abUser } = await supabase
             .from('users')
-            .select('full_name')
+            .select('full_name, role')
             .eq('id', cert.approved_by)
             .single()
           approvedByName = abUser?.full_name ?? null
+          approvedByRole = abUser?.role ?? null
         }
         certificateData = {
           certificate_number: cert.certificate_number,
@@ -1993,8 +1995,11 @@ export async function getPaymentReceiptData(paymentId: string) {
         },
         certificate: certificateData,
         invoice: invoiceData,
-        approvedByName: certificateData ? approvedByName : null,
-        processedBy: processedByUser,
+        approved_by_name: payment.payment_certificate_id ? approvedByName : null,
+        approved_by_role: payment.payment_certificate_id ? approvedByRole : null,
+        processed_by_name: processedByUser?.full_name ?? null,
+        processed_by_role: processedByUser?.role ?? null,
+        payment_type: payment.payment_certificate_id ? 'certificate' : 'direct',
         companySettings: companySettings ?? null,
       },
     }
