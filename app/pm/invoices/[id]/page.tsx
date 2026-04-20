@@ -22,6 +22,7 @@ import { useToast } from '@/hooks/use-toast'
 import { createClient } from '@/lib/supabase/client'
 import { AppHeader } from '@/components/app-header'
 import { RoleTabBar } from '@/components/role-tab-bar'
+import { PaymentReceiptModal } from '@/components/payment-receipt-modal'
 import {
   getCertificatesForInvoice,
   submitCertificate,
@@ -64,6 +65,7 @@ type PaymentCertificate = {
   rejection_reason: string | null
   work_period_start: string | null
   work_period_end: string | null
+  payments: { id: string }[] | null
 }
 
 const statusConfig: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline'; icon: React.ReactNode }> = {
@@ -617,10 +619,23 @@ export default function PMInvoiceDetailPage() {
                                   )}
 
                                   {cert.status === 'paid' && (
-                                    <Badge variant="default" className="gap-1">
-                                      <CheckCircle className="w-3 h-3" />
-                                      Paid
-                                    </Badge>
+                                    cert.payments?.[0]?.id ? (
+                                      <PaymentReceiptModal
+                                        paymentId={cert.payments[0].id}
+                                        invoiceNumber={invoice.invoice_number}
+                                        trigger={
+                                          <Button size="sm" variant="outline" className="gap-1.5">
+                                            <FileText className="w-3 h-3" />
+                                            View Receipt
+                                          </Button>
+                                        }
+                                      />
+                                    ) : (
+                                      <Badge variant="default" className="gap-1">
+                                        <CheckCircle className="w-3 h-3" />
+                                        Paid
+                                      </Badge>
+                                    )
                                   )}
 
                                   {/* View is always visible regardless of status */}

@@ -36,7 +36,8 @@ export async function getCertificatesForInvoice(invoiceId: string) {
         approved_at,
         rejection_reason,
         work_period_start,
-        work_period_end
+        work_period_end,
+        payments(id)
       `)
       .eq('invoice_id', invoiceId)
       .order('created_at', { ascending: true })
