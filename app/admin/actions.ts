@@ -4,6 +4,7 @@ import { createClient } from '@supabase/supabase-js'
 import { revalidatePath } from 'next/cache'
 import { PERMISSIONS, withPermission } from '@/lib/permissions'
 import { secureAction } from '@/lib/security/secureAction'
+import { resolveInternalUserId } from '@/lib/utils/resolve-user'
 
 // Create admin client for server actions
 function getSupabaseAdmin() {
@@ -295,7 +296,7 @@ export interface UpdateCompanySettingsInput {
 }
 
 export async function updateCompanySettings(data: UpdateCompanySettingsInput) {
-  return withPermission(PERMISSIONS.ADMINISTRATION.MANAGE_USERS, async () => {
+  return withPermission(PERMISSIONS.ADMINISTRATION.MANAGE_USERS, async (userData) => {
     const supabase = getSupabaseAdmin()
 
     const { data: existing } = await supabase
@@ -317,6 +318,22 @@ export async function updateCompanySettings(data: UpdateCompanySettingsInput) {
       console.error('Update company settings error:', error)
       return { success: false, error: error.message }
     }
+
+    const { data: result } = await supabase
+      .from('company_settings')
+      .select('id')
+      .limit(1)
+      .single()
+
+    const internalUserId = await resolveInternalUserId(userData.id, supabase)
+
+    await supabase.from('audit_logs').insert({
+      action: 'company_settings_updated',
+      entity_type: 'company_settings',
+      entity_id: result?.id,
+      user_id: internalUserId,
+      new_values: data,
+    })
 
     revalidatePath('/admin')
     return { success: true }
