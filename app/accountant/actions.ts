@@ -353,7 +353,7 @@ export const executeEFTPayment = secureAction(
       // First check if there are approved payment certificates for this invoice
       const { data: approvedCerts } = await supabase
         .from('payment_certificates')
-        .select('id, net_payable_cents')
+        .select('id, certificate_number, net_payable_cents')
         .eq('invoice_id', inv.id)
         .eq('status', 'approved')
       
@@ -375,8 +375,9 @@ export const executeEFTPayment = secureAction(
           
           if (paymentError) {
             console.error('Error creating certificate payment:', paymentError)
+            return { success: false, error: `Payment failed for certificate ${cert.certificate_number}: ${paymentError.message}` }
           }
-          
+
           // Update certificate to paid
           await supabase
             .from('payment_certificates')
@@ -1805,7 +1806,7 @@ export async function executeCertificateEFTBatch(input: {
     // Process each certificate
     for (const cert of certificates || []) {
       // Create payment record
-      await supabase
+      const { error: paymentError } = await supabase
         .from('payments')
         .insert({
           payment_certificate_id: cert.id,
@@ -1816,6 +1817,11 @@ export async function executeCertificateEFTBatch(input: {
           status: 'cleared',
           processed_by: internalUser.id,
         })
+
+      if (paymentError) {
+        console.error('Error creating certificate payment:', paymentError)
+        return { success: false, error: `Payment failed for certificate ${cert.certificate_number}: ${paymentError.message}` }
+      }
       
       // Update certificate to paid
       await supabase
