@@ -1,6 +1,6 @@
 import { AppHeader } from '@/components/app-header'
 import { RoleTabBar } from '@/components/role-tab-bar'
-import { getCurrentUser } from '@/lib/permissions/core'
+import { createClient } from '@/lib/supabase/server'
 import { getSupabaseAdmin } from '@/lib/supabase/admin'
 import { InvoiceTable } from './invoice-table'
 
@@ -28,17 +28,18 @@ export interface SummaryStats {
 }
 
 export default async function PMInvoicesPage() {
-  const currentUser = await getCurrentUser()
+  const authClient = await createClient()
+  const { data: { user } } = await authClient.auth.getUser()
   const supabase = getSupabaseAdmin()
 
   // Resolve internal user ID
   let projectIds: string[] = []
 
-  if (currentUser) {
+  if (user) {
     const { data: userRecord } = await supabase
       .from('users')
       .select('id')
-      .eq('auth_user_id', currentUser.id)
+      .eq('auth_user_id', user.id)
       .single()
 
     if (userRecord) {
