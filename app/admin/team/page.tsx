@@ -66,6 +66,7 @@ import { MobileNav } from '@/components/layout/mobile-nav'
 import { DataCard, DataCardHeader } from '@/components/ui/responsive-table'
 import { useListStatePreservation } from '@/lib/workflow-navigation'
 import { RoleTabBar } from '@/components/role-tab-bar'
+import { AppHeader } from '@/components/app-header'
 
 type UserRole = 'admin' | 'project_manager' | 'accountant'
 
@@ -543,6 +544,7 @@ if (invites && invites.length > 0) {
 
   return (
     <div className="min-h-screen bg-background">
+      <AppHeader pageTitle="Team" />
       <RoleTabBar role="admin" />
       {/* Mobile Header */}
       <header className="sticky top-0 z-40 bg-background/95 backdrop-blur border-b border-border md:hidden">

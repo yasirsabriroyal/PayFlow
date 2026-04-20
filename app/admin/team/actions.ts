@@ -1,6 +1,7 @@
 'use server'
 
 import { getSupabaseAdmin } from '@/lib/supabase/admin'
+import { resolveInternalUserId } from '@/lib/utils/resolve-user'
 import {
   PERMISSIONS,
 } from '@/lib/permissions'
@@ -40,7 +41,7 @@ type CreateTeamMemberInput = {
  */
 export const createTeamMember = secureAction(
   PERMISSIONS.ADMINISTRATION.MANAGE_USERS,
-  async (_user, input: CreateTeamMemberInput) => {
+  async (user, input: CreateTeamMemberInput) => {
     const supabaseAdmin = getSupabaseAdmin()
     const { email, firstName, lastName, role, temporaryPassword } = input
 
@@ -92,6 +93,18 @@ export const createTeamMember = secureAction(
       throw new Error('Failed to create user record. Please try again.')
     }
 
+    const auditUserId = await resolveInternalUserId(user.id, supabaseAdmin)
+    if (auditUserId) {
+      await supabaseAdmin.from('audit_logs').insert({
+        action: 'team_member_created',
+        entity_type: 'user',
+        entity_id: authData.user.id,
+        user_id: auditUserId,
+        description: `Created team member ${email} with role ${role}`,
+        new_values: { email, role, first_name: firstName, last_name: lastName },
+      })
+    }
+
     return {
       user: {
         id: authData.user.id,
@@ -123,7 +136,7 @@ type UpdateRoleInput = {
  */
 export const updateTeamMemberRole = secureAction(
   PERMISSIONS.ADMINISTRATION.MANAGE_USERS,
-  async (_user, input: UpdateRoleInput) => {
+  async (user, input: UpdateRoleInput) => {
     const supabaseAdmin = getSupabaseAdmin()
     const { userId, newRole } = input
 
@@ -160,6 +173,19 @@ export const updateTeamMemberRole = secureAction(
       throw new Error('Failed to update user role. Auth role has been restored.')
     }
 
+    const auditUserId = await resolveInternalUserId(user.id, supabaseAdmin)
+    if (auditUserId) {
+      await supabaseAdmin.from('audit_logs').insert({
+        action: 'team_member_role_updated',
+        entity_type: 'user',
+        entity_id: userId,
+        user_id: auditUserId,
+        description: `Updated team member role from ${previousRole} to ${newRole}`,
+        new_values: { role: newRole },
+        old_values: { role: previousRole },
+      })
+    }
+
     return { updated: true }
   },
   {
@@ -187,7 +213,7 @@ export const updateTeamMemberRole = secureAction(
  */
 export const deactivateTeamMember = secureAction(
   PERMISSIONS.ADMINISTRATION.MANAGE_USERS,
-  async (_user, input: { userId: string }) => {
+  async (user, input: { userId: string }) => {
     const supabaseAdmin = getSupabaseAdmin()
     const { userId } = input
 
@@ -208,6 +234,18 @@ export const deactivateTeamMember = secureAction(
 
     if (updateError) {
       console.error('Failed to update users table:', updateError)
+    }
+
+    const auditUserId = await resolveInternalUserId(user.id, supabaseAdmin)
+    if (auditUserId) {
+      await supabaseAdmin.from('audit_logs').insert({
+        action: 'team_member_deactivated',
+        entity_type: 'user',
+        entity_id: userId,
+        user_id: auditUserId,
+        description: `Deactivated team member account`,
+        new_values: { is_active: false },
+      })
     }
 
     return { deactivated: true }
