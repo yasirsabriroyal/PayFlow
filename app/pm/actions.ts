@@ -102,14 +102,17 @@ export async function getPMInvoices() {
         invoice_number,
         project_id,
         total_cents,
+        amount_cents,
+        net_payable_cents,
+        holdback_amount_cents,
         status,
         invoice_date,
         created_at,
         contractor:contractors(company_name),
-        project:projects(id, name, project_number)
+        project:projects(id, name, project_number),
+        payment_certificates(id, certified_amount_cents, status)
       `)
       .order('created_at', { ascending: false })
-      .limit(10)
 
     if (error) {
       console.error('Get PM invoices error:', error)
@@ -1049,24 +1052,5 @@ export async function getPMContractorById(contractorId: string) {
       documents: documents || [],
       financialSummary,
     }
-  })
-}
-
-export async function getPMInvoicesForList() {
-  return withPermission(PERMISSIONS.INVOICES.VIEW_AP_QUEUE, async () => {
-    const supabase = getSupabaseAdmin()
-    const { data, error } = await supabase
-      .from('invoices')
-      .select(`
-        id, invoice_number, status, amount_cents,
-        net_payable_cents, holdback_amount_cents, created_at,
-        contractor:contractors(company_name),
-        project:projects(name),
-        payment_certificates(id, certified_amount_cents, status)
-      `)
-      .order('created_at', { ascending: false })
-
-    if (error) return { success: false, error: error.message }
-    return { success: true, invoices: data ?? [] }
   })
 }

@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { AppHeader } from '@/components/app-header'
 import { RoleTabBar } from '@/components/role-tab-bar'
-import { getPMInvoicesForList } from '@/app/pm/actions'
+import { getPMInvoices } from '@/app/pm/actions'
 import { InvoiceTable } from './invoice-table'
 import { Loader2 } from 'lucide-react'
 
@@ -30,6 +30,19 @@ export interface SummaryStats {
   certs_outstanding: number
 }
 
+type RawInvoice = {
+  id: string
+  invoice_number: string
+  status: string
+  amount_cents: number
+  net_payable_cents: number
+  holdback_amount_cents: number
+  created_at: string
+  contractor: { company_name: string } | { company_name: string }[] | null
+  project: { name: string } | { name: string }[] | null
+  payment_certificates: { id: string; certified_amount_cents: number; status: string }[] | null
+}
+
 export default function PMInvoicesPage() {
   const [invoices, setInvoices] = useState<EnrichedInvoiceRow[]>([])
   const [stats, setStats] = useState<SummaryStats>({
@@ -42,30 +55,12 @@ export default function PMInvoicesPage() {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    async function loadInvoices() {
-      try {
-        const result = await getPMInvoicesForList()
+    async function loadData() {
+      const result = await getPMInvoices()
+      if (result.success) {
+        const raw = result.invoices as unknown as RawInvoice[]
 
-        if (!('invoices' in result) || !Array.isArray(result.invoices)) {
-          setError('Failed to load invoices.')
-          setLoading(false)
-          return
-        }
-
-        const rawInvoices = result.invoices as Array<{
-          id: string
-          invoice_number: string
-          status: string
-          amount_cents: number
-          net_payable_cents: number
-          holdback_amount_cents: number
-          created_at: string
-          contractor: { company_name: string } | { company_name: string }[] | null
-          project: { name: string } | { name: string }[] | null
-          payment_certificates: { id: string; certified_amount_cents: number; status: string }[] | null
-        }>
-
-        const rows: EnrichedInvoiceRow[] = rawInvoices.map((inv) => {
+        const rows: EnrichedInvoiceRow[] = raw.map((inv) => {
           const contractor = Array.isArray(inv.contractor)
             ? (inv.contractor[0] ?? null)
             : inv.contractor
@@ -79,14 +74,12 @@ export default function PMInvoicesPage() {
               : []
 
           const total_certified_cents = certs.reduce(
-            (sum: number, c: { certified_amount_cents: number }) => sum + (c.certified_amount_cents ?? 0),
+            (sum, c) => sum + (c.certified_amount_cents ?? 0),
             0
           )
           const remaining_to_certify_cents = (inv.net_payable_cents ?? 0) - total_certified_cents
           const cert_count = certs.length
-          const outstanding_certs = certs.filter(
-            (c: { status: string }) => c.status === 'approved'
-          ).length
+          const outstanding_certs = certs.filter((c) => c.status === 'approved').length
 
           return {
             id: inv.id,
@@ -114,14 +107,13 @@ export default function PMInvoicesPage() {
 
         setInvoices(rows)
         setStats(computedStats)
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to load invoices.')
-      } finally {
-        setLoading(false)
+      } else {
+        setError('Failed to load invoices.')
       }
+      setLoading(false)
     }
 
-    loadInvoices()
+    loadData()
   }, [])
 
   return (
