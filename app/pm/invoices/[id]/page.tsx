@@ -1,9 +1,9 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, FileText, Calendar, Building2, DollarSign, Clock, CheckCircle, XCircle, AlertCircle, Send, RotateCcw, Pencil } from 'lucide-react'
+import { ArrowLeft, FileText, Calendar, Building2, DollarSign, Clock, CheckCircle, XCircle, AlertCircle, Send, RotateCcw, Pencil, Mail, Phone, MapPin, FolderOpen, Shield } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -45,11 +45,26 @@ type Invoice = {
     id: string
     company_name: string
     contact_name: string | null
+    email: string | null
+    phone: string | null
+    address_line1: string | null
+    city: string | null
+    province: string | null
+    wcb_clearance_expiry: string | null
+    status: string | null
   } | null
   project: {
     id: string
     name: string
     project_number: string
+    address_line1: string | null
+    city: string | null
+    province: string | null
+    start_date: string | null
+    estimated_completion_date: string | null
+    current_budget_cents: number | null
+    spent_cents: number | null
+    is_active: boolean | null
   } | null
 }
 
@@ -137,8 +152,31 @@ export default function PMInvoiceDetailPage() {
           holdback_cents,
           net_payable_cents,
           status,
-          contractor:contractors(id, company_name, contact_name),
-          project:projects(id, name, project_number)
+          contractor:contractors(
+            id,
+            company_name,
+            contact_name,
+            email,
+            phone,
+            address_line1,
+            city,
+            province,
+            wcb_clearance_expiry,
+            status
+          ),
+          project:projects(
+            id,
+            name,
+            project_number,
+            address_line1,
+            city,
+            province,
+            start_date,
+            estimated_completion_date,
+            current_budget_cents,
+            spent_cents,
+            is_active
+          )
         `)
         .eq('id', invoiceId)
         .single()
@@ -431,6 +469,139 @@ export default function PMInvoiceDetailPage() {
             </CardContent>
           </Card>
 
+          {/* Contractor & Project Summary Cards */}
+          <div className="grid grid-cols-2 gap-4">
+            {/* Contractor Card */}
+            {invoice.contractor && (
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <Building2 className="w-4 h-4" />
+                    Contractor
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <p className="font-semibold text-lg leading-tight">{invoice.contractor.company_name}</p>
+
+                  {invoice.contractor.email && (
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <Mail className="w-3.5 h-3.5 flex-shrink-0" />
+                      <a href={`mailto:${invoice.contractor.email}`} className="hover:text-primary truncate">
+                        {invoice.contractor.email}
+                      </a>
+                    </div>
+                  )}
+
+                  {invoice.contractor.phone && (
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <Phone className="w-3.5 h-3.5 flex-shrink-0" />
+                      <a href={`tel:${invoice.contractor.phone}`} className="hover:text-primary">
+                        {invoice.contractor.phone}
+                      </a>
+                    </div>
+                  )}
+
+                  {(invoice.contractor.address_line1 || invoice.contractor.city) && (
+                    <div className="flex items-start gap-2 text-sm text-muted-foreground">
+                      <MapPin className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+                      <span>
+                        {[invoice.contractor.address_line1, invoice.contractor.city, invoice.contractor.province]
+                          .filter(Boolean)
+                          .join(', ')}
+                      </span>
+                    </div>
+                  )}
+
+                  {invoice.contractor.wcb_clearance_expiry && (
+                    <div className="flex items-center gap-2">
+                      <Shield className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
+                      <span className="text-sm text-muted-foreground">WCB</span>
+                      {new Date(invoice.contractor.wcb_clearance_expiry) > new Date() ? (
+                        <Badge className="bg-emerald-50 text-emerald-700 border-0 text-xs">Valid</Badge>
+                      ) : (
+                        <Badge className="bg-red-50 text-red-700 border-0 text-xs">Expired</Badge>
+                      )}
+                    </div>
+                  )}
+
+                  <Link href={`/pm/contractors/${invoice.contractor.id}`}>
+                    <Button variant="outline" size="sm" className="w-full mt-1">
+                      View Full Profile
+                    </Button>
+                  </Link>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Project Card */}
+            {invoice.project && (
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <FolderOpen className="w-4 h-4" />
+                    Project
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div>
+                    <p className="font-semibold text-lg leading-tight">{invoice.project.name}</p>
+                    <p className="text-sm text-muted-foreground">{invoice.project.project_number}</p>
+                  </div>
+
+                  {(invoice.project.address_line1 || invoice.project.city) && (
+                    <div className="flex items-start gap-2 text-sm text-muted-foreground">
+                      <MapPin className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+                      <span>
+                        {[invoice.project.address_line1, invoice.project.city, invoice.project.province]
+                          .filter(Boolean)
+                          .join(', ')}
+                      </span>
+                    </div>
+                  )}
+
+                  {(invoice.project.start_date || invoice.project.estimated_completion_date) && (
+                    <div className="flex items-start gap-2 text-sm text-muted-foreground">
+                      <Calendar className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+                      <span>
+                        {invoice.project.start_date
+                          ? new Date(invoice.project.start_date).toLocaleDateString('en-CA', { year: 'numeric', month: 'short', day: 'numeric' })
+                          : 'TBD'}
+                        {' – '}
+                        {invoice.project.estimated_completion_date
+                          ? new Date(invoice.project.estimated_completion_date).toLocaleDateString('en-CA', { year: 'numeric', month: 'short', day: 'numeric' })
+                          : 'TBD'}
+                      </span>
+                    </div>
+                  )}
+
+                  {invoice.project.current_budget_cents != null && (
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <DollarSign className="w-3.5 h-3.5 flex-shrink-0" />
+                      <span>Budget: </span>
+                      <span className="font-medium text-foreground">
+                        {new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD', minimumFractionDigits: 0 }).format(invoice.project.current_budget_cents / 100)}
+                      </span>
+                    </div>
+                  )}
+
+                  <div>
+                    {invoice.project.is_active ? (
+                      <Badge className="bg-emerald-50 text-emerald-700 border-0 text-xs">Active</Badge>
+                    ) : (
+                      <Badge className="bg-gray-100 text-gray-700 border-0 text-xs">Inactive</Badge>
+                    )}
+                  </div>
+
+                  <Link href={`/pm/projects/${invoice.project.id}`}>
+                    <Button variant="outline" size="sm" className="w-full mt-1">
+                      View Full Details
+                    </Button>
+                  </Link>
+                </CardContent>
+              </Card>
+            )}
+          </div>
+
           {/* Financial Details */}
           <Card>
             <CardHeader>
@@ -499,8 +670,8 @@ export default function PMInvoiceDetailPage() {
                         const isActioning = certActionLoading === cert.id
 
                         return (
-                          <>
-                            <tr key={cert.id} className="hover:bg-muted/20 transition-colors">
+                          <React.Fragment key={cert.id}>
+                            <tr className="hover:bg-muted/20 transition-colors">
                               {/* Certificate # */}
                               <td className="px-4 py-3">
                                 <p className="font-medium text-sm">{cert.certificate_number}</p>
@@ -660,7 +831,7 @@ export default function PMInvoiceDetailPage() {
                                 </td>
                               </tr>
                             )}
-                          </>
+                          </React.Fragment>
                         )
                       })}
                     </tbody>
