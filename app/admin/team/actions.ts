@@ -87,7 +87,9 @@ export const createTeamMember = secureAction(
       })
 
     if (insertError) {
-      console.error('Failed to create users table record:', insertError)
+      // Compensating rollback: delete the auth user to prevent orphaned accounts
+      await supabaseAdmin.auth.admin.deleteUser(authData.user.id)
+      throw new Error('Failed to create user record. Please try again.')
     }
 
     return {
@@ -125,6 +127,14 @@ export const updateTeamMemberRole = secureAction(
     const supabaseAdmin = getSupabaseAdmin()
     const { userId, newRole } = input
 
+    // Capture current role before any changes for rollback purposes
+    const { data: existingUser } = await supabaseAdmin
+      .from('users')
+      .select('role')
+      .eq('auth_user_id', userId)
+      .single()
+    const previousRole = existingUser?.role ?? null
+
     // Update auth user metadata
     const { error: authError } = await supabaseAdmin.auth.admin.updateUserById(userId, {
       user_metadata: { role: newRole },
@@ -141,7 +151,13 @@ export const updateTeamMemberRole = secureAction(
       .eq('auth_user_id', userId)
 
     if (updateError) {
-      console.error('Failed to update users table:', updateError)
+      // Compensating rollback: restore previous role in auth metadata
+      if (previousRole) {
+        await supabaseAdmin.auth.admin.updateUserById(userId, {
+          user_metadata: { role: previousRole },
+        })
+      }
+      throw new Error('Failed to update user role. Auth role has been restored.')
     }
 
     return { updated: true }
