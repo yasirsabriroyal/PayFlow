@@ -25,7 +25,7 @@ const TAB_MAP: Record<string, Tab[]> = {
   ],
   project_manager: [
     { label: 'Dashboard', href: '/pm/dashboard' },
-    { label: 'Invoices', href: '/pm/dashboard' },
+    { label: 'Invoices', href: '/pm/invoices' },
     { label: 'Certificates', href: '/pm/certificates' },
     { label: 'Approvals', href: '/pm/approvals' },
     { label: 'Projects', href: '/pm/projects' },
