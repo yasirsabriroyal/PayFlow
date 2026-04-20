@@ -91,14 +91,6 @@ export default function PMContractorsPage() {
               className="pl-10"
             />
           </div>
-          {canCreateVendor && (
-            <Button asChild>
-              <WorkflowLink href="/pm/contractors/new" contextTitle="Add Contractor">
-                <Plus className="w-4 h-4 mr-2" />
-                Add Contractor
-              </WorkflowLink>
-            </Button>
-          )}
         </div>
 
         {isLoading ? (

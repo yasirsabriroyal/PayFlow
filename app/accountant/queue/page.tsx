@@ -484,7 +484,6 @@ return (
                 <SelectItem value="approved">Approved</SelectItem>
                 <SelectItem value="paid">Paid</SelectItem>
                 <SelectItem value="disputed">Disputed</SelectItem>
-                <SelectItem value="disputed">Disputed</SelectItem>
               </SelectContent>
             </Select>
           </div>
