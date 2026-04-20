@@ -7,16 +7,9 @@
  * invoice details, payment certificates, payments, and documents.
  */
 
-import { createClient } from '@supabase/supabase-js'
 import { withPermission } from '@/lib/permissions'
 import { PERMISSIONS } from '@/lib/permissions/constants'
-
-function getSupabaseAdmin() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  )
-}
+import { getSupabaseAdmin } from '@/lib/supabase/admin'
 
 // =====================================================
 // TYPES

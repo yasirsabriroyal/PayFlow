@@ -1,8 +1,7 @@
 'use server'
 
-import { createClient } from '@supabase/supabase-js'
 import { revalidatePath } from 'next/cache'
-import { 
+import {
   PERMISSIONS,
   withPermission,
 } from '@/lib/permissions'
@@ -10,14 +9,7 @@ import {
   secureAction,
   RATE_LIMITS,
 } from '@/lib/security/secureAction'
-
-// Create admin client for server actions
-function getSupabaseAdmin() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  )
-}
+import { getSupabaseAdmin } from '@/lib/supabase/admin'
 
 // =====================================================
 // VIEW VENDORS
