@@ -345,22 +345,25 @@ export const executeEFTPayment = secureAction(
 
     const batchReference = input.batch_reference || `EFT-${Date.now()}`
     const totalAmount = invoices?.reduce((sum, inv) => sum + (inv.net_payable_cents || 0), 0) || 0
-    
+
+    const processedPaymentIds: string[] = []
+    const processedCertIds: string[] = []
+
     // Update each invoice to paid status with proper amount tracking
     for (const inv of invoices || []) {
       const paymentAmount = inv.net_payable_cents || 0
-      
+
       // First check if there are approved payment certificates for this invoice
       const { data: approvedCerts } = await supabase
         .from('payment_certificates')
         .select('id, certificate_number, net_payable_cents')
         .eq('invoice_id', inv.id)
         .eq('status', 'approved')
-      
+
       if (approvedCerts && approvedCerts.length > 0) {
         // Pay through certificates - create payment records linked to each certificate
         for (const cert of approvedCerts) {
-          const { error: paymentError } = await supabase
+          const { data: newPayment, error: paymentError } = await supabase
             .from('payments')
             .insert({
               payment_certificate_id: cert.id,
@@ -372,11 +375,25 @@ export const executeEFTPayment = secureAction(
               processed_by: userData.id,
               notes: `Batch: ${batchReference}`,
             })
-          
+            .select('id')
+            .single()
+
           if (paymentError) {
             console.error('Error creating certificate payment:', paymentError)
+            // Compensating rollback
+            if (processedPaymentIds.length > 0) {
+              const { error: rbPayErr } = await supabase.from('payments').delete().in('id', processedPaymentIds)
+              if (rbPayErr) console.error('Rollback failed (payments):', rbPayErr)
+              const { error: rbCertErr } = await supabase
+                .from('payment_certificates')
+                .update({ status: 'approved', updated_at: new Date().toISOString() })
+                .in('id', processedCertIds)
+              if (rbCertErr) console.error('Rollback failed (certificates):', rbCertErr)
+            }
             return { success: false, error: `Payment failed for certificate ${cert.certificate_number}: ${paymentError.message}` }
           }
+
+          if (newPayment) processedPaymentIds.push(newPayment.id)
 
           // Update certificate to paid
           await supabase
@@ -386,6 +403,8 @@ export const executeEFTPayment = secureAction(
               updated_at: new Date().toISOString(),
             })
             .eq('id', cert.id)
+
+          processedCertIds.push(cert.id)
         }
       } else {
         // No certificates - use legacy payment_request flow
@@ -1803,10 +1822,13 @@ export async function executeCertificateEFTBatch(input: {
       return { success: false, error: 'Could not resolve internal user ID' }
     }
 
+    const processedPaymentIds: string[] = []
+    const processedCertIds: string[] = []
+
     // Process each certificate
     for (const cert of certificates || []) {
       // Create payment record
-      const { error: paymentError } = await supabase
+      const { data: newPayment, error: paymentError } = await supabase
         .from('payments')
         .insert({
           payment_certificate_id: cert.id,
@@ -1817,12 +1839,26 @@ export async function executeCertificateEFTBatch(input: {
           status: 'cleared',
           processed_by: internalUser.id,
         })
+        .select('id')
+        .single()
 
       if (paymentError) {
         console.error('Error creating certificate payment:', paymentError)
+        // Compensating rollback
+        if (processedPaymentIds.length > 0) {
+          const { error: rbPayErr } = await supabase.from('payments').delete().in('id', processedPaymentIds)
+          if (rbPayErr) console.error('Rollback failed (payments):', rbPayErr)
+          const { error: rbCertErr } = await supabase
+            .from('payment_certificates')
+            .update({ status: 'approved', updated_at: new Date().toISOString() })
+            .in('id', processedCertIds)
+          if (rbCertErr) console.error('Rollback failed (certificates):', rbCertErr)
+        }
         return { success: false, error: `Payment failed for certificate ${cert.certificate_number}: ${paymentError.message}` }
       }
-      
+
+      if (newPayment) processedPaymentIds.push(newPayment.id)
+
       // Update certificate to paid
       await supabase
         .from('payment_certificates')
@@ -1831,6 +1867,8 @@ export async function executeCertificateEFTBatch(input: {
           updated_at: new Date().toISOString(),
         })
         .eq('id', cert.id)
+
+      processedCertIds.push(cert.id)
       
       // Update invoice total_paid_cents
       const { data: invoice } = await supabase
