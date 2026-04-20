@@ -92,30 +92,35 @@ export async function getPMContractors() {
 }
 
 export async function getPMInvoices() {
-  try {
+  return withPermission(PERMISSIONS.INVOICES.VIEW_AP_QUEUE, async () => {
     const supabase = getSupabaseAdmin()
-    const { data, error } = await supabase
+    
+    const { data: invoices, error } = await supabase
       .from('invoices')
       .select(`
         id,
         invoice_number,
-        status,
+        project_id,
         total_cents,
         amount_cents,
         net_payable_cents,
         holdback_amount_cents,
+        status,
+        invoice_date,
         created_at,
         contractor:contractors(company_name),
-        project:projects(name),
+        project:projects(id, name, project_number),
         payment_certificates(id, certified_amount_cents, status)
       `)
       .order('created_at', { ascending: false })
 
-    if (error) return { success: false as const, invoices: [] }
-    return { success: true as const, invoices: data ?? [] }
-  } catch {
-    return { success: false as const, invoices: [] }
-  }
+    if (error) {
+      console.error('Get PM invoices error:', error)
+      return { success: false, invoices: [] }
+    }
+
+    return { success: true, invoices: invoices || [] }
+  })
 }
 
 // Alias for backwards compatibility
