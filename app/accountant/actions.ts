@@ -271,6 +271,7 @@ export const processPayments = secureAction(
 export interface ExecuteEFTInput {
   invoice_ids: string[]
   batch_reference?: string
+  payment_method: 'eft' | 'cheque' | 'wire' | 'etransfer'
   /** Total amount in cents for policy evaluation (must be calculated client-side from selected invoices) */
   total_amount_cents: number
 }
@@ -370,7 +371,7 @@ export const executeEFTPayment = secureAction(
               payment_certificate_id: cert.id,
               contractor_id: inv.contractor_id,
               amount_cents: cert.net_payable_cents || 0,
-              payment_method: 'eft',
+              payment_method: input.payment_method,
               payment_date: new Date().toISOString().split('T')[0],
               status: 'cleared',
               processed_by: userData.id,
@@ -432,7 +433,7 @@ export const executeEFTPayment = secureAction(
               requested_amount_cents: paymentAmount,
               approved_amount_cents: paymentAmount,
               status: 'paid',
-              payment_method: 'eft',
+              payment_method: input.payment_method,
               payment_reference: batchReference,
               processed_by: userData.id,
               processed_at: new Date().toISOString(),
@@ -451,14 +452,14 @@ export const executeEFTPayment = secureAction(
             .from('payment_requests')
             .update({
               status: 'paid',
-              payment_method: 'eft',
+              payment_method: input.payment_method,
               payment_reference: batchReference,
               processed_by: userData.id,
               processed_at: new Date().toISOString(),
             })
             .eq('id', paymentRequestId)
         }
-        
+
         // Create payment record linked to payment_request
         if (paymentRequestId) {
           const { error: paymentError } = await supabase
@@ -467,7 +468,7 @@ export const executeEFTPayment = secureAction(
               payment_request_id: paymentRequestId,
               contractor_id: inv.contractor_id,
               amount_cents: paymentAmount,
-              payment_method: 'eft',
+              payment_method: input.payment_method,
               payment_date: new Date().toISOString().split('T')[0],
               status: 'cleared',
               processed_by: userData.id,
@@ -500,7 +501,7 @@ export const executeEFTPayment = secureAction(
     // Create payment batch record
     await supabase.from('payment_batches').insert({
       batch_reference: batchReference,
-      payment_method: 'eft',
+      payment_method: input.payment_method,
       invoice_count: input.invoice_ids.length,
       total_amount_cents: totalAmount,
       executed_by_user_id: userData.id,
@@ -1746,6 +1747,7 @@ export async function getInvoicePaymentInfo(invoiceId: string) {
 export async function executeCertificateEFTBatch(input: {
   certificate_ids: string[]
   batch_reference?: string
+  payment_method: 'eft' | 'cheque' | 'wire' | 'etransfer'
 }) {
   return withPermission(PERMISSIONS.PAYMENTS.EXECUTE_EFT_PAYMENTS, async (userData) => {
     const supabase = getSupabaseAdmin()
@@ -1821,7 +1823,7 @@ export async function executeCertificateEFTBatch(input: {
           payment_certificate_id: cert.id,
           contractor_id: cert.contractor_id,
           amount_cents: cert.net_payable_cents,
-          payment_method: 'eft',
+          payment_method: input.payment_method,
           payment_date: new Date().toISOString().split('T')[0],
           status: 'cleared',
           processed_by: internalUserId,
@@ -1884,7 +1886,7 @@ export async function executeCertificateEFTBatch(input: {
     // Create batch record
     await supabase.from('payment_batches').insert({
       batch_reference: batchReference,
-      payment_method: 'eft',
+      payment_method: input.payment_method,
       invoice_count: input.certificate_ids.length,
       total_amount_cents: totalAmount,
       executed_by_user_id: internalUserId,

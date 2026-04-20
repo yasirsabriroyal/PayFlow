@@ -26,6 +26,13 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -186,6 +193,7 @@ export default function PaymentsPage() {
   const [paymentSettings, setPaymentSettings] = useState<PaymentSettings>(defaultSettings)
   const [settingsLoaded, setSettingsLoaded] = useState(false)
   const [eftReviewOpen, setEftReviewOpen] = useState(false)
+  const [paymentMethod, setPaymentMethod] = useState<'eft' | 'cheque' | 'wire' | 'etransfer'>('eft')
 
   // Approved certificates state
   const [approvedCerts, setApprovedCerts] = useState<Array<{
@@ -301,7 +309,7 @@ export default function PaymentsPage() {
     const result = await recordCertificatePayment({
       certificate_id: certId,
       amount_cents: amountCents,
-      payment_method: 'eft',
+      payment_method: paymentMethod,
       payment_date: new Date().toISOString().split('T')[0],
     })
     if (result.success) {
@@ -432,6 +440,7 @@ export default function PaymentsPage() {
     const result = await executeEFTPayment({
       invoice_ids: invoiceIds,
       total_amount_cents: totalAmountCents,
+      payment_method: paymentMethod,
     })
     
     if (!result.success) {
@@ -1044,11 +1053,32 @@ export default function PaymentsPage() {
             </div>
           </div>
 
+          {/* Payment method selector */}
+          <div className="space-y-1.5">
+            <label className="text-sm font-medium">Payment Method</label>
+            <Select value={paymentMethod} onValueChange={(v) => setPaymentMethod(v as typeof paymentMethod)}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="eft">EFT (Electronic Funds Transfer)</SelectItem>
+                <SelectItem value="cheque">Cheque</SelectItem>
+                <SelectItem value="wire">Wire Transfer</SelectItem>
+                <SelectItem value="etransfer">E-Transfer</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
           {/* Payment details & total */}
           <div className="rounded-lg bg-muted/30 border border-border px-4 py-4 space-y-2 text-sm">
             <div className="flex justify-between text-muted-foreground">
               <span>Payment Method</span>
-              <span className="font-medium text-foreground">EFT (Electronic Funds Transfer)</span>
+              <span className="font-medium text-foreground">
+                {paymentMethod === 'eft' && 'EFT (Electronic Funds Transfer)'}
+                {paymentMethod === 'cheque' && 'Cheque'}
+                {paymentMethod === 'wire' && 'Wire Transfer'}
+                {paymentMethod === 'etransfer' && 'E-Transfer'}
+              </span>
             </div>
             <div className="flex justify-between text-muted-foreground">
               <span>Payment Date</span>
