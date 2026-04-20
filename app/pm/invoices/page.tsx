@@ -35,6 +35,7 @@ type RawInvoice = {
   id: string
   invoice_number: string
   status: string
+  total_cents: number
   amount_cents: number
   net_payable_cents: number
   holdback_amount_cents: number
@@ -86,7 +87,7 @@ export default function PMInvoicesPage() {
             id: inv.id,
             invoice_number: inv.invoice_number,
             status: inv.status,
-            amount_cents: inv.amount_cents,
+            amount_cents: inv.total_cents,
             net_payable_cents: inv.net_payable_cents,
             holdback_amount_cents: inv.holdback_amount_cents,
             created_at: inv.created_at,
