@@ -1,7 +1,6 @@
 import { AppHeader } from '@/components/app-header'
 import { RoleTabBar } from '@/components/role-tab-bar'
-import { createClient } from '@/lib/supabase/server'
-import { getSupabaseAdmin } from '@/lib/supabase/admin'
+import { getPMInvoicesForList } from '@/app/pm/actions'
 import { InvoiceTable } from './invoice-table'
 
 export interface EnrichedInvoiceRow {
@@ -28,98 +27,59 @@ export interface SummaryStats {
 }
 
 export default async function PMInvoicesPage() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  const adminClient = getSupabaseAdmin()
+  const result = await getPMInvoicesForList()
+  const rawInvoices = ('invoices' in result && Array.isArray(result.invoices)) ? result.invoices : []
 
-  console.log('[PM Invoices] auth user id:', user?.id)
+  const rows: EnrichedInvoiceRow[] = rawInvoices.map((inv: {
+    id: string
+    invoice_number: string
+    status: string
+    amount_cents: number
+    net_payable_cents: number
+    holdback_amount_cents: number
+    created_at: string
+    contractor: { company_name: string } | { company_name: string }[] | null
+    project: { name: string } | { name: string }[] | null
+    payment_certificates: { id: string; certified_amount_cents: number; status: string }[] | null
+  }) => {
+    const contractor = Array.isArray(inv.contractor)
+      ? (inv.contractor[0] ?? null)
+      : inv.contractor
+    const project = Array.isArray(inv.project)
+      ? (inv.project[0] ?? null)
+      : inv.project
+    const certs = Array.isArray(inv.payment_certificates)
+      ? inv.payment_certificates
+      : inv.payment_certificates
+        ? [inv.payment_certificates]
+        : []
 
-  // Resolve internal user ID
-  let projectIds: string[] = []
+    const total_certified_cents = certs.reduce(
+      (sum: number, c: { certified_amount_cents: number }) => sum + (c.certified_amount_cents ?? 0),
+      0
+    )
+    const remaining_to_certify_cents = (inv.net_payable_cents ?? 0) - total_certified_cents
+    const cert_count = certs.length
+    const outstanding_certs = certs.filter(
+      (c: { status: string }) => c.status === 'approved'
+    ).length
 
-  if (user) {
-    const { data: userRecord } = await adminClient
-      .from('users')
-      .select('id')
-      .eq('auth_user_id', user.id)
-      .single()
-
-    console.log('[PM Invoices] internal user id:', userRecord?.id)
-
-    if (userRecord) {
-      const { data: assignments } = await adminClient
-        .from('project_assignments')
-        .select('project_id')
-        .eq('user_id', userRecord.id)
-
-      projectIds = (assignments ?? []).map((a) => a.project_id)
+    return {
+      id: inv.id,
+      invoice_number: inv.invoice_number,
+      status: inv.status,
+      amount_cents: inv.amount_cents,
+      net_payable_cents: inv.net_payable_cents,
+      holdback_amount_cents: inv.holdback_amount_cents,
+      created_at: inv.created_at,
+      contractor: contractor as { company_name: string } | null,
+      project: project as { name: string } | null,
+      total_certified_cents,
+      remaining_to_certify_cents,
+      cert_count,
+      outstanding_certs,
     }
-  }
-
-  console.log('[PM Invoices] project ids:', projectIds)
-
-  let rows: EnrichedInvoiceRow[] = []
-
-  if (projectIds.length > 0) {
-    const { data: invoices } = await adminClient
-      .from('invoices')
-      .select(`
-        id,
-        invoice_number,
-        status,
-        amount_cents,
-        net_payable_cents,
-        holdback_amount_cents,
-        created_at,
-        contractor:contractors ( company_name ),
-        project:projects ( name ),
-        payment_certificates ( id, certified_amount_cents, status )
-      `)
-      .in('project_id', projectIds)
-      .order('created_at', { ascending: false })
-
-    rows = (invoices ?? []).map((inv) => {
-      const contractor = Array.isArray(inv.contractor)
-        ? (inv.contractor[0] ?? null)
-        : inv.contractor
-      const project = Array.isArray(inv.project)
-        ? (inv.project[0] ?? null)
-        : inv.project
-      const certs = Array.isArray(inv.payment_certificates)
-        ? inv.payment_certificates
-        : inv.payment_certificates
-          ? [inv.payment_certificates]
-          : []
-
-      const total_certified_cents = certs.reduce(
-        (sum: number, c: { certified_amount_cents: number }) => sum + (c.certified_amount_cents ?? 0),
-        0
-      )
-      const remaining_to_certify_cents = (inv.net_payable_cents ?? 0) - total_certified_cents
-      const cert_count = certs.length
-      const outstanding_certs = certs.filter(
-        (c: { status: string }) => c.status === 'approved'
-      ).length
-
-      return {
-        id: inv.id,
-        invoice_number: inv.invoice_number,
-        status: inv.status,
-        amount_cents: inv.amount_cents,
-        net_payable_cents: inv.net_payable_cents,
-        holdback_amount_cents: inv.holdback_amount_cents,
-        created_at: inv.created_at,
-        contractor: contractor as { company_name: string } | null,
-        project: project as { name: string } | null,
-        total_certified_cents,
-        remaining_to_certify_cents,
-        cert_count,
-        outstanding_certs,
-      }
-    })
-  }
-
-  console.log('[PM Invoices] invoice count:', rows.length)
+  })
 
   const stats: SummaryStats = {
     total_invoices: rows.length,
