@@ -352,7 +352,7 @@ export const deleteVendor = secureAction(
       .from('invoices')
       .select('id')
       .eq('contractor_id', vendorId)
-      .in('status', ['pending_review', 'pm_approval', 'approved', 'payment_processing'])
+      .in('status', ['submitted', 'pending_approval', 'approved', 'payment_processing'])
       .limit(1)
     
     if (activeInvoices?.length) {
