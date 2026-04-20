@@ -207,6 +207,12 @@ export const createDirectPayment = secureAction(
     actionName: 'createDirectPayment',
     module: 'admin',
     isCritical: true,
+    getPolicyContext: (input) => {
+      const paymentInput = input as DirectPaymentInput
+      return {
+        amountCents: paymentInput.amount_cents,
+      }
+    },
   }
 )
 
