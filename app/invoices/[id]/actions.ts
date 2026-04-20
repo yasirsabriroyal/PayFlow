@@ -121,6 +121,11 @@ export interface InvoiceHubData {
 // =====================================================
 
 export async function getInvoiceHub(invoiceId: string) {
+  const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+  if (!UUID_REGEX.test(invoiceId)) {
+    return { success: false, error: 'Invalid invoice ID format', data: null }
+  }
+
   return withPermission(PERMISSIONS.INVOICES.VIEW_AP_QUEUE, async () => {
     const supabase = getSupabaseAdmin()
     
