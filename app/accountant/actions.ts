@@ -1923,6 +1923,7 @@ export async function executeCertificateEFTBatch(input: {
 // =====================================================
 
 export async function getPaymentReceiptData(paymentId: string) {
+  return withPermission(PERMISSIONS.INVOICES.VIEW_AP_QUEUE, async () => {
   try {
     const supabase = getSupabaseAdmin()
 
@@ -2089,4 +2090,5 @@ export async function getPaymentReceiptData(paymentId: string) {
     console.error('getPaymentReceiptData error:', err)
     return { success: false, error: 'Failed to load receipt data' }
   }
+  })
 }
