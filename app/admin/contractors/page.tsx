@@ -52,6 +52,8 @@ import { DataCard, DataCardHeader, DataCardRow } from "@/components/ui/responsiv
 import { getVendors } from "./actions"
 import { usePermissions } from "@/hooks/use-permissions"
 import { useListStatePreservation, useWorkflowNavigation } from "@/lib/workflow-navigation"
+import { AppHeader } from "@/components/app-header"
+import { RoleTabBar } from "@/components/role-tab-bar"
 
 type ContractorStatus = "active" | "pending_kyc" | "suspended" | "inactive"
 
@@ -164,7 +166,7 @@ function ContractorDirectoryContent() {
   
   // Navigate to contractor detail with context (uses PM detail page)
   const goToContractor = useCallback((contractor: Contractor) => {
-    navigateTo(`/pm/contractors/${contractor.id}`, { title: contractor.company_name })
+    navigateTo(`/admin/contractors/${contractor.id}`, { title: contractor.company_name })
   }, [navigateTo])
   
   const [contractors, setContractors] = useState<Contractor[]>([])
@@ -214,7 +216,7 @@ function ContractorDirectoryContent() {
           city: v.city as string || '',
           province: v.province as string || '',
           status: (v.status as ContractorStatus) || 'pending_kyc',
-          wcb_clearance_expiry: v.wcb_expiry as string | null,
+          wcb_clearance_expiry: v.wcb_clearance_expiry as string | null,
           kyc_completed_at: v.kyc_completed_at as string | null,
           created_at: v.created_at as string,
         })))
@@ -273,6 +275,8 @@ function ContractorDirectoryContent() {
 
   return (
     <div className="min-h-screen bg-background">
+      <AppHeader pageTitle="Contractors" />
+      <RoleTabBar role="admin" />
       {/* Mobile Header */}
       <header className="sticky top-0 z-40 bg-background/95 backdrop-blur border-b border-border md:hidden">
         <div className="flex items-center justify-between h-14 px-4">
