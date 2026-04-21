@@ -118,36 +118,12 @@ export async function hasAllPermissions(
 
 export interface CurrentUser {
   id: string
-  email: string
+  email: string | undefined
   role: UserRole
 }
 
-/**
- * Role is read from the profiles table (server-side, trusted) — never from
- * user_metadata which is writable by the client via supabase.auth.updateUser().
- */
-export async function getCurrentUser(): Promise<CurrentUser | null> {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-
-  if (!user) return null
-
-  const { data: userRecord } = await supabase
-    .from('users')
-    .select('role')
-    .eq('auth_user_id', user.id)
-    .single()
-
-  const role: UserRole = userRecord?.role && ROLES.includes(userRecord.role as UserRole)
-    ? (userRecord.role as UserRole)
-    : 'contractor'
-
-  return {
-    id: user.id,
-    email: user.email || '',
-    role,
-  }
-}
+export { getCurrentUser } from './auth'
+import { getCurrentUser } from './auth'
 
 /**
  * Thrown by requirePermission() and protect-route helpers when a user lacks
