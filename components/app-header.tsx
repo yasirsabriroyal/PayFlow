@@ -76,7 +76,7 @@ export function AppHeader({ pageTitle, pageDescription, breadcrumbs }: AppHeader
   const pathname = usePathname()
   const [userName, setUserName] = useState('')
   const [userEmail, setUserEmail] = useState('')
-  const [userRole, setUserRole] = useState<UserRole>('project_manager')
+  const [userRole, setUserRole] = useState<UserRole | null>(null)
   const [mounted, setMounted] = useState(false)
   
   // Workflow navigation - only use after mount to avoid hydration issues
@@ -137,9 +137,9 @@ export function AppHeader({ pageTitle, pageDescription, breadcrumbs }: AppHeader
     window.location.href = '/auth/login'
   }
 
-  const roleInfo = roleConfig[userRole]
-  const RoleIcon = roleInfo.icon
-  const dashboardPath = roleInfo.dashboardPath
+  const roleInfo = userRole ? roleConfig[userRole] : null
+  const RoleIcon = roleInfo?.icon ?? null
+  const dashboardPath = roleInfo?.dashboardPath ?? '/'
 
   // Determine if we're on the home dashboard
   const isOnDashboard = pathname === dashboardPath
@@ -221,12 +221,14 @@ export function AppHeader({ pageTitle, pageDescription, breadcrumbs }: AppHeader
           {/* Right side - Role, User, Actions */}
           <div className="flex items-center gap-3">
             {/* Role Badge */}
-            <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full ${roleInfo.bgColor}`}>
-              <RoleIcon className={`w-3.5 h-3.5 ${roleInfo.color}`} />
-              <span className={`text-xs font-medium ${roleInfo.color} hidden sm:inline`}>
-                {roleInfo.label}
-              </span>
-            </div>
+            {userRole && roleInfo && RoleIcon && (
+              <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full ${roleInfo.bgColor}`}>
+                <RoleIcon className={`w-3.5 h-3.5 ${roleInfo.color}`} />
+                <span className={`text-xs font-medium ${roleInfo.color} hidden sm:inline`}>
+                  {roleInfo.label}
+                </span>
+              </div>
+            )}
 
             {/* Settings */}
             <Link href="/settings">

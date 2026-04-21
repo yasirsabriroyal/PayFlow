@@ -22,7 +22,7 @@ export interface DirectPaymentInput {
   contractor_id: string
   project_id?: string
   amount_cents: number
-  payment_method: 'eft' | 'cheque' | 'wire' | 'e-transfer'
+  payment_method: 'eft' | 'cheque' | 'wire' | 'etransfer'
   description: string
   notes?: string
 }
@@ -76,7 +76,7 @@ export const createDirectPayment = secureAction(
       throw new Error('Description is required (minimum 5 characters)')
     }
     
-    if (!['eft', 'cheque', 'wire', 'e-transfer'].includes(input.payment_method)) {
+    if (!['eft', 'cheque', 'wire', 'etransfer'].includes(input.payment_method)) {
       throw new Error('Valid payment method is required')
     }
     

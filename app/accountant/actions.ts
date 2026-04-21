@@ -828,8 +828,7 @@ export async function getInvoiceQueue(options?: {
         project:projects(id, name, project_number)
       `)
       .order('created_at', { ascending: false })
-      .limit(options?.limit || 100)
-    
+
     // Filter by status - default to showing invoices needing review (not paid/rejected)
     if (options?.status && options.status !== 'all') {
       query = query.eq('status', options.status)
@@ -1168,7 +1167,6 @@ export async function getApprovedInvoices(options?: { limit?: number }) {
       `)
       .eq('status', 'approved')
       .order('updated_at', { ascending: false })
-      .limit(options?.limit || 100)
 
     if (error) {
       console.error('Get approved invoices error:', error)

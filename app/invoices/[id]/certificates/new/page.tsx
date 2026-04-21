@@ -25,6 +25,7 @@ import { Progress } from '@/components/ui/progress'
 import { useToast } from '@/hooks/use-toast'
 import { AppHeader } from '@/components/app-header'
 import { getInvoiceForCertificate, createPaymentCertificate } from '@/lib/actions/payment-certificates'
+import { createClient } from '@/lib/supabase/client'
 
 // Format currency
 function formatCurrency(amount: number): string {
@@ -93,6 +94,24 @@ export default function NewCertificatePage({ params }: { params: Promise<{ id: s
   const [workPeriodStart, setWorkPeriodStart] = useState<string>('')
   const [workPeriodEnd, setWorkPeriodEnd] = useState<string>('')
   const [notes, setNotes] = useState<string>('')
+
+  // Role guard — only project_manager may access this page
+  useEffect(() => {
+    const checkRole = async () => {
+      const supabase = createClient()
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) { router.replace('/unauthorized'); return }
+      const { data: userData } = await supabase
+        .from('users')
+        .select('role')
+        .eq('auth_user_id', user.id)
+        .single()
+      if (userData?.role !== 'project_manager') {
+        router.replace('/unauthorized')
+      }
+    }
+    checkRole()
+  }, [router])
 
   // Fetch invoice data
   useEffect(() => {

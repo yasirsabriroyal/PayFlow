@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { AppHeader } from '@/components/app-header'
 import { RoleTabBar } from '@/components/role-tab-bar'
 import Link from 'next/link'
 import { 
@@ -269,6 +270,7 @@ export default function AccountingSyncPage() {
 
   return (
     <div className="min-h-screen bg-background">
+      <AppHeader pageTitle="Accounting" />
       <RoleTabBar role="admin" />
       {/* Header */}
       <header className="border-b border-border bg-card">

@@ -1,6 +1,8 @@
 'use client'
 
 import { useState, useEffect, useMemo } from 'react'
+import { AppHeader } from '@/components/app-header'
+import { RoleTabBar } from '@/components/role-tab-bar'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { 
@@ -334,6 +336,8 @@ export default function PermissionsMatrixPage() {
   return (
     <TooltipProvider>
       <div className="min-h-screen bg-background">
+        <AppHeader pageTitle="Permissions" />
+        <RoleTabBar role="admin" />
         {/* Header */}
         <div className="sticky top-0 z-40 bg-primary text-primary-foreground">
           <div className="container mx-auto px-4 py-4">

@@ -1,6 +1,8 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { AppHeader } from '@/components/app-header'
+import { RoleTabBar } from '@/components/role-tab-bar'
 import { createClient } from '@/lib/supabase/client'
 import { 
   FileSpreadsheet, Download, Save, Plus, Check, X, Loader2,
@@ -450,6 +452,8 @@ export default function ReportBuilderPage() {
 
   return (
     <div className="min-h-screen bg-background">
+      <AppHeader pageTitle="Reports" />
+      <RoleTabBar role="admin" />
       {/* Mobile Header */}
       <header className="sticky top-0 z-40 bg-background/95 backdrop-blur border-b border-border md:hidden">
         <div className="flex items-center justify-between h-14 px-4">

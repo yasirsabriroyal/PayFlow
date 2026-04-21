@@ -110,7 +110,6 @@ export async function getPMInvoices() {
         project:projects(id, name, project_number)
       `)
       .order('created_at', { ascending: false })
-      .limit(10)
 
     if (error) {
       console.error('Get PM invoices error:', error)

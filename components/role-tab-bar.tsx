@@ -2,43 +2,49 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import { ROUTES } from '@/lib/navigation'
+
+type Role = 'admin' | 'accountant' | 'project_manager' | 'vendor' | 'contractor'
 
 interface Tab {
   label: string
   href: string
 }
 
-const TAB_MAP: Record<string, Tab[]> = {
+const VENDOR_TABS: Tab[] = [
+  { label: 'Portal', href: ROUTES.vendor.portal },
+  { label: 'Compliance', href: ROUTES.vendor.compliance },
+]
+
+const TAB_MAP: Record<Role, Tab[]> = {
   admin: [
-    { label: 'Dashboard', href: '/admin/dashboard' },
-    { label: 'Invoices', href: '/admin/invoices' },
-    { label: 'Team', href: '/admin/team' },
-    { label: 'Projects', href: '/admin/projects' },
-    { label: 'Contractors', href: '/admin/contractors' },
-    { label: 'Accounting', href: '/admin/accounting' },
-    { label: 'Settings', href: '/admin/settings' },
+    { label: 'Dashboard', href: ROUTES.admin.dashboard },
+    { label: 'Invoices', href: ROUTES.admin.invoices },
+    { label: 'Projects', href: ROUTES.admin.projectsList },
+    { label: 'Contractors', href: ROUTES.admin.contractors },
+    { label: 'Team', href: ROUTES.admin.team },
+    { label: 'Accounting', href: ROUTES.admin.accounting },
+    { label: 'Settings', href: ROUTES.admin.settings },
   ],
   accountant: [
-    { label: 'Queue', href: '/accountant/queue' },
-    { label: 'Payments', href: '/accountant/payments' },
-    { label: 'Holdbacks', href: '/accountant/holdbacks' },
+    { label: 'Queue', href: ROUTES.accountant.queue },
+    { label: 'Payments', href: ROUTES.accountant.payments },
+    { label: 'Holdbacks', href: ROUTES.accountant.holdbacks },
   ],
   project_manager: [
-    { label: 'Dashboard', href: '/pm/dashboard' },
-    { label: 'Invoices', href: '/pm/invoices' },
-    { label: 'Certificates', href: '/pm/certificates' },
-    { label: 'Approvals', href: '/pm/approvals' },
-    { label: 'Projects', href: '/pm/projects' },
-    { label: 'Contractors', href: '/pm/contractors' },
+    { label: 'Dashboard', href: ROUTES.pm.dashboard },
+    { label: 'Invoices', href: ROUTES.pm.invoices },
+    { label: 'Certificates', href: ROUTES.pm.certificates },
+    { label: 'Approvals', href: ROUTES.pm.approvals },
+    { label: 'Projects', href: ROUTES.pm.projects },
+    { label: 'Contractors', href: ROUTES.pm.contractors },
   ],
-  contractor: [
-    { label: 'Portal', href: '/vendor/portal' },
-    { label: 'Compliance', href: '/vendor/compliance' },
-  ],
+  vendor: VENDOR_TABS,
+  contractor: VENDOR_TABS,
 }
 
 interface RoleTabBarProps {
-  role: string
+  role: Role
 }
 
 export function RoleTabBar({ role }: RoleTabBarProps) {
@@ -48,19 +54,22 @@ export function RoleTabBar({ role }: RoleTabBarProps) {
   if (!tabs) return null
 
   return (
-    <div className="w-full bg-white border-b border-gray-200 px-6">
+    <div
+      className="w-full bg-muted/30 border-b border-border px-6"
+      style={{ overflowX: 'auto', scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+    >
       <div className="flex flex-row gap-0">
-        {tabs.map((tab) => {
+        {tabs.map((tab: Tab) => {
           const isActive = pathname.startsWith(tab.href)
           return (
             <Link
               key={tab.href}
               href={tab.href}
               className={
-                'px-4 py-3 text-sm font-medium no-underline ' +
+                'px-4 py-3 text-sm font-medium no-underline transition-colors ' +
                 (isActive
-                  ? 'text-blue-600 border-b-2 border-blue-600'
-                  : 'text-gray-500 hover:text-gray-700')
+                  ? 'text-primary border-b-2 border-primary'
+                  : 'text-muted-foreground hover:text-foreground')
               }
             >
               {tab.label}

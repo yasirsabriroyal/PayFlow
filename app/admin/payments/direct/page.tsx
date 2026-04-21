@@ -49,14 +49,14 @@ interface Project {
   project_number: string
 }
 
-// Must match database payment_method enum: 'eft', 'cheque', 'wire', 'e-transfer'
-type PaymentMethod = 'eft' | 'cheque' | 'wire' | 'e-transfer'
+// Must match database payment_method enum: 'eft', 'cheque', 'wire', 'etransfer'
+type PaymentMethod = 'eft' | 'cheque' | 'wire' | 'etransfer'
 
 const paymentMethods: { value: PaymentMethod; label: string; description: string }[] = [
   { value: 'eft', label: 'EFT (Electronic Funds Transfer)', description: 'Direct bank transfer' },
   { value: 'cheque', label: 'Cheque', description: 'Physical cheque payment' },
   { value: 'wire', label: 'Wire Transfer', description: 'Bank wire transfer' },
-  { value: 'e-transfer', label: 'E-Transfer', description: 'Interac e-Transfer' },
+  { value: 'etransfer', label: 'E-Transfer', description: 'Interac e-Transfer' },
 ]
 
 export default function DirectPaymentPage() {
