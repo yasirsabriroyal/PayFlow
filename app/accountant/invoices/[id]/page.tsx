@@ -35,6 +35,7 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Checkbox } from '@/components/ui/checkbox'
 import { RoleTabBar } from '@/components/role-tab-bar'
+import { AppHeader } from '@/components/app-header'
 import { PaymentReceiptModal } from '@/components/payment-receipt-modal'
 import { 
   getInvoiceById, 
@@ -503,6 +504,7 @@ export default function InvoiceDetailPage() {
 
   return (
     <div className="min-h-screen bg-background">
+      <AppHeader pageTitle="Invoice" />
       {/* Header */}
       <header className="sticky top-0 z-40 bg-background/95 backdrop-blur border-b border-border">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">

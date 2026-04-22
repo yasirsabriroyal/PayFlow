@@ -27,6 +27,7 @@ import {
   CheckCircle2
 } from 'lucide-react'
 import { getContractorById } from '../../actions'
+import { AppHeader } from '@/components/app-header'
 
 type Contractor = {
   id: string
@@ -166,6 +167,7 @@ export default function AccountantContractorDetailPage() {
 
   return (
     <div className="min-h-screen bg-background">
+      <AppHeader pageTitle="Contractor" />
       {/* Header */}
       <header className="bg-card border-b border-border sticky top-0 z-10">
         <div className="max-w-7xl mx-auto px-4 py-4">

@@ -44,6 +44,7 @@ import {
 } from '@/components/ui/tabs'
 import Link from 'next/link'
 import { RoleTabBar } from '@/components/role-tab-bar'
+import { AppHeader } from '@/components/app-header'
 
 interface Project {
   id: string
@@ -379,6 +380,7 @@ export default function ProjectDetailsPage({ params }: { params: Promise<{ id: s
 
   return (
     <div className="min-h-screen bg-background">
+      <AppHeader pageTitle="Project Details" />
       <RoleTabBar role="admin" />
       {/* Header */}
       <header className="border-b border-border bg-card">
