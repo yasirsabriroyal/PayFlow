@@ -48,9 +48,25 @@ export async function updateSession(request: NextRequest) {
   let user = null
   try {
     const { data, error } = await supabase.auth.getUser()
-    if (!error) user = data.user
-  } catch {
+    if (!error) {
+      user = data.user
+    } else if (error.message?.includes('Refresh Token')) {
+      // Stale refresh token — clear auth cookies so browser stops sending them
+      request.cookies.getAll().forEach((cookie) => {
+        if (cookie.name.startsWith('sb-') && cookie.name.includes('-auth-token')) {
+          supabaseResponse.cookies.delete(cookie.name)
+        }
+      })
+    }
+  } catch (err: unknown) {
     // Auth check failed — treat as unauthenticated
+    if (err instanceof Error && err.message?.includes('Refresh Token')) {
+      request.cookies.getAll().forEach((cookie) => {
+        if (cookie.name.startsWith('sb-') && cookie.name.includes('-auth-token')) {
+          supabaseResponse.cookies.delete(cookie.name)
+        }
+      })
+    }
   }
 
   const pathname = request.nextUrl.pathname
