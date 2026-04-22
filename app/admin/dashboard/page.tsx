@@ -16,13 +16,6 @@ export default async function AdminDashboardPage() {
     redirect('/auth/login')
   }
 
-  // Use user metadata (avoids RLS issues)
-  const userData = {
-    full_name: `${user.user_metadata?.first_name || ''} ${user.user_metadata?.last_name || ''}`.trim() || 'Administrator',
-    email: user.email,
-    role: user.user_metadata?.role || 'admin'
-  }
-
   return (
     <div className="min-h-screen bg-background">
       <AppHeader pageTitle="Admin Dashboard" />
