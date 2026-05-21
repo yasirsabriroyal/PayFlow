@@ -369,20 +369,21 @@ export async function getInvoiceHub(invoiceId: string) {
     const isPaidStatus = invoice.status === 'paid'
     
     const totalCertifiedFromCerts = certificates?.reduce((sum, c) => 
-      sum + (c.status !== 'rejected' ? c.certified_amount_cents : 0), 0) || 0
+      sum + (c.status !== 'rejected' && c.status !== 'cancelled' ? c.certified_amount_cents : 0), 0) || 0
     
     const totalPaidFromPayments = payments?.reduce((sum, p) => 
       sum + (p.status === 'completed' ? p.amount_cents : 0), 0) || 0
     
-    // Use stored values if available, otherwise calculate from records
-    // For legacy paid invoices with no payment records, assume fully paid
-    const totalCertified = invoice.total_certified_cents || totalCertifiedFromCerts || 
-      (isPaidStatus ? invoice.total_cents : 0)
+    // Use calculated values from records if they exist, otherwise fallback to stored/legacy values
+    const totalCertified = (certificates && certificates.length > 0)
+      ? totalCertifiedFromCerts
+      : (invoice.total_certified_cents || (isPaidStatus ? invoice.total_cents : 0))
     
-    const totalPaid = invoice.total_paid_cents || totalPaidFromPayments || 
-      (isPaidStatus ? invoice.net_payable_cents : 0)
+    const totalPaid = (payments && payments.length > 0)
+      ? totalPaidFromPayments
+      : (invoice.total_paid_cents || (isPaidStatus ? invoice.net_payable_cents : 0))
 
-    const remainingBalance = isPaidStatus ? 0 : Math.max(0, invoice.total_cents - totalCertified)
+    const remainingBalance = Math.max(0, invoice.total_cents - totalCertified)
 
     // Holdback calculations
     const holdbackCertified = certificates?.reduce((sum, c) => 

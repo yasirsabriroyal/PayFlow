@@ -546,6 +546,19 @@ export default function InvoiceHubPage() {
           <TabsContent value="certificates" className="space-y-4">
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-semibold">Payment Certificates</h2>
+              <div className="flex gap-2">
+                <Button variant="outline" asChild>
+                  <Link href={`/pm/invoices/${invoiceId}`}>
+                    PM Actions
+                  </Link>
+                </Button>
+                <Button asChild>
+                  <Link href={`/invoices/${invoiceId}/certificates/new`}>
+                    <Plus className="w-4 h-4 mr-2" />
+                    Create Certificate
+                  </Link>
+                </Button>
+              </div>
             </div>
 
             {certificates.length === 0 ? (
@@ -636,6 +649,12 @@ export default function InvoiceHubPage() {
           <TabsContent value="payments" className="space-y-4">
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-semibold">Payment History</h2>
+              <Button asChild>
+                <Link href={`/accountant/invoices/${invoiceId}`}>
+                  <CreditCard className="w-4 h-4 mr-2" />
+                  Process Payment
+                </Link>
+              </Button>
             </div>
 
             {payments.length === 0 ? (

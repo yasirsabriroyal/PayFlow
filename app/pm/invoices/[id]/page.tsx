@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, FileText, Calendar, Building2, DollarSign, Clock, CheckCircle, XCircle, AlertCircle, Send, RotateCcw, Pencil, Mail, Phone, MapPin, FolderOpen, Shield } from 'lucide-react'
+import { ArrowLeft, FileText, Calendar, Building2, DollarSign, Clock, CheckCircle, XCircle, AlertCircle, Send, RotateCcw, Pencil, Mail, Phone, MapPin, FolderOpen, Shield, Plus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -637,10 +637,18 @@ export default function PMInvoiceDetailPage() {
           {/* Payment Certificates */}
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <FileText className="w-5 h-5" />
-                Payment Certificates
-              </CardTitle>
+              <div className="flex items-center justify-between gap-3">
+                <CardTitle className="flex items-center gap-2">
+                  <FileText className="w-5 h-5" />
+                  Payment Certificates
+                </CardTitle>
+                <Link href={`/invoices/${invoiceId}/certificates/new`}>
+                  <Button size="sm" className="gap-2">
+                    <Plus className="w-4 h-4" />
+                    Create Certificate
+                  </Button>
+                </Link>
+              </div>
             </CardHeader>
             <CardContent className="p-0">
               {certsLoading ? (

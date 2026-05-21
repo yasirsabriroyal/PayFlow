@@ -136,8 +136,10 @@ export async function getInvoiceForCertificate(invoiceId: string) {
     }
     
     // Calculate summary
-    const totalCertified = (certificates || []).reduce((sum, c) => sum + (c.certified_amount_cents || 0), 0)
-    const remainingBalance = (invoice.total_cents || 0) - totalCertified
+    const totalCertified = (certificates || [])
+      .filter(c => c.status !== 'rejected' && c.status !== 'cancelled')
+      .reduce((sum, c) => sum + (c.certified_amount_cents || 0), 0)
+    const remainingBalance = Math.max(0, (invoice.total_cents || 0) - totalCertified)
     
     return { 
       success: true, 
@@ -249,10 +251,9 @@ export async function createPaymentCertificate(input: CreatePaymentCertificateIn
       }
     }
     
-    // 4. Calculate holdback for this certificate (proportional to certified amount)
-    const holdbackPercent = invoice.holdback_percent || 0
-    const holdbackAmountCents = Math.round(input.certified_amount_cents * (holdbackPercent / 100))
-    const netPayableCents = input.certified_amount_cents - holdbackAmountCents
+    // 4. Holdback is applied at the invoice level, not per certificate
+    const holdbackAmountCents = 0
+    const netPayableCents = input.certified_amount_cents
     
     // 5. Generate certificate number
     const { data: countData } = await supabase

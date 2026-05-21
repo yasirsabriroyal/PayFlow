@@ -220,8 +220,6 @@ export default function PMApprovalsPage() {
   
   // Certificate creation
   const grossAmountCents = Math.round(parseFloat(grossAmount || '0') * 100)
-  const holdbackAmount = applyHoldback ? grossAmountCents * (holdbackPercent / 100) : 0
-  const netAmount = grossAmountCents - holdbackAmount
   
   const resetCertificateForm = () => {
     setSelectedProject('')
@@ -623,7 +621,7 @@ export default function PMApprovalsPage() {
                         <tr 
                           key={invoice.id} 
                           className="hover:bg-muted/30 transition-colors cursor-pointer"
-                          onClick={() => window.location.href = `/pm/invoices/${invoice.id}`}
+                          onClick={() => window.location.href = `/invoices/${invoice.id}`}
                         >
                           <td className="px-6 py-4">
                             <div>
@@ -656,7 +654,7 @@ export default function PMApprovalsPage() {
                             <Button
                               size="sm"
                               variant="ghost"
-                              onClick={() => window.location.href = `/pm/invoices/${invoice.id}`}
+                              onClick={() => window.location.href = `/invoices/${invoice.id}`}
                             >
                               View Details
                             </Button>

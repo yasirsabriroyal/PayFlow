@@ -933,25 +933,24 @@ export async function getInvoiceById(invoiceId: string) {
     // Fetch payment history through payment_requests linked to this invoice
     const { data: paymentRequests, error: prError } = await supabase
       .from('payment_requests')
-      .select(`
-        id,
-        request_number,
-        requested_amount_cents,
-        approved_amount_cents,
-        status,
-        payment_method,
-        payment_reference,
-        created_at,
-        processed_at
-      `)
+      .select('id, request_number, requested_amount_cents, approved_amount_cents, status, payment_method, payment_reference, created_at, processed_at')
       .eq('invoice_id', invoiceId)
       .order('created_at', { ascending: false })
+      
+    // Fetch payment certificates linked to this invoice
+    const { data: paymentCertificates } = await supabase
+      .from('payment_certificates')
+      .select('id')
+      .eq('invoice_id', invoiceId)
     
-    // Get actual payments for these payment requests
+    // Get actual payments for these payment requests AND certificates
     let payments: Array<Record<string, unknown>> = []
-    if (paymentRequests && paymentRequests.length > 0) {
-      const prIds = paymentRequests.map(pr => pr.id)
-      const { data: paymentData, error: paymentsError } = await supabase
+    
+    const prIds = paymentRequests?.map(pr => pr.id) || []
+    const certIds = paymentCertificates?.map(c => c.id) || []
+    
+    if (prIds.length > 0 || certIds.length > 0) {
+      let query = supabase
         .from('payments')
         .select(`
           id,
@@ -964,10 +963,21 @@ export async function getInvoiceById(invoiceId: string) {
           wire_reference,
           notes,
           created_at,
-          processed_by
+          processed_by,
+          payment_request_id,
+          payment_certificate_id
         `)
-        .in('payment_request_id', prIds)
         .order('created_at', { ascending: false })
+        
+      if (prIds.length > 0 && certIds.length > 0) {
+        query = query.or(`payment_request_id.in.(${prIds.join(',')}),payment_certificate_id.in.(${certIds.join(',')})`)
+      } else if (prIds.length > 0) {
+        query = query.in('payment_request_id', prIds)
+      } else if (certIds.length > 0) {
+        query = query.in('payment_certificate_id', certIds)
+      }
+      
+      const { data: paymentData, error: paymentsError } = await query
       
       if (paymentsError) {
         console.error('Get payments error:', paymentsError)
@@ -1339,8 +1349,8 @@ export async function recordCertificatePayment(input: {
       return { success: false, error: paymentError.message }
     }
     
-    // 5. Update certificate status to paid if fully paid (based on certified amount)
-    if (input.amount_cents >= certificate.certified_amount_cents) {
+    // 5. Update certificate status to paid if fully paid (based on net payable amount)
+    if (input.amount_cents >= certificate.net_payable_cents) {
       await supabase
         .from('payment_certificates')
         .update({
@@ -1353,7 +1363,7 @@ export async function recordCertificatePayment(input: {
     // 6. Update invoice total_paid_cents
     const { data: invoice } = await supabase
       .from('invoices')
-      .select('total_paid_cents')
+      .select('total_paid_cents, net_payable_cents')
       .eq('id', certificate.invoice_id)
       .single()
     
@@ -1364,7 +1374,7 @@ export async function recordCertificatePayment(input: {
         .update({
           total_paid_cents: newTotalPaid,
           amount_paid_cents: newTotalPaid,
-          amount_remaining_cents: Math.max(0, (invoice.total_paid_cents || 0) - newTotalPaid),
+          amount_remaining_cents: Math.max(0, invoice.net_payable_cents - newTotalPaid),
           updated_at: new Date().toISOString(),
         })
         .eq('id', certificate.invoice_id)
@@ -1711,7 +1721,7 @@ export async function getInvoicePaymentInfo(invoiceId: string) {
     const totalCertPaidCents = certificatesWithPayments.reduce((sum, c) => sum + c.total_paid_cents, 0)
     const totalDirectPaidCents = (directPayments || []).reduce((sum, p) => sum + (p.amount_cents || 0), 0)
     const totalPaidCents = totalCertPaidCents + totalDirectPaidCents
-    const invoiceBaseCents = totalCertifiedCents > 0 ? totalCertifiedCents : (invoice.net_payable_cents || 0)
+    const invoiceBaseCents = invoice.net_payable_cents || 0
     const invoiceRemainingCents = Math.max(0, invoiceBaseCents - totalPaidCents)
     
     return {
@@ -1860,20 +1870,20 @@ export async function executeCertificateEFTBatch(input: {
       // Update invoice total_paid_cents
       const { data: invoice } = await supabase
         .from('invoices')
-        .select('total_paid_cents, total_cents')
+        .select('total_paid_cents, net_payable_cents')
         .eq('id', cert.invoice_id)
         .single()
       
       if (invoice) {
         const newTotalPaid = (invoice.total_paid_cents || 0) + cert.net_payable_cents
-        const invoiceFullyPaid = newTotalPaid >= invoice.total_cents
+        const invoiceFullyPaid = newTotalPaid >= invoice.net_payable_cents
         
         await supabase
           .from('invoices')
           .update({
             total_paid_cents: newTotalPaid,
             amount_paid_cents: newTotalPaid,
-            amount_remaining_cents: Math.max(0, invoice.total_cents - newTotalPaid),
+            amount_remaining_cents: Math.max(0, invoice.net_payable_cents - newTotalPaid),
             status: invoiceFullyPaid ? 'paid' : 'approved',
             updated_at: new Date().toISOString(),
           })

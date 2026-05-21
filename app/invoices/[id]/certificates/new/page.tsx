@@ -136,8 +136,8 @@ export default function NewCertificatePage({ params }: { params: Promise<{ id: s
   const remainingBalance = invoice?.calculated_remaining_balance || 0
 
   // This certificate calculations
-  const holdbackAmountCents = Math.round(certifiedAmountCents * (holdbackPercent / 100))
-  const netPayableCents = certifiedAmountCents - holdbackAmountCents
+  const holdbackAmountCents = 0
+  const netPayableCents = certifiedAmountCents
 
   // After this certificate
   const newTotalCertified = previouslyCertified + certifiedAmountCents
@@ -433,15 +433,7 @@ export default function NewCertificatePage({ params }: { params: Promise<{ id: s
                   </span>
                 </div>
                 
-                <div className="flex justify-between items-center text-sm">
-                  <span className="text-muted-foreground flex items-center gap-1">
-                    <Percent className="w-3 h-3" />
-                    Holdback ({holdbackPercent}%)
-                  </span>
-                  <span className="text-warning">
-                    -{formatCurrency(holdbackAmountCents / 100)}
-                  </span>
-                </div>
+
                 
                 <Separator />
                 
@@ -504,7 +496,6 @@ export default function NewCertificatePage({ params }: { params: Promise<{ id: s
                 <div className="flex gap-2 text-xs text-muted-foreground">
                   <Info className="w-4 h-4 flex-shrink-0 mt-0.5" />
                   <p>
-                    The holdback amount will be retained until final project completion. 
                     Net payable is the amount that will be sent for payment processing.
                   </p>
                 </div>

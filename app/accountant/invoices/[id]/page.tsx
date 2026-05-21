@@ -748,7 +748,7 @@ export default function InvoiceDetailPage() {
                 const totalCertifiedCents = paymentInfo.summary.total_certified_cents
                 const calculatedPaidAmount = paymentInfo.summary.total_paid_cents
                 const calculatedRemainingAmount = paymentInfo.summary.total_remaining_cents
-                const progressBase = totalCertifiedCents > 0 ? totalCertifiedCents : invoice.net_payable_cents
+                const progressBase = invoice.net_payable_cents
                 const paymentProgress = progressBase > 0
                   ? Math.min(100, Math.round((calculatedPaidAmount / progressBase) * 100))
                   : 0

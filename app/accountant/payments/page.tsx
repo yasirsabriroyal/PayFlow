@@ -954,9 +954,19 @@ export default function PaymentsPage() {
                 <span className="font-semibold text-success">{formatCurrency(certToReview.certified_amount_cents / 100)}</span>
               </div>
               <div className="border-t border-border pt-3 space-y-2">
-                <div className="flex justify-between">
+                <div className="flex justify-between items-center">
                   <span className="text-muted-foreground">Payment Method</span>
-                  <span className="font-medium">EFT</span>
+                  <Select value={paymentMethod} onValueChange={(v) => setPaymentMethod(v as typeof paymentMethod)}>
+                    <SelectTrigger className="w-[180px] h-8">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="eft">EFT (Electronic Funds Transfer)</SelectItem>
+                      <SelectItem value="cheque">Cheque</SelectItem>
+                      <SelectItem value="wire">Wire Transfer</SelectItem>
+                      <SelectItem value="etransfer">E-Transfer</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Payment Date</span>
