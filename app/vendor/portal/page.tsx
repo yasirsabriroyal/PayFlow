@@ -7,12 +7,25 @@ import { AppHeader } from '@/components/app-header'
 import { RoleTabBar } from '@/components/role-tab-bar'
 import { WorkflowLink } from '@/components/workflow-link'
 
+import { getVendorPortalStats } from '@/lib/actions/vendor-portal'
+import { formatCurrency } from '@/lib/utils'
+
 export default async function VendorPortalPage() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
 
   if (!user) {
     redirect('/auth/login')
+  }
+
+  const { success, stats } = await getVendorPortalStats()
+  const displayStats = success && stats ? stats : {
+    pendingReviewCount: 0,
+    approvedCount: 0,
+    paidThisMonthCents: 0,
+    holdbackBalanceCents: 0,
+    wcbStatus: 'Pending',
+    wcbExpiry: 'N/A'
   }
 
   return (
@@ -38,7 +51,7 @@ export default async function VendorPortalPage() {
                   <Clock className="w-5 h-5 text-warning" />
                 </div>
                 <div>
-                  <p className="text-2xl font-semibold">3</p>
+                  <p className="text-2xl font-semibold">{displayStats.pendingReviewCount}</p>
                   <p className="text-sm text-muted-foreground">Pending Review</p>
                 </div>
               </div>
@@ -49,7 +62,7 @@ export default async function VendorPortalPage() {
                   <FileText className="w-5 h-5 text-success" />
                 </div>
                 <div>
-                  <p className="text-2xl font-semibold">12</p>
+                  <p className="text-2xl font-semibold">{displayStats.approvedCount}</p>
                   <p className="text-sm text-muted-foreground">Approved</p>
                 </div>
               </div>
@@ -60,7 +73,7 @@ export default async function VendorPortalPage() {
                   <DollarSign className="w-5 h-5 text-primary" />
                 </div>
                 <div>
-                  <p className="text-2xl font-semibold">$45,280</p>
+                  <p className="text-2xl font-semibold">{formatCurrency(displayStats.paidThisMonthCents / 100)}</p>
                   <p className="text-sm text-muted-foreground">Paid This Month</p>
                 </div>
               </div>
@@ -71,7 +84,7 @@ export default async function VendorPortalPage() {
                   <Shield className="w-5 h-5 text-accent" />
                 </div>
                 <div>
-                  <p className="text-2xl font-semibold">$12,750</p>
+                  <p className="text-2xl font-semibold">{formatCurrency(displayStats.holdbackBalanceCents / 100)}</p>
                   <p className="text-sm text-muted-foreground">Holdback Balance</p>
                 </div>
               </div>
@@ -131,7 +144,7 @@ export default async function VendorPortalPage() {
                   </div>
                   <div>
                     <p className="text-sm font-medium">WCB Clearance</p>
-                    <p className="text-xs text-success">Valid until Dec 2024</p>
+                    <p className="text-xs text-success">{displayStats.wcbStatus === 'Valid' ? `Valid until ${displayStats.wcbExpiry}` : 'Pending'}</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-3 p-3 bg-success/5 border border-success/20 rounded-lg">

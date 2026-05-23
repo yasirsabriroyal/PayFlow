@@ -22,12 +22,20 @@ export async function GET(
     const adminSupabase = getSupabaseAdmin()
     const { data: document, error: dbError } = await adminSupabase
       .from('invoice_documents')
-      .select('file_url, file_name, file_type')
+      .select('file_url, file_name, file_type, uploaded_by')
       .eq('id', id)
       .single()
 
     if (dbError || !document) {
       return NextResponse.json({ error: 'Document not found' }, { status: 404 })
+    }
+
+    // Verify ownership or admin/PM/accountant role to prevent IDOR
+    const { data: userData } = await supabase.from('users').select('role').eq('id', user.id).single()
+    const isInternalStaff = userData?.role === 'admin' || userData?.role === 'project_manager' || userData?.role === 'accountant'
+
+    if (!isInternalStaff && document.uploaded_by !== user.id) {
+       return NextResponse.json({ error: 'Unauthorized to access this document' }, { status: 403 })
     }
 
     // Fetch from Blob storage (file_url contains the blob pathname)

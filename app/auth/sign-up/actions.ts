@@ -33,13 +33,14 @@ export async function completeContractorRegistration(input: {
 
   const userId = authUser.user.id
 
-  // Contractor record — kyc_status and is_active set server-side only
+  // Contractor record
   const { error: contractorError } = await supabase.from('contractors').insert({
+    auth_user_id: userId,
     company_name: input.companyName,
     contact_name: input.contactName,
     email: input.email,
-    kyc_status: 'pending',
-    is_active: true,
+    province: 'ON', // Default required by schema
+    status: 'pending_kyc',
   })
   if (contractorError) {
     console.log('[signup] Contractor insert note:', contractorError.message)

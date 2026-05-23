@@ -9,7 +9,8 @@ import {
   FolderKanban, 
   FileText, 
   Settings,
-  ChevronLeft
+  ChevronLeft,
+  DollarSign
 } from 'lucide-react'
 import { Logo } from '@/components/ui/logo'
 import { Button } from '@/components/ui/button'

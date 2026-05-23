@@ -4,6 +4,7 @@ import { useEffect } from 'react'
 import { AlertCircle, RefreshCw, Home } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import Link from 'next/link'
+import { useBranding } from '@/components/providers'
 
 export default function AdminError({
   error,
@@ -12,6 +13,8 @@ export default function AdminError({
   error: Error & { digest?: string }
   reset: () => void
 }) {
+  const { company_name } = useBranding()
+
   useEffect(() => {
     console.error('[Admin] Unhandled error:', error)
   }, [error])

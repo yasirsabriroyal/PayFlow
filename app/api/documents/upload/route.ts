@@ -26,6 +26,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'No file provided' }, { status: 400 })
     }
 
+    const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+    const ALLOWED_MIME_TYPES = ['application/pdf', 'image/png', 'image/jpeg'];
+
+    if (file.size > MAX_FILE_SIZE) {
+      return NextResponse.json({ error: 'File size exceeds 10MB limit' }, { status: 400 })
+    }
+
+    if (!ALLOWED_MIME_TYPES.includes(file.type)) {
+      return NextResponse.json({ error: 'Invalid file type. Only PDF, PNG, and JPEG are allowed' }, { status: 400 })
+    }
+
     if (!invoiceId) {
       return NextResponse.json({ error: 'Invoice ID is required' }, { status: 400 })
     }
@@ -33,7 +44,7 @@ export async function POST(request: NextRequest) {
     // Generate unique filename
     const timestamp = Date.now()
     const cleanName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_')
-    const pathname = `invoices/${invoiceId}/${timestamp}-${cleanName}`
+    const pathname = `users/${user.id}/invoices/${invoiceId}/${timestamp}-${cleanName}`
 
     // Upload to Blob storage (private)
     const blob = await put(pathname, file, {
@@ -55,6 +66,7 @@ export async function POST(request: NextRequest) {
         file_size_bytes: file.size,
         file_url: blob.pathname, // Store pathname for private blob access via get()
         document_type: documentType,
+        uploaded_by: user.id,
       })
       .select()
       .single()

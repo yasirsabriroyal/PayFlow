@@ -19,8 +19,6 @@ interface SettingsForm {
   city: string
   province: string
   postal_code: string
-  province: string
-  postal_code: string
   hst_number: string
   logo_url: string
 }
@@ -36,7 +34,6 @@ const EMPTY_FORM: SettingsForm = {
   address: '',
   city: '',
   province: '',
-  postal_code: '',
   postal_code: '',
   hst_number: '',
   logo_url: '',
@@ -63,8 +60,6 @@ export default function CompanySettingsPage() {
           website: s.website ?? '',
           address: s.address ?? '',
           city: s.city ?? '',
-          province: s.province ?? '',
-          postal_code: s.postal_code ?? '',
           province: s.province ?? '',
           postal_code: s.postal_code ?? '',
           hst_number: s.hst_number ?? '',

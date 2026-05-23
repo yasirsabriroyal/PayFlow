@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Building2, Upload, FileText, Calculator, ArrowLeft, Check, X, Loader2, Mail, MessageSquare } from 'lucide-react'
@@ -18,14 +18,9 @@ import {
 import Link from 'next/link'
 import { useToast } from '@/hooks/use-toast'
 import { sendInvoiceSubmittedNotification } from '@/lib/notifications'
+import { getVendorProjects, submitVendorInvoice } from '@/lib/actions/vendor-invoices'
 
-// Mock projects data (will be replaced with real data)
-const mockProjects = [
-  { id: 'proj-1', name: 'Downtown Office Tower', project_number: 'PRJ-2024-001' },
-  { id: 'proj-2', name: 'Harbourfront Condo Development', project_number: 'PRJ-2024-002' },
-  { id: 'proj-3', name: 'Westside Shopping Centre', project_number: 'PRJ-2024-003' },
-  { id: 'proj-4', name: 'Industrial Park Expansion', project_number: 'PRJ-2024-004' },
-]
+// Removed mockProjects
 
 export default function SubmitInvoicePage() {
   const router = useRouter()
@@ -77,51 +72,62 @@ export default function SubmitInvoicePage() {
     }
   }
 
+  const [projects, setProjects] = useState<{ id: string, name: string, project_number: string }[]>([])
+  
+  // Load projects
+  useEffect(() => {
+    async function load() {
+      const { success, projects } = await getVendorProjects()
+      if (success) {
+        setProjects(projects || [])
+      }
+    }
+    load()
+  }, [])
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsSubmitting(true)
 
-    // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 1500))
-
-    // In production, this would:
-    // 1. Upload the PDF to storage
-    // 2. Create invoice record
-    // 3. Create payment request record
-    // 4. Trigger OCR processing
-
-    // Get selected project info
-    const selectedProject = mockProjects.find(p => p.id === projectId)
-
-    // Send notification to PM/Accountant
-    await sendInvoiceSubmittedNotification(
-      {
-        name: 'Project Manager',
-        email: 'pm@company.com',
-        phone: '+14165551234',
-      },
-      {
-        invoiceNumber,
-        amount: totalAmountNum,
-        projectName: selectedProject?.name || 'Unknown Project',
-        contractorName: 'Current Vendor', // In production, get from user session
+    try {
+      const formData = new FormData()
+      formData.append('projectId', projectId)
+      formData.append('invoiceNumber', invoiceNumber)
+      formData.append('invoiceDate', invoiceDate)
+      formData.append('dueDate', new Date(new Date(invoiceDate).getTime() + 30*24*60*60*1000).toISOString().split('T')[0]) // 30 days
+      formData.append('totalAmount', totalAmount)
+      formData.append('holdbackAmount', holdbackAmount.toString())
+      if (uploadedFile) {
+        formData.append('file', uploadedFile)
       }
-    )
 
-    // Show toast notification
-    toast({
-      title: 'Invoice Submitted Successfully',
-      description: (
-        <div className="flex items-center gap-2 mt-1">
-          <Mail className="w-4 h-4 text-primary" />
-          <MessageSquare className="w-4 h-4 text-green-500" />
-          <span className="text-sm">Notification sent to PM via Email & WhatsApp</span>
-        </div>
-      ),
-    })
-
-    setIsSuccess(true)
-    setIsSubmitting(false)
+      const result = await submitVendorInvoice(formData)
+      if (result.success) {
+        const selectedProject = projects.find(p => p.id === projectId)
+        await sendInvoiceSubmittedNotification(
+          { name: 'Project Manager', email: 'pm@company.com', phone: '+14165551234' },
+          { invoiceNumber, amount: totalAmountNum, projectName: selectedProject?.name || 'Unknown Project', contractorName: 'Current Vendor' }
+        )
+        toast({
+          title: 'Invoice Submitted Successfully',
+          description: (
+            <div className="flex items-center gap-2 mt-1">
+              <Mail className="w-4 h-4 text-primary" />
+              <MessageSquare className="w-4 h-4 text-green-500" />
+              <span className="text-sm">Notification sent to PM via Email & WhatsApp</span>
+            </div>
+          ),
+        })
+        setIsSuccess(true)
+      } else {
+        toast({ title: 'Submission Failed', description: result.error, variant: 'destructive' })
+      }
+    } catch (e) {
+      console.error(e)
+      toast({ title: 'Error', description: 'An unexpected error occurred', variant: 'destructive' })
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   const formatCurrency = (amount: number) => {
@@ -238,7 +244,7 @@ export default function SubmitInvoicePage() {
                         <SelectValue placeholder="Select a project" />
                       </SelectTrigger>
                       <SelectContent>
-                        {mockProjects.map((project) => (
+                        {projects.map((project) => (
                           <SelectItem key={project.id} value={project.id}>
                             <span className="font-medium">{project.name}</span>
                             <span className="text-muted-foreground ml-2">({project.project_number})</span>

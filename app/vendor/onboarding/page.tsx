@@ -148,15 +148,27 @@ export default function VendorOnboardingPage() {
   const handleSubmit = async () => {
     setIsSubmitting(true)
 
-    // Simulate API call
-    const supabase = createClient()
-    
-    // In real implementation, this would save to the database
-    // For now, we'll just simulate success
-    await new Promise((resolve) => setTimeout(resolve, 2000))
-
-    setIsSubmitting(false)
-    setIsComplete(true)
+    try {
+      const data = new FormData()
+      Object.entries(formData).forEach(([key, value]) => {
+        if (value !== null && value !== undefined) {
+          data.append(key, value instanceof File ? value : String(value))
+        }
+      })
+      
+      const { submitVendorKYC } = await import('@/lib/actions/vendor-kyc')
+      const result = await submitVendorKYC(data)
+      
+      if (!result.success) {
+        console.error('Submission failed:', result.error)
+      } else {
+        setIsComplete(true)
+      }
+    } catch (e) {
+      console.error(e)
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   if (isComplete) {
