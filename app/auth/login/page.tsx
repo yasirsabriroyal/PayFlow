@@ -8,6 +8,7 @@ import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 import { Shield, Lock, Building2, AlertCircle } from 'lucide-react'
 import Link from 'next/link'
+import { Logo } from '@/components/ui/logo'
 
 export default function LoginPage() {
   const [email, setEmail] = useState('')
@@ -57,11 +58,8 @@ export default function LoginPage() {
       {/* Left Panel - Branding */}
       <div className="hidden lg:flex lg:w-1/2 bg-sidebar text-sidebar-foreground flex-col justify-between p-12">
         <div>
-          <div className="flex items-center gap-3 mb-16">
-            <div className="w-10 h-10 bg-sidebar-primary rounded-lg flex items-center justify-center">
-              <Building2 className="w-6 h-6 text-sidebar-primary-foreground" />
-            </div>
-            <span className="text-xl font-semibold tracking-tight">PayFlow AP</span>
+          <div className="flex items-center gap-3 mb-16 text-sidebar-primary-foreground">
+            <Logo />
           </div>
           
           <div className="space-y-8">
@@ -104,10 +102,7 @@ export default function LoginPage() {
         <div className="w-full max-w-md space-y-8">
           {/* Mobile Logo */}
           <div className="lg:hidden flex items-center justify-center gap-3 mb-8">
-            <div className="w-10 h-10 bg-primary rounded-lg flex items-center justify-center">
-              <Building2 className="w-6 h-6 text-primary-foreground" />
-            </div>
-            <span className="text-xl font-semibold tracking-tight">PayFlow AP</span>
+            <Logo />
           </div>
 
           <div className="space-y-2 text-center lg:text-left">

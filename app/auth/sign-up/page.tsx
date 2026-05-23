@@ -12,6 +12,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { CheckCircle, Building2, HardHat, AlertCircle } from 'lucide-react'
 
 export default function SignUpPage() {
+  const { company_name } = useBranding()
+
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')

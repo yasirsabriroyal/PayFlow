@@ -10,36 +10,43 @@ import './globals.css'
 const _inter = Inter({ subsets: ["latin"], variable: "--font-sans" });
 const _geistMono = Geist_Mono({ subsets: ["latin"], variable: "--font-mono" });
 
-export const metadata: Metadata = {
-  title: 'PayFlow AP - Enterprise Accounts Payable', // v1
-  description: 'Comprehensive Canadian construction finance platform for contractor payments, compliance tracking, and financial workflows.',
-  generator: 'v0.app',
-  manifest: '/manifest.json',
-  keywords: ['accounts payable', 'construction finance', 'contractor payments', 'Canadian', 'PWA'],
-  authors: [{ name: 'PayFlow AP' }],
-  appleWebApp: {
-    capable: true,
-    statusBarStyle: 'default',
-    title: 'PayFlow AP',
-  },
-  formatDetection: {
-    telephone: false,
-  },
-  openGraph: {
-    type: 'website',
-    siteName: 'PayFlow AP',
-    title: 'PayFlow AP - Enterprise Accounts Payable',
-    description: 'Comprehensive Canadian construction finance platform',
-  },
-  icons: {
-    icon: [
-      { url: '/icons/icon-32x32.png', sizes: '32x32', type: 'image/png' },
-      { url: '/icons/icon-192x192.png', sizes: '192x192', type: 'image/png' },
-    ],
-    apple: [
-      { url: '/icons/apple-touch-icon.png', sizes: '180x180', type: 'image/png' },
-    ],
-  },
+import { getActiveBranding } from '@/lib/branding/get-active-branding'
+
+export async function generateMetadata(): Promise<Metadata> {
+  const branding = await getActiveBranding()
+  const appName = branding.company_name
+  
+  return {
+    title: `${appName} - Enterprise Accounts Payable`,
+    description: 'Comprehensive Canadian construction finance platform for contractor payments, compliance tracking, and financial workflows.',
+    generator: 'v0.app',
+    manifest: '/manifest.json',
+    keywords: ['accounts payable', 'construction finance', 'contractor payments', 'Canadian', 'PWA'],
+    authors: [{ name: appName }],
+    appleWebApp: {
+      capable: true,
+      statusBarStyle: 'default',
+      title: appName,
+    },
+    formatDetection: {
+      telephone: false,
+    },
+    openGraph: {
+      type: 'website',
+      siteName: appName,
+      title: `${appName} - Enterprise Accounts Payable`,
+      description: 'Comprehensive Canadian construction finance platform',
+    },
+    icons: {
+      icon: [
+        { url: '/icons/icon-32x32.png', sizes: '32x32', type: 'image/png' },
+        { url: '/icons/icon-192x192.png', sizes: '192x192', type: 'image/png' },
+      ],
+      apple: [
+        { url: '/icons/apple-touch-icon.png', sizes: '180x180', type: 'image/png' },
+      ],
+    },
+  }
 }
 
 export const viewport: Viewport = {
@@ -54,18 +61,20 @@ export const viewport: Viewport = {
   viewportFit: 'cover',
 }
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode
 }>) {
+  const branding = await getActiveBranding()
+
   return (
     <html lang="en">
       <head>
         {/* Apple/Safari PWA Meta Tags */}
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-        <meta name="apple-mobile-web-app-title" content="PayFlow AP" />
+        <meta name="apple-mobile-web-app-title" content={branding.company_name} />
         <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
         <link rel="apple-touch-icon" sizes="152x152" href="/icons/icon-152x152.png" />
         <link rel="apple-touch-icon" sizes="180x180" href="/icons/icon-180x180.png" />
@@ -84,7 +93,7 @@ export default function RootLayout({
         <meta name="msapplication-tap-highlight" content="no" />
       </head>
       <body className="font-sans antialiased">
-        <Providers>
+        <Providers branding={branding}>
           {children}
         </Providers>
         <Toaster />

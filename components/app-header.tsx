@@ -13,6 +13,10 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { 
   Building2, 
+  Bell,
+  Menu,
+  Search,
+  FileText,
   Home, 
   LogOut, 
   Settings, 
@@ -25,6 +29,7 @@ import {
   ArrowLeft,
   ChevronRight
 } from 'lucide-react'
+import { Logo } from '@/components/ui/logo'
 import { createClient } from '@/lib/supabase/client'
 import { useWorkflowNavigation, useContextualBack } from '@/lib/workflow-navigation'
 
@@ -164,10 +169,8 @@ export function AppHeader({ pageTitle, pageDescription, breadcrumbs }: AppHeader
             
             {/* Logo */}
             <Link href={dashboardPath} className="flex items-center gap-2.5 group">
-              <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center transition-transform group-hover:scale-105">
-                <Building2 className="w-4.5 h-4.5 text-primary-foreground" />
-              </div>
-              <span className="font-semibold text-foreground hidden sm:inline">PayFlow AP</span>
+              <Logo className="hidden sm:flex transition-transform group-hover:scale-105" />
+              <Logo hideText className="sm:hidden transition-transform group-hover:scale-105" />
             </Link>
 
             {/* Separator */}

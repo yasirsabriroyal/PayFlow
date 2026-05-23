@@ -1,8 +1,11 @@
 import Link from 'next/link'
 import { FileQuestion, ArrowLeft, Home } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { getActiveBranding } from '@/lib/branding/get-active-branding'
 
-export default function NotFound() {
+export default async function NotFound() {
+  const { company_name } = await getActiveBranding()
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
       <div className="max-w-md w-full text-center">
@@ -26,7 +29,7 @@ export default function NotFound() {
         </p>
 
         {/* Actions */}
-        <div className="flex flex-col sm:flex-row gap-3 justify-center">
+        <div className="flex flex-col sm:flex-row gap-3 justify-center mb-12">
           <Button variant="outline" asChild>
             <Link href="javascript:history.back()">
               <ArrowLeft className="w-4 h-4 mr-2" />
@@ -43,9 +46,11 @@ export default function NotFound() {
         </div>
 
         {/* Branding footer */}
-        <p className="mt-12 text-xs text-muted-foreground/50">
-          PayFlow AP — Enterprise Accounts Payable
-        </p>
+        <div className="text-center pt-8 border-t border-muted">
+          <span className="text-sm text-muted-foreground font-medium tracking-wide">
+            {company_name}
+          </span>
+        </div>
       </div>
     </div>
   )

@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { X, Share, Plus, Smartphone } from 'lucide-react'
+import { useBranding } from '@/components/providers'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -51,6 +52,8 @@ function isInAppBrowser(): boolean {
 }
 
 export function IOSInstallPrompt() {
+  const { company_name } = useBranding()
+
   const [showPrompt, setShowPrompt] = useState(false)
   const [isIOS, setIsIOS] = useState(false)
   const [isStandalone, setIsStandalone] = useState(false)
@@ -134,7 +137,7 @@ export function IOSInstallPrompt() {
               <div className="w-10 h-10 bg-primary/10 rounded-xl flex items-center justify-center">
                 <Smartphone className="w-5 h-5 text-primary" />
               </div>
-              <span>Install PayFlow AP</span>
+              <span>Install {company_name}</span>
             </DialogTitle>
             <DialogDescription>
               Add this app to your home screen for the best experience

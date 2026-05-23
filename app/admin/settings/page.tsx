@@ -7,7 +7,8 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { getCompanySettings, updateCompanySettings } from '@/app/admin/actions'
-import { Building2, CheckCircle } from 'lucide-react'
+import { Building2, CheckCircle, Upload, X, Loader2 } from 'lucide-react'
+import { createClient } from '@/lib/supabase/client'
 
 interface SettingsForm {
   company_name: string
@@ -18,8 +19,14 @@ interface SettingsForm {
   city: string
   province: string
   postal_code: string
+  province: string
+  postal_code: string
   hst_number: string
+  logo_url: string
 }
+
+const MAX_FILE_SIZE = 2 * 1024 * 1024 // 2MB
+const ALLOWED_TYPES = ['image/png', 'image/jpeg', 'image/svg+xml']
 
 const EMPTY_FORM: SettingsForm = {
   company_name: '',
@@ -30,7 +37,9 @@ const EMPTY_FORM: SettingsForm = {
   city: '',
   province: '',
   postal_code: '',
+  postal_code: '',
   hst_number: '',
+  logo_url: '',
 }
 
 export default function CompanySettingsPage() {
@@ -39,6 +48,8 @@ export default function CompanySettingsPage() {
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [logoFile, setLogoFile] = useState<File | null>(null)
+  const [logoPreview, setLogoPreview] = useState<string | null>(null)
 
   useEffect(() => {
     async function load() {
@@ -54,8 +65,14 @@ export default function CompanySettingsPage() {
           city: s.city ?? '',
           province: s.province ?? '',
           postal_code: s.postal_code ?? '',
+          province: s.province ?? '',
+          postal_code: s.postal_code ?? '',
           hst_number: s.hst_number ?? '',
+          logo_url: s.logo_url ?? '',
         })
+        if (s.logo_url) {
+          setLogoPreview(s.logo_url)
+        }
       }
       setLoading(false)
     }
@@ -68,19 +85,87 @@ export default function CompanySettingsPage() {
     setError(null)
   }
 
+  function handleLogoSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    if (file.size > MAX_FILE_SIZE) {
+      setError('Logo file size must be less than 2MB.')
+      return
+    }
+    if (!ALLOWED_TYPES.includes(file.type)) {
+      setError('Only PNG, JPG, and SVG files are allowed.')
+      return
+    }
+
+    setLogoFile(file)
+    setLogoPreview(URL.createObjectURL(file))
+    setSaved(false)
+    setError(null)
+  }
+
+  function handleRemoveLogo() {
+    setLogoFile(null)
+    setLogoPreview(null)
+    setForm(prev => ({ ...prev, logo_url: '' }))
+    setSaved(false)
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setSaving(true)
     setError(null)
     setSaved(false)
 
-    const result = await updateCompanySettings(form)
-    setSaving(false)
+    try {
+      let finalLogoUrl = form.logo_url
+      const supabase = createClient()
 
-    if (result && 'success' in result && result.success) {
-      setSaved(true)
-    } else {
-      setError(result && 'error' in result && typeof result.error === 'string' ? result.error : 'Failed to save settings.')
+      if (logoFile) {
+        const fileExt = logoFile.name.split('.').pop()
+        const fileName = `logo-${Date.now()}.${fileExt}`
+        
+        const { error: uploadError, data } = await supabase.storage
+          .from('brand-assets')
+          .upload(fileName, logoFile, { upsert: true })
+
+        if (uploadError) throw new Error(uploadError.message)
+        
+        const { data: { publicUrl } } = supabase.storage
+          .from('brand-assets')
+          .getPublicUrl(fileName)
+          
+        finalLogoUrl = publicUrl
+
+        // Cleanup old logo if it exists
+        if (form.logo_url) {
+          const oldPathMatch = form.logo_url.match(/\/brand-assets\/(logo-.*)$/)
+          if (oldPathMatch && oldPathMatch[1]) {
+            await supabase.storage.from('brand-assets').remove([oldPathMatch[1]])
+          }
+        }
+      } else if (!logoPreview && form.logo_url) {
+        // User removed the logo entirely
+        const oldPathMatch = form.logo_url.match(/\/brand-assets\/(logo-.*)$/)
+        if (oldPathMatch && oldPathMatch[1]) {
+          await supabase.storage.from('brand-assets').remove([oldPathMatch[1]])
+        }
+        finalLogoUrl = ''
+      }
+
+      const result = await updateCompanySettings({ ...form, logo_url: finalLogoUrl })
+      
+      if (result && 'success' in result && result.success) {
+        setForm(prev => ({ ...prev, logo_url: finalLogoUrl }))
+        setLogoFile(null)
+        setSaved(true)
+      } else {
+        throw new Error(result && 'error' in result && typeof result.error === 'string' ? result.error : 'Failed to save settings.')
+      }
+    } catch (err: any) {
+      setError(err.message || 'An unexpected error occurred')
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -100,7 +185,50 @@ export default function CompanySettingsPage() {
         ) : (
           <form onSubmit={handleSubmit} className="space-y-6">
 
-            {/* Section 1: Company Information */}
+            {/* Section 1: Branding & Logo */}
+            <div className="bg-white border border-gray-200 rounded-xl p-6 space-y-4">
+              <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">Branding</h2>
+              
+              <div className="space-y-4">
+                <Label>Company Logo</Label>
+                <div className="flex items-start gap-6">
+                  {logoPreview ? (
+                    <div className="relative group">
+                      <div className="w-24 h-24 border rounded-lg bg-gray-50 flex items-center justify-center p-2 overflow-hidden">
+                        <img src={logoPreview} alt="Logo preview" className="max-w-full max-h-full object-contain" />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleRemoveLogo}
+                        className="absolute -top-2 -right-2 bg-red-100 text-red-600 rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity shadow-sm border border-red-200 hover:bg-red-200"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="w-24 h-24 border border-dashed rounded-lg bg-gray-50 flex flex-col items-center justify-center text-gray-400">
+                      <Building2 className="w-8 h-8 mb-1 opacity-50" />
+                      <span className="text-[10px] uppercase font-semibold">No Logo</span>
+                    </div>
+                  )}
+                  
+                  <div className="flex-1 space-y-2">
+                    <Input
+                      id="logo_upload"
+                      type="file"
+                      accept="image/png, image/jpeg, image/svg+xml"
+                      onChange={handleLogoSelect}
+                      className="max-w-xs cursor-pointer"
+                    />
+                    <p className="text-xs text-gray-500">
+                      Supported formats: PNG, JPG, SVG. Maximum size: 2MB.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Section 2: Company Information */}
             <div className="bg-white border border-gray-200 rounded-xl p-6 space-y-4">
               <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">Company Information</h2>
               <div className="space-y-2">

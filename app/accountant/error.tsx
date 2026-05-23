@@ -57,7 +57,7 @@ export default function AccountantError({
         </div>
 
         <p className="mt-12 text-xs text-muted-foreground/50">
-          PayFlow AP — Enterprise Accounts Payable
+          {company_name}
         </p>
       </div>
     </div>

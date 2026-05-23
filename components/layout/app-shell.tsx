@@ -8,10 +8,10 @@ import {
   Users, 
   FolderKanban, 
   FileText, 
-  DollarSign,
   Settings,
   ChevronLeft
 } from 'lucide-react'
+import { Logo } from '@/components/ui/logo'
 import { Button } from '@/components/ui/button'
 import { MobileNav } from './mobile-nav'
 
@@ -63,12 +63,9 @@ export function AppShell({
                 <span className="text-sm">{backLabel || 'Back'}</span>
               </Link>
             ) : (
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
-                  <DollarSign className="w-4 h-4 text-primary-foreground" />
-                </div>
-                <span className="font-semibold text-sm">PayFlow AP</span>
-              </div>
+              <Link href="/dashboard" className="flex items-center gap-3">
+                <Logo />
+              </Link>
             )}
           </div>
           {headerActions && (

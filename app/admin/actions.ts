@@ -303,6 +303,7 @@ export interface UpdateCompanySettingsInput {
   email?: string
   website?: string
   hst_number?: string
+  logo_url?: string
 }
 
 export async function updateCompanySettings(data: UpdateCompanySettingsInput) {

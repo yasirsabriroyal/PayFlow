@@ -10,6 +10,8 @@ import { Label } from '@/components/ui/label'
 import { useToast } from '@/hooks/use-toast'
 
 export default function SupportPage() {
+  const { company_name } = useBranding()
+
   const { toast } = useToast()
   const [isSubmitting, setIsSubmitting] = useState(false)
 
