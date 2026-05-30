@@ -13,6 +13,7 @@
 import { withPermission } from '@/lib/permissions'
 import { PERMISSIONS } from '@/lib/permissions/constants'
 import { getSupabaseAdmin } from '@/lib/supabase/admin'
+import { PAID_PAYMENT_STATUSES } from '@/lib/payments/status'
 import { resolveInternalUserId } from '@/lib/utils/resolve-user'
 
 /**
@@ -1054,7 +1055,7 @@ export async function getPMContractorById(contractorId: string) {
     const financialSummary = {
       totalInvoiced: invoicesList.reduce((sum, inv) => sum + (inv.total_cents || 0), 0),
       totalCertified: invoicesList.reduce((sum, inv) => sum + (inv.total_certified_cents || 0), 0),
-      totalPaid: paymentsList.filter(p => p.status === 'completed').reduce((sum, p) => sum + (p.amount_cents || 0), 0),
+      totalPaid: paymentsList.filter(p => PAID_PAYMENT_STATUSES.includes(p.status as typeof PAID_PAYMENT_STATUSES[number])).reduce((sum, p) => sum + (p.amount_cents || 0), 0),
       totalHoldback: invoicesList.reduce((sum, inv) => sum + (inv.holdback_cents || 0), 0),
       pendingPayment: invoicesList
         .filter(inv => ['approved', 'pending_approval'].includes(inv.status))

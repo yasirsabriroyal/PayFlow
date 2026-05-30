@@ -51,6 +51,7 @@ import { RoleTabBar } from '@/components/role-tab-bar'
 import { getPMContractorById } from '../../actions'
 import { updateVendor } from '@/app/admin/contractors/actions'
 import { usePermissions } from '@/hooks/use-permissions'
+import { SETTLED_OR_SENT_STATUSES } from '@/lib/payments/status'
 
 type Contractor = {
   id: string
@@ -860,7 +861,7 @@ export default function PMContractorProfilePage({ params }: { params: Promise<{ 
                           </div>
                           <div className="text-right">
                             <p className="text-xs text-muted-foreground">{formatDate(payment.payment_date || payment.created_at)}</p>
-                            <Badge variant={['completed', 'cleared'].includes(payment.status) ? 'default' : 'outline'} className="mt-1">
+                            <Badge variant={SETTLED_OR_SENT_STATUSES.includes(payment.status as typeof SETTLED_OR_SENT_STATUSES[number]) ? 'default' : 'outline'} className="mt-1">
                               {payment.status}
                             </Badge>
                           </div>

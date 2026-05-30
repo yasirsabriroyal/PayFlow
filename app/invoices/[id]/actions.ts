@@ -10,6 +10,7 @@
 import { withPermission } from '@/lib/permissions'
 import { PERMISSIONS } from '@/lib/permissions/constants'
 import { getSupabaseAdmin } from '@/lib/supabase/admin'
+import { PAID_PAYMENT_STATUSES } from '@/lib/payments/status'
 
 // =====================================================
 // TYPES
@@ -372,18 +373,18 @@ export async function getInvoiceHub(invoiceId: string) {
       sum + (c.status !== 'rejected' && c.status !== 'cancelled' ? c.certified_amount_cents : 0), 0) || 0
     
     const totalPaidFromPayments = payments?.reduce((sum, p) => 
-      sum + (p.status === 'completed' ? p.amount_cents : 0), 0) || 0
+      sum + (PAID_PAYMENT_STATUSES.includes(p.status as typeof PAID_PAYMENT_STATUSES[number]) ? p.amount_cents : 0), 0) || 0
     
     // Use calculated values from records if they exist, otherwise fallback to stored/legacy values
     const totalCertified = (certificates && certificates.length > 0)
       ? totalCertifiedFromCerts
-      : (invoice.total_certified_cents || (isPaidStatus ? invoice.total_cents : 0))
+      : (invoice.total_certified_cents || 0)
     
     const totalPaid = (payments && payments.length > 0)
       ? totalPaidFromPayments
       : (invoice.total_paid_cents || (isPaidStatus ? invoice.net_payable_cents : 0))
 
-    const remainingBalance = Math.max(0, invoice.total_cents - totalCertified)
+    const remainingBalance = Math.max(0, invoice.total_cents - Math.max(totalCertified, totalPaid))
 
     // Holdback calculations
     const holdbackCertified = certificates?.reduce((sum, c) => 

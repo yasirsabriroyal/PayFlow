@@ -28,6 +28,7 @@ import {
 } from 'lucide-react'
 import { getContractorById } from '../../actions'
 import { AppHeader } from '@/components/app-header'
+import { PAID_PAYMENT_STATUSES, SETTLED_OR_SENT_STATUSES } from '@/lib/payments/status'
 
 type Contractor = {
   id: string
@@ -133,7 +134,7 @@ export default function AccountantContractorDetailPage() {
 
   // Calculate totals
   const totalInvoiced = invoices.reduce((sum, inv) => sum + (inv.total_cents || 0), 0)
-  const totalPaid = payments.filter(p => p.status === 'completed').reduce((sum, p) => sum + (p.amount_cents || 0), 0)
+  const totalPaid = payments.filter(p => PAID_PAYMENT_STATUSES.includes(p.status as typeof PAID_PAYMENT_STATUSES[number])).reduce((sum, p) => sum + (p.amount_cents || 0), 0)
   const totalPending = invoices.filter(inv => ['submitted', 'pending_approval', 'approved'].includes(inv.status))
     .reduce((sum, inv) => sum + (inv.net_payable_cents || 0), 0)
 
@@ -410,7 +411,7 @@ export default function AccountantContractorDetailPage() {
                         </div>
                         <div className="flex items-center gap-3">
                           <p className="text-xs text-muted-foreground">{formatDate(payment.created_at)}</p>
-                          <Badge variant={['completed', 'cleared'].includes(payment.status) ? 'default' : 'outline'}>
+                          <Badge variant={SETTLED_OR_SENT_STATUSES.includes(payment.status as typeof SETTLED_OR_SENT_STATUSES[number]) ? 'default' : 'outline'}>
                             {payment.status}
                           </Badge>
                         </div>

@@ -43,6 +43,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useToast } from '@/hooks/use-toast'
 import { getInvoiceHub, type InvoiceHubData } from './actions'
+import { SETTLED_OR_SENT_STATUSES } from '@/lib/payments/status'
 
 // Helper function to format currency
 function formatCurrency(amount: number) {
@@ -708,7 +709,7 @@ export default function InvoiceHubPage() {
                             </p>
                           </td>
                           <td className="px-6 py-4">
-                            <Badge variant={['completed', 'cleared'].includes(payment.status) ? 'default' : 'secondary'}>
+                            <Badge variant={SETTLED_OR_SENT_STATUSES.includes(payment.status as typeof SETTLED_OR_SENT_STATUSES[number]) ? 'default' : 'secondary'}>
                               {payment.status}
                             </Badge>
                           </td>

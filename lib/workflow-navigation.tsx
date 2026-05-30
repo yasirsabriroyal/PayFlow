@@ -168,7 +168,7 @@ export function WorkflowNavigationProvider({ children }: WorkflowNavigationProvi
   const pathname = usePathname()
   const searchParams = useSearchParams()
   
-  const [state, setState] = useState<WorkflowState>(() => loadState())
+  const [state, setState] = useState<WorkflowState>({ stack: [], listStates: {} })
   const [mounted, setMounted] = useState(false)
 
   // Load state on mount

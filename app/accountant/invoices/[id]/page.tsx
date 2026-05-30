@@ -37,6 +37,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { RoleTabBar } from '@/components/role-tab-bar'
 import { AppHeader } from '@/components/app-header'
 import { PaymentReceiptModal } from '@/components/payment-receipt-modal'
+import { SETTLED_OR_SENT_STATUSES } from '@/lib/payments/status'
 import { 
   getInvoiceById, 
   approveInvoice, 
@@ -1017,7 +1018,7 @@ export default function InvoiceDetailPage() {
               ) : (
                 <div className="space-y-2">
                   {payments.map((payment) => {
-                    const isCleared = ['completed', 'cleared'].includes(payment.status)
+                    const isCleared = SETTLED_OR_SENT_STATUSES.includes(payment.status as typeof SETTLED_OR_SENT_STATUSES[number])
                     const isExpanded = expandedPaymentId === payment.id
                     const reference = payment.batch_reference || payment.cheque_number || payment.etransfer_reference || payment.wire_reference || null
                     return (
