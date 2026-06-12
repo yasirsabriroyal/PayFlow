@@ -254,11 +254,44 @@ function ContractorDirectoryContent() {
     return { label: "Inactive", color: "bg-muted text-muted-foreground border-border", icon: Clock }
   }
 
-  const handleGenerateKYCLink = (contractorId: string) => {
+  const copyToClipboard = async (text: string): Promise<boolean> => {
+    // Prefer the async Clipboard API when available in a secure context
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(text)
+        return true
+      }
+    } catch {
+      // Fall through to legacy fallback (e.g. sandboxed iframe / permissions)
+    }
+
+    // Legacy fallback using a temporary textarea + execCommand
+    try {
+      const textarea = document.createElement("textarea")
+      textarea.value = text
+      textarea.setAttribute("readonly", "")
+      textarea.style.position = "fixed"
+      textarea.style.opacity = "0"
+      document.body.appendChild(textarea)
+      textarea.select()
+      const ok = document.execCommand("copy")
+      document.body.removeChild(textarea)
+      return ok
+    } catch {
+      return false
+    }
+  }
+
+  const handleGenerateKYCLink = async (contractorId: string) => {
     const kycLink = `${window.location.origin}/vendor/onboarding?token=${contractorId}-${Date.now()}`
-    navigator.clipboard.writeText(kycLink)
-    setCopiedId(contractorId)
-    setTimeout(() => setCopiedId(null), 2000)
+    const success = await copyToClipboard(kycLink)
+    if (success) {
+      setCopiedId(contractorId)
+      setTimeout(() => setCopiedId(null), 2000)
+    } else {
+      // Surface the link so the admin can copy it manually if clipboard is blocked
+      window.prompt("Copy this KYC onboarding link:", kycLink)
+    }
   }
 
   const filteredContractors = contractors.filter((contractor) => {
