@@ -452,7 +452,11 @@ function ContractorDirectoryContent() {
                 const compliance = getComplianceStatus(contractor)
                 const ComplianceIcon = compliance.icon
                 return (
-                  <DataCard key={contractor.id} className="touch-manipulation">
+                  <DataCard
+                    key={contractor.id}
+                    className="touch-manipulation cursor-pointer"
+                    onClick={() => goToContractor(contractor)}
+                  >
                     <DataCardHeader
                       title={contractor.company_name}
                       subtitle={contractor.contact_name}
@@ -495,7 +499,10 @@ function ContractorDirectoryContent() {
                         variant="outline"
                         size="sm"
                         className="flex-1 h-10 touch-manipulation"
-                        onClick={() => handleGenerateKYCLink(contractor.id)}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handleGenerateKYCLink(contractor.id)
+                        }}
                       >
                         {copiedId === contractor.id ? (
                           <>
@@ -509,7 +516,15 @@ function ContractorDirectoryContent() {
                           </>
                         )}
                       </Button>
-                      <Button variant="ghost" size="sm" className="h-10 touch-manipulation">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-10 touch-manipulation"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          goToContractor(contractor)
+                        }}
+                      >
                         <Eye className="w-4 h-4 mr-1.5" />
                         View
                       </Button>
