@@ -666,7 +666,7 @@ export async function getHoldbacks(options?: {
         invoice:invoices(
           id,
           invoice_number,
-          amount_cents
+          total_cents
         ),
         contractor:contractors(id, company_name),
         project:projects(id, name, project_number)
@@ -1289,6 +1289,7 @@ export async function recordCertificatePayment(input: {
         project_id,
         certified_amount_cents,
         net_payable_cents,
+        holdback_amount_cents,
         status
       `)
       .eq('id', input.certificate_id)
@@ -1381,7 +1382,42 @@ export async function recordCertificatePayment(input: {
         .eq('id', certificate.invoice_id)
     }
     
-    // 7. Log the action
+    // 7. Create a holdback ledger entry if this certificate withholds a holdback.
+    //    Idempotent: only one ledger row per invoice. Starts a 45-day statutory
+    //    countdown from the payment date.
+    if (certificate.holdback_amount_cents && certificate.holdback_amount_cents > 0) {
+      const { data: existingHoldback } = await supabase
+        .from('holdback_ledgers')
+        .select('id')
+        .eq('invoice_id', certificate.invoice_id)
+        .maybeSingle()
+
+      if (!existingHoldback) {
+        const countdownStart = new Date(input.payment_date)
+        const releaseDue = new Date(countdownStart)
+        releaseDue.setDate(releaseDue.getDate() + 45)
+
+        const { error: holdbackError } = await supabase
+          .from('holdback_ledgers')
+          .insert({
+            contractor_id: certificate.contractor_id,
+            project_id: certificate.project_id,
+            invoice_id: certificate.invoice_id,
+            holdback_amount_cents: certificate.holdback_amount_cents,
+            status: 'countdown_started',
+            countdown_start_date: countdownStart.toISOString().split('T')[0],
+            release_due_date: releaseDue.toISOString().split('T')[0],
+            released_amount_cents: 0,
+          })
+
+        if (holdbackError) {
+          // Non-fatal: payment already recorded. Log for follow-up.
+          console.error('Create holdback ledger error:', holdbackError)
+        }
+      }
+    }
+
+    // 8. Log the action
     const auditUserId = await resolveInternalUserId(userData.id, supabase)
     await supabase.from('audit_logs').insert({
       action: 'payment_recorded',
@@ -1398,6 +1434,7 @@ export async function recordCertificatePayment(input: {
     
     revalidatePath('/accountant/payments')
     revalidatePath('/accountant/queue')
+    revalidatePath('/accountant/holdbacks')
     
     return { 
       success: true, 
@@ -1437,6 +1474,7 @@ export async function recordDirectInvoicePayment(input: {
         total_paid_cents,
         amount_paid_cents,
         amount_remaining_cents,
+        holdback_cents,
         status
       `)
       .eq('id', input.invoice_id)
@@ -1569,6 +1607,40 @@ export async function recordDirectInvoicePayment(input: {
       })
       .eq('id', input.invoice_id)
     
+    // 9b. Create a holdback ledger entry once the invoice is fully paid and it
+    //     carries a holdback. Idempotent: one ledger row per invoice. Starts the
+    //     45-day statutory countdown from the payment date.
+    if (isFullyPaid && invoice.holdback_cents && invoice.holdback_cents > 0) {
+      const { data: existingHoldback } = await supabase
+        .from('holdback_ledgers')
+        .select('id')
+        .eq('invoice_id', input.invoice_id)
+        .maybeSingle()
+
+      if (!existingHoldback) {
+        const countdownStart = new Date(input.payment_date)
+        const releaseDue = new Date(countdownStart)
+        releaseDue.setDate(releaseDue.getDate() + 45)
+
+        const { error: holdbackError } = await supabase
+          .from('holdback_ledgers')
+          .insert({
+            contractor_id: invoice.contractor_id,
+            project_id: invoice.project_id,
+            invoice_id: input.invoice_id,
+            holdback_amount_cents: invoice.holdback_cents,
+            status: 'countdown_started',
+            countdown_start_date: countdownStart.toISOString().split('T')[0],
+            release_due_date: releaseDue.toISOString().split('T')[0],
+            released_amount_cents: 0,
+          })
+
+        if (holdbackError) {
+          console.error('Create holdback ledger error (direct payment):', holdbackError)
+        }
+      }
+    }
+    
     // 10. Log the action
     await supabase.from('audit_logs').insert({
       action: 'direct_invoice_payment',
@@ -1586,6 +1658,7 @@ export async function recordDirectInvoicePayment(input: {
     
     revalidatePath('/accountant/payments')
     revalidatePath('/accountant/queue')
+    revalidatePath('/accountant/holdbacks')
     revalidatePath(`/accountant/invoices/${input.invoice_id}`)
     
     return { 
