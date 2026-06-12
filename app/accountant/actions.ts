@@ -651,7 +651,7 @@ export const uploadInvoiceAttachment = secureAction(
  * Requires: view_payment_records permission
  */
 export async function getHoldbacks(options?: { 
-  status?: 'held' | 'released' | 'all'
+  status?: 'withheld' | 'countdown_started' | 'released' | 'disputed' | 'all'
   project_id?: string
   contractor_id?: string
   limit?: number 
@@ -743,7 +743,7 @@ export const releaseHoldback = secureAction(
     
     // Validate that the amount passed for policy check matches the actual holdback
     // This prevents client-side amount manipulation to bypass policy limits
-    if (input.amount_cents !== undefined && input.amount_cents !== holdback.amount_cents) {
+    if (input.amount_cents !== undefined && input.amount_cents !== holdback.holdback_amount_cents) {
       throw new Error('Amount mismatch: policy context amount does not match holdback record')
     }
     
@@ -753,8 +753,9 @@ export const releaseHoldback = secureAction(
       .update({
         status: 'released',
         released_at: new Date().toISOString(),
-        released_by_user_id: userData.id,
-        release_notes: notes || null,
+        released_amount_cents: holdback.holdback_amount_cents,
+        released_by: userData.id,
+        notes: notes || null,
       })
       .eq('id', holdbackId)
     
@@ -770,7 +771,7 @@ export const releaseHoldback = secureAction(
       entity_id: holdbackId,
       user_id: userData.id,
       details: {
-        amount_cents: holdback.amount_cents,
+        amount_cents: holdback.holdback_amount_cents,
         invoice_number: holdback.invoice?.invoice_number,
         notes,
       },

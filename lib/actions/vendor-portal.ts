@@ -43,14 +43,14 @@ export async function getVendorPortalStats() {
     // Fetch holdback
     const { data: holdbacks } = await adminSupabase
       .from('holdback_ledgers')
-      .select('amount_cents, type')
+      .select('holdback_amount_cents, released_amount_cents, status')
       .eq('contractor_id', contractor.id)
       
-    // Sum held minus released
+    // Outstanding balance = total withheld minus what has been released
     let holdbackBalanceCents = 0
-    if (holdbacks) {
+    if (holdbacks && holdbacks.length > 0) {
       holdbackBalanceCents = holdbacks.reduce((sum, h) => {
-        return h.type === 'withheld' ? sum + h.amount_cents : sum - h.amount_cents
+        return sum + ((h.holdback_amount_cents || 0) - (h.released_amount_cents || 0))
       }, 0)
     } else {
       // Fallback to summing holdback_cents from invoices if ledger is empty

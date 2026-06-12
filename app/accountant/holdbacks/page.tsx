@@ -30,97 +30,17 @@ import { AppHeader } from '@/components/app-header'
 import { RoleTabBar } from '@/components/role-tab-bar'
 import { useListStatePreservation } from '@/lib/workflow-navigation'
 
-// Mock holdback data
-const mockHoldbacks = [
-  {
-    id: '1',
-    project: { name: 'Riverside Plaza Tower A', number: 'PRJ-2024-001' },
-    contractor: { name: 'Elite Electrical Ltd.', id: 'CNT-001' },
-    invoiceNumber: 'INV-2024-0145',
-    invoiceDate: '2024-01-15',
-    holdbackAmount: 4500.00,
-    holdbackDate: '2024-01-20',
-    daysHeld: 52,
-    status: 'eligible',
-  },
-  {
-    id: '2',
-    project: { name: 'Riverside Plaza Tower A', number: 'PRJ-2024-001' },
-    contractor: { name: 'ProPlumb Solutions Inc.', id: 'CNT-002' },
-    invoiceNumber: 'INV-2024-0189',
-    invoiceDate: '2024-01-28',
-    holdbackAmount: 3200.00,
-    holdbackDate: '2024-02-01',
-    daysHeld: 48,
-    status: 'eligible',
-  },
-  {
-    id: '3',
-    project: { name: 'Downtown Office Complex', number: 'PRJ-2024-002' },
-    contractor: { name: 'SteelFrame Structures', id: 'CNT-003' },
-    invoiceNumber: 'INV-2024-0201',
-    invoiceDate: '2024-02-05',
-    holdbackAmount: 8750.00,
-    holdbackDate: '2024-02-08',
-    daysHeld: 41,
-    status: 'pending',
-  },
-  {
-    id: '4',
-    project: { name: 'Lakeview Condominiums', number: 'PRJ-2024-003' },
-    contractor: { name: 'HVAC Masters Corp.', id: 'CNT-004' },
-    invoiceNumber: 'INV-2024-0223',
-    invoiceDate: '2024-02-12',
-    holdbackAmount: 6100.00,
-    holdbackDate: '2024-02-15',
-    daysHeld: 34,
-    status: 'pending',
-  },
-  {
-    id: '5',
-    project: { name: 'Downtown Office Complex', number: 'PRJ-2024-002' },
-    contractor: { name: 'Elite Electrical Ltd.', id: 'CNT-001' },
-    invoiceNumber: 'INV-2024-0245',
-    invoiceDate: '2024-02-18',
-    holdbackAmount: 2800.00,
-    holdbackDate: '2024-02-20',
-    daysHeld: 29,
-    status: 'pending',
-  },
-  {
-    id: '6',
-    project: { name: 'Industrial Park Phase 2', number: 'PRJ-2024-004' },
-    contractor: { name: 'ConcreteWorks Ltd.', id: 'CNT-005' },
-    invoiceNumber: 'INV-2024-0267',
-    invoiceDate: '2024-02-25',
-    holdbackAmount: 12500.00,
-    holdbackDate: '2024-02-28',
-    daysHeld: 21,
-    status: 'pending',
-  },
-  {
-    id: '7',
-    project: { name: 'Riverside Plaza Tower A', number: 'PRJ-2024-001' },
-    contractor: { name: 'FinishLine Drywall', id: 'CNT-006' },
-    invoiceNumber: 'INV-2024-0289',
-    invoiceDate: '2024-03-01',
-    holdbackAmount: 5400.00,
-    holdbackDate: '2024-03-04',
-    daysHeld: 16,
-    status: 'pending',
-  },
-  {
-    id: '8',
-    project: { name: 'Lakeview Condominiums', number: 'PRJ-2024-003' },
-    contractor: { name: 'ProPlumb Solutions Inc.', id: 'CNT-002' },
-    invoiceNumber: 'INV-2024-0312',
-    invoiceDate: '2024-03-08',
-    holdbackAmount: 4200.00,
-    holdbackDate: '2024-03-11',
-    daysHeld: 9,
-    status: 'pending',
-  },
-]
+type HoldbackRow = {
+  id: string
+  project: { name: string; number: string }
+  contractor: { name: string; id: string }
+  invoiceNumber: string
+  invoiceDate: string
+  holdbackAmount: number
+  holdbackDate: string
+  daysHeld: number
+  status: 'eligible' | 'pending' | 'released'
+}
 
 const HOLDBACK_PERIOD = 45 // Standard 45-day statutory holdback
 
@@ -134,7 +54,7 @@ export default function HoldbackLedgerPage() {
   // List state preservation
   const { initialState, save } = useListStatePreservation('/accountant/holdbacks')
   
-  const [holdbacks, setHoldbacks] = useState<typeof mockHoldbacks>([])
+  const [holdbacks, setHoldbacks] = useState<HoldbackRow[]>([])
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState(initialState?.search || '')
   const [statusFilter, setStatusFilter] = useState<string | null>(initialState?.filters?.status as string || null)
@@ -144,7 +64,7 @@ export default function HoldbackLedgerPage() {
     save({ search: searchQuery, filters: { status: statusFilter || '' } })
   }, [searchQuery, statusFilter]) // eslint-disable-line react-hooks/exhaustive-deps
   const [releaseModalOpen, setReleaseModalOpen] = useState(false)
-  const [selectedHoldback, setSelectedHoldback] = useState<typeof mockHoldbacks[0] | null>(null)
+  const [selectedHoldback, setSelectedHoldback] = useState<HoldbackRow | null>(null)
   const [isReleasing, setIsReleasing] = useState(false)
   const [releaseSuccess, setReleaseSuccess] = useState(false)
   
@@ -152,32 +72,31 @@ export default function HoldbackLedgerPage() {
   useEffect(() => {
     const fetchHoldbacksData = async () => {
       const result = await getHoldbacks()
-      if (result.success && result.holdbacks.length > 0) {
+      if (result.success) {
         // Map server response to local type
-        setHoldbacks(result.holdbacks.map((h: Record<string, unknown>) => ({
-          id: h.id as string,
-          project: { 
-            name: (h.project as Record<string, unknown>)?.name as string || 'Unknown Project', 
-            number: (h.project as Record<string, unknown>)?.project_number as string || '' 
-          },
-          contractor: { 
-            name: (h.contractor as Record<string, unknown>)?.company_name as string || 'Unknown', 
-            id: (h.contractor as Record<string, unknown>)?.id as string || '' 
-          },
-          invoiceNumber: (h.invoice as Record<string, unknown>)?.invoice_number as string || '',
-          invoiceDate: h.created_at as string,
-          holdbackAmount: ((h.amount_cents as number) || 0) / 100,
-          holdbackDate: h.created_at as string,
-          daysHeld: Math.floor((Date.now() - new Date(h.created_at as string).getTime()) / (1000 * 60 * 60 * 24)),
-          status: h.status === 'released' ? 'released' : 
-                 Math.floor((Date.now() - new Date(h.created_at as string).getTime()) / (1000 * 60 * 60 * 24)) >= 45 ? 'eligible' : 'pending',
-        })))
-      } else if (process.env.NODE_ENV === 'development') {
-        // DEV ONLY: Fall back to mock data when database is empty
-        console.warn('[DEV] No holdbacks in database - using mock data')
-        setHoldbacks(mockHoldbacks)
+        setHoldbacks(result.holdbacks.map((h: Record<string, unknown>) => {
+          const startDateStr = (h.countdown_start_date as string) || (h.created_at as string)
+          const daysHeld = Math.floor((Date.now() - new Date(startDateStr).getTime()) / (1000 * 60 * 60 * 24))
+          const isReleased = h.status === 'released'
+          return {
+            id: h.id as string,
+            project: {
+              name: (h.project as Record<string, unknown>)?.name as string || 'Unknown Project',
+              number: (h.project as Record<string, unknown>)?.project_number as string || '',
+            },
+            contractor: {
+              name: (h.contractor as Record<string, unknown>)?.company_name as string || 'Unknown',
+              id: (h.contractor as Record<string, unknown>)?.id as string || '',
+            },
+            invoiceNumber: (h.invoice as Record<string, unknown>)?.invoice_number as string || '',
+            invoiceDate: startDateStr,
+            holdbackAmount: ((h.holdback_amount_cents as number) || 0) / 100,
+            holdbackDate: startDateStr,
+            daysHeld,
+            status: isReleased ? 'released' : daysHeld >= HOLDBACK_PERIOD ? 'eligible' : 'pending',
+          } as HoldbackRow
+        }))
       } else {
-        // Production: Show empty state
         setHoldbacks([])
       }
       setLoading(false)
@@ -206,7 +125,7 @@ export default function HoldbackLedgerPage() {
     return Math.max(0, HOLDBACK_PERIOD - daysHeld)
   }
 
-  const getCountdownDisplay = (holdback: typeof mockHoldbacks[0]) => {
+  const getCountdownDisplay = (holdback: HoldbackRow) => {
     const daysRemaining = getDaysRemaining(holdback.daysHeld)
     
     if (daysRemaining === 0 || holdback.status === 'eligible') {
@@ -262,7 +181,7 @@ export default function HoldbackLedgerPage() {
     )
   }
 
-  const handleRelease = (holdback: typeof mockHoldbacks[0]) => {
+  const handleRelease = (holdback: HoldbackRow) => {
     setSelectedHoldback(holdback)
     setReleaseModalOpen(true)
     setReleaseSuccess(false)
