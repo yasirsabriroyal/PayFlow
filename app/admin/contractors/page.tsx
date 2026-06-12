@@ -22,6 +22,7 @@ import {
   MapPin,
   ChevronRight,
   Plus,
+  KeyRound,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -69,6 +70,7 @@ interface Contractor {
   wcb_clearance_expiry: string | null
   kyc_completed_at: string | null
   created_at: string
+  auth_user_id?: string | null
 }
 
 // Mock data for when database is empty
@@ -219,6 +221,7 @@ function ContractorDirectoryContent() {
           wcb_clearance_expiry: v.wcb_clearance_expiry as string | null,
           kyc_completed_at: v.kyc_completed_at as string | null,
           created_at: v.created_at as string,
+          auth_user_id: (v.auth_user_id as string | null) ?? null,
         })))
       } else if (process.env.NODE_ENV === 'development') {
         // DEV ONLY: Fall back to mock data when database is empty
@@ -252,6 +255,13 @@ function ContractorDirectoryContent() {
     }
     
     return { label: "Inactive", color: "bg-muted text-muted-foreground border-border", icon: Clock }
+  }
+
+  const getPortalStatus = (contractor: Contractor) => {
+    if (contractor.auth_user_id) {
+      return { label: "Portal Active", color: "bg-success/10 text-success border-success/20", icon: KeyRound }
+    }
+    return { label: "No Login", color: "bg-muted text-muted-foreground border-border", icon: KeyRound }
   }
 
   const copyToClipboard = async (text: string): Promise<boolean> => {
@@ -484,16 +494,24 @@ function ContractorDirectoryContent() {
               filteredContractors.map((contractor) => {
                 const compliance = getComplianceStatus(contractor)
                 const ComplianceIcon = compliance.icon
+                const portal = getPortalStatus(contractor)
+                const PortalIcon = portal.icon
                 return (
                   <DataCard key={contractor.id} className="touch-manipulation">
                     <DataCardHeader
                       title={contractor.company_name}
                       subtitle={contractor.contact_name}
                       badge={
-                        <Badge variant="outline" className={`${compliance.color} gap-1 text-xs`}>
-                          <ComplianceIcon className="w-3 h-3" />
-                          {compliance.label}
-                        </Badge>
+                        <div className="flex flex-col items-end gap-1">
+                          <Badge variant="outline" className={`${compliance.color} gap-1 text-xs`}>
+                            <ComplianceIcon className="w-3 h-3" />
+                            {compliance.label}
+                          </Badge>
+                          <Badge variant="outline" className={`${portal.color} gap-1 text-xs`}>
+                            <PortalIcon className="w-3 h-3" />
+                            {portal.label}
+                          </Badge>
+                        </div>
                       }
                     />
                     
@@ -568,6 +586,7 @@ function ContractorDirectoryContent() {
                     <TableHead className="font-semibold">Contact</TableHead>
                     <TableHead className="font-semibold">Location</TableHead>
                     <TableHead className="font-semibold">Compliance</TableHead>
+                    <TableHead className="font-semibold">Portal</TableHead>
                     <TableHead className="font-semibold">WCB Expiry</TableHead>
                     <TableHead className="font-semibold text-right">Actions</TableHead>
                   </TableRow>
@@ -575,7 +594,7 @@ function ContractorDirectoryContent() {
                 <TableBody>
                   {loading ? (
                     <TableRow>
-                      <TableCell colSpan={6} className="text-center py-8">
+                      <TableCell colSpan={7} className="text-center py-8">
                         <div className="flex items-center justify-center gap-2 text-muted-foreground">
                           <div className="w-4 h-4 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
                           Loading contractors...
@@ -584,7 +603,7 @@ function ContractorDirectoryContent() {
                     </TableRow>
                   ) : filteredContractors.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={6} className="text-center py-8">
+                      <TableCell colSpan={7} className="text-center py-8">
                         <div className="text-muted-foreground">
                           <Users className="w-8 h-8 mx-auto mb-2 opacity-50" />
                           <p>No contractors found</p>
@@ -595,6 +614,8 @@ function ContractorDirectoryContent() {
                     filteredContractors.map((contractor) => {
                       const compliance = getComplianceStatus(contractor)
                       const ComplianceIcon = compliance.icon
+                      const portal = getPortalStatus(contractor)
+                      const PortalIcon = portal.icon
                       return (
                         <TableRow 
                           key={contractor.id} 
@@ -629,6 +650,15 @@ function ContractorDirectoryContent() {
                             >
                               <ComplianceIcon className="w-3 h-3" />
                               {compliance.label}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>
+                            <Badge
+                              variant="outline"
+                              className={`${portal.color} gap-1.5`}
+                            >
+                              <PortalIcon className="w-3 h-3" />
+                              {portal.label}
                             </Badge>
                           </TableCell>
                           <TableCell>
