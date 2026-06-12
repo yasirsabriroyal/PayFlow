@@ -12,6 +12,7 @@ import {
 } from '@/lib/security/secureAction'
 import { getSupabaseAdmin } from '@/lib/supabase/admin'
 import { sendContractorInvitationNotification } from '@/lib/notifications'
+import { getSiteUrl } from '@/lib/site-url'
 
 // =====================================================
 // VIEW VENDORS
@@ -539,8 +540,7 @@ export const inviteContractorToPortal = secureAction(
       throw new Error(inviteError.message)
     }
 
-    const baseUrl = (process.env.NEXT_PUBLIC_APP_URL || '').replace(/\/$/, '')
-    const inviteUrl = `${baseUrl}/vendor/accept-invite?token=${token}`
+    const inviteUrl = `${getSiteUrl()}/vendor/accept-invite?token=${token}`
 
     // Send the invitation notification (gracefully simulates if creds missing)
     let notificationSent = false

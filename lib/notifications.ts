@@ -11,6 +11,7 @@
  */
 
 import { createClient } from '@/lib/supabase/client'
+import { getSiteUrl } from '@/lib/site-url'
 
 // ============================================
 // Configuration
@@ -39,7 +40,7 @@ const config: NotificationConfig = {
     authToken: process.env.TWILIO_AUTH_TOKEN,
     whatsAppFrom: process.env.TWILIO_WHATSAPP_FROM || 'whatsapp:+14155238886',
   },
-  appUrl: process.env.NEXT_PUBLIC_APP_URL || 'https://app.payflow.com',
+  appUrl: getSiteUrl(),
 }
 
 // ============================================
