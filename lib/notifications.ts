@@ -281,13 +281,12 @@ async function sendEmail(
     text: textContent,
   }
 
-  // Log the payload for development
-  console.log('[RESEND EMAIL]', JSON.stringify({ to, subject, from: config.resend.fromEmail }, null, 2))
-
-  // TODO: Uncomment when Resend API key is configured
-  /*
+  // When no Resend API key is configured, fall back to simulation so that
+  // the notification pipeline (logging, status updates) keeps working in
+  // development/preview environments without delivering real email.
   if (!config.resend.apiKey) {
-    return { success: false, error: 'API key not configured' }
+    console.log('[RESEND EMAIL - SIMULATED]', JSON.stringify({ to, subject, from: config.resend.fromEmail }, null, 2))
+    return { success: true, messageId: `sim_${Date.now()}` }
   }
 
   try {
@@ -301,7 +300,7 @@ async function sendEmail(
     })
 
     const data = await response.json()
-    
+
     if (!response.ok) {
       return { success: false, error: data.message || 'Failed to send email' }
     }
@@ -310,10 +309,6 @@ async function sendEmail(
   } catch (error) {
     return { success: false, error: error instanceof Error ? error.message : 'Unknown error' }
   }
-  */
-
-  // Simulate success for development
-  return { success: true, messageId: `sim_${Date.now()}` }
 }
 
 // ============================================
@@ -326,12 +321,11 @@ async function sendWhatsApp(
 ): Promise<{ success: boolean; messageId?: string; error?: string }> {
   const whatsAppTo = to.startsWith('whatsapp:') ? to : `whatsapp:${to}`
 
-  console.log('[TWILIO WHATSAPP]', JSON.stringify({ to: whatsAppTo, bodyPreview: message.substring(0, 100) }, null, 2))
-
-  // TODO: Uncomment when Twilio credentials are configured
-  /*
+  // When Twilio credentials are not configured, fall back to simulation so
+  // the rest of the notification pipeline keeps functioning.
   if (!config.twilio.accountSid || !config.twilio.authToken) {
-    return { success: false, error: 'Credentials not configured' }
+    console.log('[TWILIO WHATSAPP - SIMULATED]', JSON.stringify({ to: whatsAppTo, bodyPreview: message.substring(0, 100) }, null, 2))
+    return { success: true, messageId: `sim_wa_${Date.now()}` }
   }
 
   try {
@@ -356,7 +350,7 @@ async function sendWhatsApp(
     )
 
     const data = await response.json()
-    
+
     if (!response.ok) {
       return { success: false, error: data.message || 'Failed to send WhatsApp' }
     }
@@ -365,9 +359,6 @@ async function sendWhatsApp(
   } catch (error) {
     return { success: false, error: error instanceof Error ? error.message : 'Unknown error' }
   }
-  */
-
-  return { success: true, messageId: `sim_wa_${Date.now()}` }
 }
 
 // ============================================
@@ -578,6 +569,46 @@ export async function sendInvoiceSubmittedNotification(
 ): Promise<NotificationResult> {
   const content = getInvoiceSubmittedEmail(recipient, data)
   return sendNotification('invoice_submitted', recipient, context || {}, content)
+}
+
+/**
+ * Send a contractor portal invitation (email + optional WhatsApp).
+ * Contains a tokenized link the contractor uses to set a password and
+ * activate their portal login. Uses the 'general' event type so it works
+ * regardless of the notification_logs event constraint.
+ */
+export async function sendContractorInvitationNotification(
+  recipient: NotificationRecipient,
+  data: { companyName: string; inviteUrl: string; expiresAt?: string },
+  context?: NotificationContext
+): Promise<NotificationResult> {
+  const subject = `You're invited to the PayFlow vendor portal`
+  const expiryNote = data.expiresAt
+    ? `<p style="margin: 0 0 16px; color: #64748b; font-size: 13px;">This invitation expires on ${new Date(data.expiresAt).toLocaleDateString('en-CA')}.</p>`
+    : ''
+
+  const html = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+      <div style="background: #334155; color: white; padding: 20px; border-radius: 8px 8px 0 0;">
+        <h1 style="margin: 0; font-size: 20px;">PayFlow Vendor Portal Invitation</h1>
+      </div>
+      <div style="background: #f8fafc; padding: 20px; border: 1px solid #e2e8f0; border-top: none;">
+        <p style="margin: 0 0 16px;">Hi ${recipient.name},</p>
+        <p style="margin: 0 0 16px;">${data.companyName} has been invited to access the PayFlow vendor portal, where you can submit invoices, track payments, and manage compliance documents.</p>
+        <p style="margin: 0 0 16px;">Click the button below to set your password and activate your account:</p>
+        <a href="${data.inviteUrl}" style="display: inline-block; background: #334155; color: white; padding: 12px 24px; border-radius: 6px; text-decoration: none;">Accept Invitation</a>
+        ${expiryNote}
+        <p style="margin: 16px 0 0; color: #64748b; font-size: 12px; word-break: break-all;">Or paste this link into your browser: ${data.inviteUrl}</p>
+      </div>
+      <div style="padding: 16px; text-align: center; color: #64748b; font-size: 12px;">PayFlow AP - Enterprise Accounts Payable</div>
+    </div>
+  `
+
+  const text = `You're invited to the PayFlow vendor portal.\n\nAccept your invitation and set your password:\n${data.inviteUrl}${data.expiresAt ? `\n\nThis invitation expires on ${new Date(data.expiresAt).toLocaleDateString('en-CA')}.` : ''}`
+
+  const whatsApp = `*PayFlow Vendor Portal Invitation*\n\nHi ${recipient.name}, ${data.companyName} has been invited to the PayFlow vendor portal.\n\nActivate your account here:\n${data.inviteUrl}`
+
+  return sendNotification('general', recipient, context || {}, { subject, html, text, whatsApp })
 }
 
 /**
