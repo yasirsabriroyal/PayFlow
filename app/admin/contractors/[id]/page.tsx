@@ -52,6 +52,7 @@ import { getPMContractorById } from '@/app/pm/actions'
 import { updateVendor } from '@/app/admin/contractors/actions'
 import { usePermissions } from '@/hooks/use-permissions'
 import { SETTLED_OR_SENT_STATUSES } from '@/lib/payments/status'
+import { InviteToPortalButton } from './invite-to-portal-button'
 
 type Contractor = {
   id: string
@@ -408,6 +409,9 @@ export default function PMContractorProfilePage({ params }: { params: Promise<{ 
                     <Pencil className="w-4 h-4" />
                     Edit Profile
                   </Button>
+                )}
+                {canEditVendor && (
+                  <InviteToPortalButton contractorId={contractor.id} defaultEmail={contractor.email} />
                 )}
                 <Link href={`/pm/invoices/new?contractor=${contractor.id}`}>
                   <Button size="sm" className="gap-2">

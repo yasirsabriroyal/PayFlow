@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { ROUTES } from '@/lib/navigation'
 
-type Role = 'admin' | 'accountant' | 'project_manager' | 'vendor' | 'contractor'
+type Role = 'admin' | 'accountant' | 'project_manager' | 'contractor'
 
 interface Tab {
   label: string
@@ -39,7 +39,6 @@ const TAB_MAP: Record<Role, Tab[]> = {
     { label: 'Projects', href: ROUTES.pm.projects },
     { label: 'Contractors', href: ROUTES.pm.contractors },
   ],
-  vendor: VENDOR_TABS,
   contractor: VENDOR_TABS,
 }
 
