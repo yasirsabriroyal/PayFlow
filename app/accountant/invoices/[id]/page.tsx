@@ -37,6 +37,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { RoleTabBar } from '@/components/role-tab-bar'
 import { AppHeader } from '@/components/app-header'
 import { PaymentReceiptModal } from '@/components/payment-receipt-modal'
+import { InvoiceStatusTimeline } from '@/components/invoice-status-timeline'
 import { SETTLED_OR_SENT_STATUSES } from '@/lib/payments/status'
 import { 
   getInvoiceById, 
@@ -805,6 +806,15 @@ export default function InvoiceDetailPage() {
                   </div>
                 )
               })()}
+            </div>
+
+            {/* Status History */}
+            <div className="bg-card border border-border rounded-xl p-6">
+              <h2 className="text-lg font-semibold flex items-center gap-2 mb-4">
+                <History className="w-5 h-5 text-primary" />
+                Status History
+              </h2>
+              <InvoiceStatusTimeline invoiceId={invoiceId} />
             </div>
 
             {/* Payment Mode Section */}

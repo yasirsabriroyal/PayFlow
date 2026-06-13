@@ -13,7 +13,6 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { 
   Building2, 
-  Bell,
   Menu,
   Search,
   FileText,
@@ -30,6 +29,7 @@ import {
   ChevronRight
 } from 'lucide-react'
 import { Logo } from '@/components/ui/logo'
+import { NotificationBell } from '@/components/notification-bell'
 import { createClient } from '@/lib/supabase/client'
 import { useWorkflowNavigation, useContextualBack } from '@/lib/workflow-navigation'
 
@@ -232,6 +232,9 @@ export function AppHeader({ pageTitle, pageDescription, breadcrumbs }: AppHeader
                 </span>
               </div>
             )}
+
+            {/* Notifications */}
+            <NotificationBell />
 
             {/* Settings */}
             <Link href="/settings">

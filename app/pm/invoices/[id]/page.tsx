@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, FileText, Calendar, Building2, DollarSign, Clock, CheckCircle, XCircle, AlertCircle, Send, RotateCcw, Pencil, Mail, Phone, MapPin, FolderOpen, Shield, Plus } from 'lucide-react'
+import { ArrowLeft, FileText, Calendar, Building2, DollarSign, Clock, CheckCircle, XCircle, AlertCircle, Send, RotateCcw, Pencil, Mail, Phone, MapPin, FolderOpen, Shield, Plus, History } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -23,6 +23,7 @@ import { createClient } from '@/lib/supabase/client'
 import { AppHeader } from '@/components/app-header'
 import { RoleTabBar } from '@/components/role-tab-bar'
 import { PaymentReceiptModal } from '@/components/payment-receipt-modal'
+import { InvoiceStatusTimeline } from '@/components/invoice-status-timeline'
 import {
   getCertificatesForInvoice,
   submitCertificate,
@@ -854,6 +855,19 @@ export default function PMInvoiceDetailPage() {
                   </table>
                 </div>
               )}
+            </CardContent>
+          </Card>
+
+          {/* Status History */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <History className="w-5 h-5" />
+                Status History
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <InvoiceStatusTimeline invoiceId={invoiceId} />
             </CardContent>
           </Card>
 

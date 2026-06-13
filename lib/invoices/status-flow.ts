@@ -26,6 +26,7 @@ export type InvoiceStatus =
   | 'pending_approval'
   | 'approved'
   | 'rejected'
+  | 'revision_requested'
   | 'disputed'
   | 'partially_paid'
   | 'paid'
@@ -36,10 +37,12 @@ export type InvoiceStatus =
  */
 const ALLOWED_TRANSITIONS: Record<InvoiceStatus, InvoiceStatus[]> = {
   draft: ['submitted', 'pending_approval'],
-  submitted: ['pending_approval', 'approved', 'rejected', 'disputed'],
-  pending_approval: ['approved', 'rejected', 'disputed'],
+  submitted: ['pending_approval', 'approved', 'rejected', 'revision_requested', 'disputed'],
+  pending_approval: ['approved', 'rejected', 'revision_requested', 'disputed'],
   approved: ['paid', 'partially_paid', 'disputed', 'rejected'],
   rejected: ['pending_approval'], // allow re-open back into review
+  // Contractor resubmits a sent-back invoice; staff may also re-open it directly.
+  revision_requested: ['submitted', 'pending_approval'],
   disputed: ['pending_approval', 'approved', 'rejected'],
   partially_paid: ['paid', 'disputed'],
   paid: [], // terminal
@@ -76,6 +79,7 @@ const AUDIT_ACTION_BY_STATUS: Record<InvoiceStatus, string> = {
   pending_approval: 'invoice_submitted',
   approved: 'invoice_approved',
   rejected: 'invoice_rejected',
+  revision_requested: 'invoice_revision_requested',
   disputed: 'invoice_disputed',
   partially_paid: 'invoice_paid',
   paid: 'invoice_paid',
@@ -220,6 +224,7 @@ const STAFF_RECIPIENTS_BY_STATUS: Record<InvoiceStatus, Array<'admin' | 'account
   pending_approval: ['accountant', 'admin'],
   approved: ['accountant'], // + assigned PM, + contractor
   rejected: [], // + assigned PM, + contractor
+  revision_requested: [], // contractor only (resolved separately)
   disputed: ['accountant', 'admin'], // + assigned PM
   partially_paid: ['admin'], // + assigned PM, + contractor
   paid: ['admin'], // + assigned PM, + contractor
@@ -234,6 +239,8 @@ function statusToInAppType(status: InvoiceStatus): InAppNotificationType {
       return 'invoice_approved'
     case 'rejected':
       return 'invoice_rejected'
+    case 'revision_requested':
+      return 'invoice_revision_requested'
     case 'disputed':
       return 'invoice_disputed'
     case 'paid':
@@ -258,6 +265,13 @@ function buildMessage(
       return { title: `Invoice ${invoiceNumber} approved`, body: `Invoice for ${amount} has been approved for payment.` }
     case 'rejected':
       return { title: `Invoice ${invoiceNumber} rejected`, body: reason ? `Rejected: ${reason}` : `Invoice for ${amount} was rejected.` }
+    case 'revision_requested':
+      return {
+        title: `Invoice ${invoiceNumber} needs revision`,
+        body: reason
+          ? `Changes requested: ${reason}`
+          : `Invoice for ${amount} was sent back for revision. Please review and resubmit.`,
+      }
     case 'disputed':
       return { title: `Invoice ${invoiceNumber} disputed`, body: reason ? `Disputed: ${reason}` : `Invoice for ${amount} has been flagged as disputed.` }
     case 'partially_paid':
@@ -333,8 +347,8 @@ async function dispatchStatusNotifications(input: DispatchInput): Promise<void> 
     }
   }
 
-  // --- Contractor (for approved / rejected / paid / partially_paid) ---
-  const contractorStatuses: InvoiceStatus[] = ['approved', 'rejected', 'paid', 'partially_paid']
+  // --- Contractor (for approved / rejected / revision / paid / partially_paid) ---
+  const contractorStatuses: InvoiceStatus[] = ['approved', 'rejected', 'revision_requested', 'paid', 'partially_paid']
   if (contractorId && contractorStatuses.includes(newStatus)) {
     const { data: contractor } = await supabase
       .from('contractors')

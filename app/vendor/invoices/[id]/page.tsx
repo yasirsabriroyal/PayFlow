@@ -7,6 +7,7 @@ import { WorkflowLink } from '@/components/workflow-link'
 import { formatCurrency } from '@/lib/utils'
 import { getVendorInvoiceDetail } from '@/lib/actions/vendor-invoices'
 import { StatusBadge } from '../invoice-list'
+import { InvoiceStatusTimeline } from '@/components/invoice-status-timeline'
 
 function formatDate(value: string | null) {
   if (!value) return '—'
@@ -198,6 +199,15 @@ export default async function VendorInvoiceDetailPage({
                     </span>
                   </div>
                 )}
+              </div>
+            </div>
+
+            <div className="bg-card border border-border rounded-xl overflow-hidden">
+              <div className="px-6 py-4 border-b border-border">
+                <h2 className="font-semibold">Status History</h2>
+              </div>
+              <div className="p-6">
+                <InvoiceStatusTimeline invoiceId={invoice.id} />
               </div>
             </div>
           </div>

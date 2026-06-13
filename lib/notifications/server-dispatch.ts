@@ -22,6 +22,7 @@ export type InAppNotificationType =
   | 'invoice_submitted'
   | 'invoice_approved'
   | 'invoice_rejected'
+  | 'invoice_revision_requested'
   | 'invoice_disputed'
   | 'invoice_paid'
 
@@ -127,6 +128,7 @@ function mapEventType(type: InAppNotificationType): string {
       return 'invoice_rejected'
     case 'invoice_paid':
       return 'payment_paid'
+    case 'invoice_revision_requested':
     case 'invoice_disputed':
       return 'general'
     default:
