@@ -239,7 +239,14 @@ export default function NewInvoicePage() {
                   </Select>
                   {projectId && !contractorsLoading && contractors.length === 0 && (
                     <p className="text-xs text-muted-foreground">
-                      This project has no assigned contractors yet. Assign one on the project page before invoicing.
+                      This project has no assigned contractors yet.{' '}
+                      <Link
+                        href={`/projects/${projectId}`}
+                        className="font-medium text-primary underline underline-offset-2"
+                      >
+                        Assign a contractor
+                      </Link>{' '}
+                      on the project page before invoicing.
                     </p>
                   )}
                 </div>
