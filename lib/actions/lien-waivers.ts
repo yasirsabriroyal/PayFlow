@@ -83,6 +83,24 @@ export async function signLienWaiver(paymentRequestId: string, signatureData: st
 
     if (!contractor) return { success: false, error: 'Contractor not found' }
 
+    // IDOR guard: confirm the payment request belongs to this contractor before
+    // allowing them to sign a waiver against it. This action uses the
+    // service-role client (RLS bypassed), so this check is the enforcement layer.
+    const { data: paymentRequest, error: prOwnerError } = await adminSupabase
+      .from('payment_requests')
+      .select('id, project_id, requested_amount_cents, contractor_id')
+      .eq('id', paymentRequestId)
+      .maybeSingle()
+
+    if (prOwnerError) {
+      console.error('[v0] Payment request ownership lookup failed:', prOwnerError)
+      return { success: false, error: 'Unable to verify payment request' }
+    }
+
+    if (!paymentRequest || paymentRequest.contractor_id !== contractor.id) {
+      return { success: false, error: 'Payment request not found' }
+    }
+
     // We assume the lien waiver record already exists, or we create it here
     // In a real app, the PM would create the waiver request when approving payment.
     // For this prototype, if it doesn't exist, we could insert it, but for now
@@ -110,25 +128,13 @@ export async function signLienWaiver(paymentRequestId: string, signatureData: st
         return { success: false, error: 'Failed to record signature.' }
       }
     } else {
-      // Need project_id and amount_cents from the payment_request
-      const { data: pr, error: prError } = await adminSupabase
-        .from('payment_requests')
-        .select('project_id, requested_amount_cents')
-        .eq('id', paymentRequestId)
-        .single()
-
-      if (prError || !pr) {
-        console.error('[v0] Payment request lookup failed:', prError)
-        return { success: false, error: 'Payment request not found' }
-      }
-
       const { error: insertError } = await adminSupabase
         .from('lien_waivers')
         .insert({
           payment_request_id: paymentRequestId,
           contractor_id: contractor.id,
-          project_id: pr.project_id,
-          amount_cents: pr.requested_amount_cents,
+          project_id: paymentRequest.project_id,
+          amount_cents: paymentRequest.requested_amount_cents,
           waiver_type: 'progress',
           is_signed: true,
           signed_at: new Date().toISOString(),
