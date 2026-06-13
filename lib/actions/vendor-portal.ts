@@ -2,29 +2,13 @@
 
 import { getSupabaseAdmin } from '@/lib/supabase/admin'
 import { createClient } from '@/lib/supabase/server'
-
-export type ComplianceDocStatus = 'verified' | 'pending' | 'rejected' | 'expiring' | 'expired' | 'missing'
-
-export interface ComplianceItem {
-  documentType: string
-  label: string
-  status: ComplianceDocStatus
-  expiryDate: string | null
-  daysUntilExpiry: number | null
-  fileName: string | null
-  documentId: string | null
-}
-
-const COMPLIANCE_DOC_LABELS: Record<string, string> = {
-  wcb_clearance: 'WCB Clearance',
-  insurance_certificate: 'Insurance Certificate',
-  business_license: 'Trade / Business License',
-  safety_certification: 'Safety Certification',
-  void_cheque: 'Void Cheque',
-}
-
-/** Number of days ahead we warn before a document expires. */
-export const COMPLIANCE_EXPIRY_LEAD_DAYS = 30
+import {
+  COMPLIANCE_DOC_LABELS,
+  COMPLIANCE_EXPIRY_LEAD_DAYS,
+  COMPLIANCE_TRACKED_TYPES,
+  type ComplianceDocStatus,
+  type ComplianceItem,
+} from '@/lib/compliance/constants'
 
 /**
  * Returns the contractor's compliance documents with derived expiry status.
@@ -57,7 +41,7 @@ export async function getContractorCompliance(): Promise<{
       .order('uploaded_at', { ascending: false })
 
     const now = new Date()
-    const trackedTypes = ['wcb_clearance', 'insurance_certificate', 'business_license', 'safety_certification']
+    const trackedTypes = COMPLIANCE_TRACKED_TYPES
 
     const latestByType = new Map<string, NonNullable<typeof docs>[number]>()
     for (const d of docs || []) {

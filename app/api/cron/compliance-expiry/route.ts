@@ -1,18 +1,14 @@
 import { NextResponse } from 'next/server'
 import { getSupabaseAdmin } from '@/lib/supabase/admin'
 import { sendGenericAlert } from '@/lib/notifications/server-dispatch'
-import { COMPLIANCE_EXPIRY_LEAD_DAYS } from '@/lib/actions/vendor-portal'
+import {
+  COMPLIANCE_DOC_LABELS as DOC_LABELS,
+  COMPLIANCE_EXPIRY_LEAD_DAYS,
+} from '@/lib/compliance/constants'
 
 // Cron runs on the Node runtime so it can use the service-role client.
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
-
-const DOC_LABELS: Record<string, string> = {
-  wcb_clearance: 'WCB Clearance',
-  insurance_certificate: 'Insurance Certificate',
-  business_license: 'Trade / Business License',
-  safety_certification: 'Safety Certification',
-}
 
 /**
  * Daily scan for compliance documents that are expiring within

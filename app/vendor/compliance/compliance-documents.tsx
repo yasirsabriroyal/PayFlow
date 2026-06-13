@@ -23,7 +23,8 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { useToast } from '@/hooks/use-toast'
-import { getContractorCompliance, type ComplianceItem } from '@/lib/actions/vendor-portal'
+import { getContractorCompliance } from '@/lib/actions/vendor-portal'
+import type { ComplianceItem } from '@/lib/compliance/constants'
 import { uploadComplianceDocument } from '@/lib/actions/vendor-kyc'
 
 const STATUS_META: Record<
