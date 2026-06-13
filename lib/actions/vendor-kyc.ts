@@ -149,6 +149,25 @@ export async function getPendingKycDocuments() {
 }
 
 /**
+ * Resolve the public.users.id (the FK target for verified_by) from an
+ * authenticated user's auth.users id. Returns null if no record exists.
+ */
+async function resolveAppUserId(authUserId: string): Promise<string | null> {
+  const admin = getSupabaseAdmin()
+  const { data, error } = await admin
+    .from('users')
+    .select('id')
+    .eq('auth_user_id', authUserId)
+    .single()
+
+  if (error || !data) {
+    console.error('resolveAppUserId error:', error)
+    return null
+  }
+  return data.id
+}
+
+/**
  * Verify a single KYC document. If, after this verification, the contractor has
  * no remaining pending/rejected documents, the contractor is activated.
  */
@@ -156,6 +175,7 @@ export async function verifyKycDocument(documentId: string) {
   const admin = getSupabaseAdmin()
   try {
     const user = await requireRole('admin')
+    const appUserId = await resolveAppUserId(user.id)
 
     const { data: doc, error: fetchError } = await admin
       .from('vendor_kyc_documents')
@@ -171,7 +191,7 @@ export async function verifyKycDocument(documentId: string) {
       .from('vendor_kyc_documents')
       .update({
         status: 'verified',
-        verified_by: user.id,
+        verified_by: appUserId,
         verified_at: new Date().toISOString(),
         rejection_reason: null,
       })
@@ -207,6 +227,8 @@ export async function rejectKycDocument(documentId: string, reason: string) {
       return { success: false, error: 'A rejection reason is required' }
     }
 
+    const appUserId = await resolveAppUserId(user.id)
+
     const { data: doc, error: fetchError } = await admin
       .from('vendor_kyc_documents')
       .select('id, contractor_id')
@@ -221,7 +243,7 @@ export async function rejectKycDocument(documentId: string, reason: string) {
       .from('vendor_kyc_documents')
       .update({
         status: 'rejected',
-        verified_by: user.id,
+        verified_by: appUserId,
         verified_at: new Date().toISOString(),
         rejection_reason: reason.trim(),
       })
