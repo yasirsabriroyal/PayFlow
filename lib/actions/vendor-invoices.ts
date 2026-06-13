@@ -224,6 +224,188 @@ export async function getVendorProjects() {
   }
 }
 
+export interface VendorInvoiceListItem {
+  id: string
+  invoiceNumber: string
+  projectName: string
+  invoiceDate: string | null
+  dueDate: string | null
+  totalCents: number
+  netPayableCents: number
+  amountPaidCents: number
+  holdbackCents: number
+  status: string
+}
+
+/**
+ * List every invoice belonging to the signed-in contractor, newest first.
+ * Scoped by contractor_id so a vendor only ever sees their own invoices.
+ */
+export async function getVendorInvoices(): Promise<{
+  success: boolean
+  invoices: VendorInvoiceListItem[]
+  error?: string
+}> {
+  try {
+    const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return { success: false, invoices: [], error: 'Unauthorized' }
+
+    const adminSupabase = getSupabaseAdmin()
+
+    const { data: contractor } = await adminSupabase
+      .from('contractors')
+      .select('id')
+      .eq('auth_user_id', user.id)
+      .single()
+
+    if (!contractor) return { success: false, invoices: [], error: 'Contractor profile not found' }
+
+    const { data: rows, error } = await adminSupabase
+      .from('invoices')
+      .select(
+        'id, invoice_number, invoice_date, due_date, total_cents, net_payable_cents, amount_paid_cents, holdback_cents, status, project:projects(name)',
+      )
+      .eq('contractor_id', contractor.id)
+      .order('created_at', { ascending: false })
+
+    if (error) {
+      console.error('[v0] Get vendor invoices error:', error)
+      return { success: false, invoices: [], error: error.message }
+    }
+
+    const invoices: VendorInvoiceListItem[] = (rows || []).map((r) => {
+      const project = Array.isArray(r.project) ? r.project[0] : r.project
+      return {
+        id: r.id as string,
+        invoiceNumber: r.invoice_number as string,
+        projectName: (project?.name as string) || 'Unknown Project',
+        invoiceDate: (r.invoice_date as string) ?? null,
+        dueDate: (r.due_date as string) ?? null,
+        totalCents: (r.total_cents as number) ?? 0,
+        netPayableCents: (r.net_payable_cents as number) ?? 0,
+        amountPaidCents: (r.amount_paid_cents as number) ?? 0,
+        holdbackCents: (r.holdback_cents as number) ?? 0,
+        status: (r.status as string) ?? 'submitted',
+      }
+    })
+
+    return { success: true, invoices }
+  } catch (err) {
+    console.error('Get vendor invoices error:', err)
+    return { success: false, invoices: [], error: 'An unexpected error occurred' }
+  }
+}
+
+export interface VendorInvoiceDocument {
+  id: string
+  fileName: string
+  fileSizeBytes: number | null
+  documentType: string
+  createdAt: string
+}
+
+export interface VendorInvoiceDetail extends VendorInvoiceListItem {
+  subtotalCents: number
+  gstHstCents: number
+  gstHstRate: number
+  pstCents: number
+  pstRate: number
+  qstCents: number
+  qstRate: number
+  amountRemainingCents: number
+  totalCertifiedCents: number
+  createdAt: string | null
+  documents: VendorInvoiceDocument[]
+}
+
+/**
+ * Fetch a single invoice with its tax breakdown and attached documents.
+ * IDOR guard: the invoice must belong to the signed-in contractor.
+ */
+export async function getVendorInvoiceDetail(invoiceId: string): Promise<{
+  success: boolean
+  invoice?: VendorInvoiceDetail
+  error?: string
+}> {
+  try {
+    const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return { success: false, error: 'Unauthorized' }
+
+    const adminSupabase = getSupabaseAdmin()
+
+    const { data: contractor } = await adminSupabase
+      .from('contractors')
+      .select('id')
+      .eq('auth_user_id', user.id)
+      .single()
+
+    if (!contractor) return { success: false, error: 'Contractor profile not found' }
+
+    const { data: r, error } = await adminSupabase
+      .from('invoices')
+      .select(
+        'id, invoice_number, invoice_date, due_date, total_cents, net_payable_cents, amount_paid_cents, amount_remaining_cents, holdback_cents, subtotal_cents, gst_hst_cents, gst_hst_rate, pst_cents, pst_rate, qst_cents, qst_rate, total_certified_cents, status, created_at, contractor_id, project:projects(name)',
+      )
+      .eq('id', invoiceId)
+      .maybeSingle()
+
+    if (error) {
+      console.error('[v0] Get invoice detail error:', error)
+      return { success: false, error: error.message }
+    }
+
+    // IDOR guard — service-role client bypasses RLS, so enforce ownership here.
+    if (!r || r.contractor_id !== contractor.id) {
+      return { success: false, error: 'Invoice not found' }
+    }
+
+    const { data: docs } = await adminSupabase
+      .from('invoice_documents')
+      .select('id, file_name, file_size_bytes, document_type, created_at')
+      .eq('invoice_id', invoiceId)
+      .order('created_at', { ascending: false })
+
+    const project = Array.isArray(r.project) ? r.project[0] : r.project
+
+    const invoice: VendorInvoiceDetail = {
+      id: r.id as string,
+      invoiceNumber: r.invoice_number as string,
+      projectName: (project?.name as string) || 'Unknown Project',
+      invoiceDate: (r.invoice_date as string) ?? null,
+      dueDate: (r.due_date as string) ?? null,
+      totalCents: (r.total_cents as number) ?? 0,
+      netPayableCents: (r.net_payable_cents as number) ?? 0,
+      amountPaidCents: (r.amount_paid_cents as number) ?? 0,
+      holdbackCents: (r.holdback_cents as number) ?? 0,
+      status: (r.status as string) ?? 'submitted',
+      subtotalCents: (r.subtotal_cents as number) ?? 0,
+      gstHstCents: (r.gst_hst_cents as number) ?? 0,
+      gstHstRate: Number(r.gst_hst_rate) || 0,
+      pstCents: (r.pst_cents as number) ?? 0,
+      pstRate: Number(r.pst_rate) || 0,
+      qstCents: (r.qst_cents as number) ?? 0,
+      qstRate: Number(r.qst_rate) || 0,
+      amountRemainingCents: (r.amount_remaining_cents as number) ?? 0,
+      totalCertifiedCents: (r.total_certified_cents as number) ?? 0,
+      createdAt: (r.created_at as string) ?? null,
+      documents: (docs || []).map((d) => ({
+        id: d.id as string,
+        fileName: d.file_name as string,
+        fileSizeBytes: (d.file_size_bytes as number) ?? null,
+        documentType: (d.document_type as string) ?? 'document',
+        createdAt: d.created_at as string,
+      })),
+    }
+
+    return { success: true, invoice }
+  } catch (err) {
+    console.error('Get invoice detail error:', err)
+    return { success: false, error: 'An unexpected error occurred' }
+  }
+}
+
 export interface ProjectTaxRate {
   province: string
   gstHstRate: number
