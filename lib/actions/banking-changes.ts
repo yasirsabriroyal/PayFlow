@@ -161,7 +161,11 @@ export async function listBankingChangeRequests() {
     }
 
     const requests = (data || []).map((r) => {
-      const c = r.contractor as Record<string, unknown> | null
+      // Supabase types embedded relations as arrays; normalize to a single row.
+      const rawContractor = r.contractor as unknown
+      const c = (Array.isArray(rawContractor) ? rawContractor[0] : rawContractor) as
+        | Record<string, unknown>
+        | null
       return {
         id: r.id as string,
         status: r.status as string,
