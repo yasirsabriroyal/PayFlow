@@ -42,7 +42,6 @@ export async function submitVendorInvoice(formData: FormData) {
     const holdbackAmount = parseFloat(formData.get('holdbackAmount') as string)
     const invoiceDate = formData.get('invoiceDate') as string
     const dueDate = formData.get('dueDate') as string
-    const description = formData.get('description') as string
     const file = formData.get('file') as File | null
 
     // Optional tax breakdown supplied by the form. Falls back gracefully when absent.
@@ -118,7 +117,6 @@ export async function submitVendorInvoice(formData: FormData) {
         status: 'submitted',
         invoice_date: invoiceDate,
         due_date: dueDate,
-        description: description || null,
         total_certified_cents: 0,
         total_paid_cents: 0,
         amount_remaining_cents: netPayableCents,
@@ -128,8 +126,8 @@ export async function submitVendorInvoice(formData: FormData) {
       .single()
 
     if (invoiceError || !invoice) {
-      console.error('Create invoice error:', invoiceError)
-      return { success: false, error: 'Failed to create invoice' }
+      console.error('[v0] Create invoice error:', invoiceError)
+      return { success: false, error: invoiceError?.message || 'Failed to create invoice' }
     }
 
     // 2. Upload and link the document
