@@ -11,6 +11,7 @@ import {
 } from '@/lib/security/secureAction'
 import { getSupabaseAdmin } from '@/lib/supabase/admin'
 import { resolveInternalUserId } from '@/lib/utils/resolve-user'
+import { applyInvoiceStatusChange } from '@/lib/invoices/status-flow'
 
 // =====================================================
 // INVOICE APPROVAL / REJECTION ACTIONS
@@ -57,7 +58,7 @@ export const approveInvoice = secureAction(
     // Get user record
     const { data: userData } = await supabase
       .from('users')
-      .select('id')
+      .select('id, first_name, last_name, role')
       .eq('auth_user_id', user.id)
       .single()
     
@@ -65,32 +66,19 @@ export const approveInvoice = secureAction(
       throw new Error('User not found')
     }
     
-    // Update invoice status only (invoices table doesn't have approved_by or notes columns)
-    const { data: invoice, error } = await supabase
-      .from('invoices')
-      .update({
-        status: 'approved',
-      })
-      .eq('id', input.invoice_id)
-      .select()
-      .single()
-    
-    if (error) {
-      console.error('Approve invoice error:', error)
-      throw new Error(error.message)
-    }
-    
-    // Log the action with approver details in audit_logs
-    // user_id in audit_logs references the users table id
-    if (userData?.id) {
-      await supabase.from('audit_logs').insert({
-        action: 'invoice_approved',
-        entity_type: 'invoice',
-        entity_id: input.invoice_id,
-        user_id: userData.id,
-        new_values: { status: 'approved', approved_by: userData.id, notes: input.notes },
-      })
-    }
+    // Centralized transition: validates, updates status, writes audit + history,
+    // and dispatches notifications (contractor + assigned PM + accountants).
+    const { invoice } = await applyInvoiceStatusChange({
+      invoiceId: input.invoice_id,
+      newStatus: 'approved',
+      actor: {
+        userId: userData.id,
+        name: `${userData.first_name ?? ''} ${userData.last_name ?? ''}`.trim() || 'User',
+        role: userData.role,
+        authUserId: user.id,
+      },
+      reason: input.notes,
+    })
     
     revalidatePath('/accountant/queue')
     revalidatePath('/accountant/payments')
@@ -130,7 +118,7 @@ export const rejectInvoice = secureAction(
     // Get user record
     const { data: userData } = await supabase
       .from('users')
-      .select('id')
+      .select('id, first_name, last_name, role')
       .eq('auth_user_id', user.id)
       .single()
     
@@ -138,31 +126,23 @@ export const rejectInvoice = secureAction(
       return { success: false, error: 'User not found' }
     }
     
-    // Update invoice status
-    const { data: invoice, error } = await supabase
-      .from('invoices')
-      .update({
-        status: 'rejected',
+    // Centralized transition: validates, updates status + reject metadata,
+    // writes audit + history, and notifies contractor + assigned PM + accountants.
+    const { invoice } = await applyInvoiceStatusChange({
+      invoiceId: input.invoice_id,
+      newStatus: 'rejected',
+      actor: {
+        userId: userData.id,
+        name: `${userData.first_name ?? ''} ${userData.last_name ?? ''}`.trim() || 'User',
+        role: userData.role,
+        authUserId: user.id,
+      },
+      reason: input.reason,
+      extraInvoiceUpdates: {
         rejection_reason: input.reason,
         rejected_by_user_id: userData.id,
         rejected_at: new Date().toISOString(),
-      })
-      .eq('id', input.invoice_id)
-      .select()
-      .single()
-    
-    if (error) {
-      console.error('Reject invoice error:', error)
-      throw new Error(error.message)
-    }
-    
-    // Log the action
-    await supabase.from('audit_logs').insert({
-      action: 'invoice_rejected',
-      entity_type: 'invoice',
-      entity_id: input.invoice_id,
-      user_id: userData.id,
-      details: { reason: input.reason },
+      },
     })
     
     revalidatePath('/accountant/queue')
@@ -180,6 +160,93 @@ export const rejectInvoice = secureAction(
       return {
         projectId: rejectInput.project_id,
         assignedProjectIds: rejectInput.assigned_project_ids || [],
+      }
+    },
+  }
+)
+
+export interface DisputeInvoiceInput {
+  invoice_id: string
+  /** 'open' to flag a dispute, 'resolve' to clear it */
+  mode?: 'open' | 'resolve'
+  reason: string
+  /** Status to move to when resolving (defaults to pending_approval) */
+  resolve_to?: 'pending_approval' | 'rejected'
+  project_id?: string
+  assigned_project_ids?: string[]
+}
+
+/**
+ * Flag an invoice as disputed, or resolve an existing dispute.
+ * Requires: dispute_invoices permission
+ */
+export const disputeInvoice = secureAction(
+  PERMISSIONS.INVOICES.DISPUTE_INVOICES,
+  async (user, input: DisputeInvoiceInput) => {
+    if (!input.reason?.trim()) {
+      throw new Error('A reason is required')
+    }
+
+    const supabase = getSupabaseAdmin()
+    const { data: userData } = await supabase
+      .from('users')
+      .select('id, first_name, last_name, role')
+      .eq('auth_user_id', user.id)
+      .single()
+
+    if (!userData) {
+      throw new Error('User not found')
+    }
+
+    const actor = {
+      userId: userData.id,
+      name: `${userData.first_name ?? ''} ${userData.last_name ?? ''}`.trim() || 'User',
+      role: userData.role,
+      authUserId: user.id,
+    }
+
+    const mode = input.mode ?? 'open'
+
+    if (mode === 'resolve') {
+      const { invoice } = await applyInvoiceStatusChange({
+        invoiceId: input.invoice_id,
+        newStatus: input.resolve_to ?? 'pending_approval',
+        actor,
+        reason: input.reason,
+        extraInvoiceUpdates: {
+          dispute_reason: null,
+          disputed_by_user_id: null,
+          disputed_at: null,
+        },
+      })
+      revalidatePath('/accountant/queue')
+      return { invoice }
+    }
+
+    const { invoice } = await applyInvoiceStatusChange({
+      invoiceId: input.invoice_id,
+      newStatus: 'disputed',
+      actor,
+      reason: input.reason,
+      extraInvoiceUpdates: {
+        dispute_reason: input.reason,
+        disputed_by_user_id: userData.id,
+        disputed_at: new Date().toISOString(),
+      },
+    })
+
+    revalidatePath('/accountant/queue')
+    return { invoice }
+  },
+  {
+    actionName: 'disputeInvoice',
+    module: 'accountant',
+    isCritical: true,
+    getPolicyContext: (input) => {
+      const disputeInput = input as DisputeInvoiceInput
+      return {
+        projectId: disputeInput.project_id,
+        assignedProjectIds: disputeInput.assigned_project_ids || [],
       }
     },
   }

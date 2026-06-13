@@ -44,6 +44,7 @@ export const PERMISSIONS = {
     UPLOAD_INVOICE_ATTACHMENT: 'upload_invoice_attachment',
     APPROVE_INVOICES: 'approve_invoices',
     REJECT_INVOICES: 'reject_invoices',
+    DISPUTE_INVOICES: 'dispute_invoices',
   },
   PAYMENTS: {
     PROCESS_PAYMENTS: 'process_payments',
@@ -125,6 +126,7 @@ export const PERMISSION_CATALOG: PermissionMetadata[] = [
   { key: PERMISSIONS.INVOICES.UPLOAD_INVOICE_ATTACHMENT, label: 'Upload Invoice Attachments', description: 'Can attach documents to invoices', module: PERMISSION_MODULES.INVOICES },
   { key: PERMISSIONS.INVOICES.APPROVE_INVOICES, label: 'Approve Invoices', description: 'Can approve invoices for payment', module: PERMISSION_MODULES.INVOICES, isCritical: true },
   { key: PERMISSIONS.INVOICES.REJECT_INVOICES, label: 'Reject Invoices', description: 'Can reject invoices with reason', module: PERMISSION_MODULES.INVOICES },
+  { key: PERMISSIONS.INVOICES.DISPUTE_INVOICES, label: 'Dispute Invoices', description: 'Can flag invoices as disputed and resolve disputes', module: PERMISSION_MODULES.INVOICES },
   // Payments
   { key: PERMISSIONS.PAYMENTS.PROCESS_PAYMENTS, label: 'Process Payments', description: 'Can process approved payments', module: PERMISSION_MODULES.PAYMENTS, isCritical: true },
   { key: PERMISSIONS.PAYMENTS.EXECUTE_EFT_PAYMENTS, label: 'Execute EFT Payments', description: 'Can generate and execute EFT payment files', module: PERMISSION_MODULES.PAYMENTS, isCritical: true },
@@ -218,6 +220,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     PERMISSIONS.INVOICES.CREATE_INVOICE,
     PERMISSIONS.INVOICES.APPROVE_INVOICES,
     PERMISSIONS.INVOICES.REJECT_INVOICES,
+    PERMISSIONS.INVOICES.DISPUTE_INVOICES,
     PERMISSIONS.PAYMENTS.VIEW_PAYMENT_RECORDS,
     PERMISSIONS.VENDORS.VIEW_VENDORS,
     PERMISSIONS.VENDORS.CREATE_VENDORS,
@@ -232,6 +235,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     PERMISSIONS.PAYMENT_CERTIFICATES.VIEW_PAYMENT_HISTORY,
     PERMISSIONS.INVOICES.VIEW_AP_QUEUE,
     PERMISSIONS.INVOICES.UPLOAD_INVOICE_ATTACHMENT,
+    PERMISSIONS.INVOICES.DISPUTE_INVOICES,
     PERMISSIONS.PAYMENTS.PROCESS_PAYMENTS,
     PERMISSIONS.PAYMENTS.EXECUTE_EFT_PAYMENTS,
     PERMISSIONS.PAYMENTS.VIEW_PAYMENT_RECORDS,

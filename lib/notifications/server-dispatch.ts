@@ -1,0 +1,229 @@
+/**
+ * Server-only notification dispatcher.
+ *
+ * Unlike `lib/notifications.ts` (which is imported by client components and uses
+ * the browser Supabase client), this module runs strictly server-side with the
+ * service-role admin client. It is responsible for:
+ *   - Writing the user-facing in-app `notifications` row (always, when we have a
+ *     recipient users.id)
+ *   - Sending email via Resend when RESEND_API_KEY is configured
+ *   - Sending WhatsApp via Twilio when credentials are configured
+ *   - Logging every delivery attempt to `notification_logs` with a TRUTHFUL
+ *     status: 'sent' for real delivery, 'simulated' when no provider key exists,
+ *     'failed' on error, 'skipped' when disabled/missing contact.
+ */
+
+import 'server-only'
+import { getSupabaseAdmin } from '@/lib/supabase/admin'
+import { getSiteUrl } from '@/lib/site-url'
+
+export type InAppNotificationType =
+  | 'invoice_submitted'
+  | 'invoice_approved'
+  | 'invoice_rejected'
+  | 'invoice_disputed'
+  | 'invoice_paid'
+
+type Role = 'admin' | 'accountant' | 'project_manager' | 'contractor'
+
+export interface DispatchRecipient {
+  id?: string
+  name: string
+  email?: string
+  phone?: string
+  role?: Role
+  emailEnabled?: boolean
+  whatsAppEnabled?: boolean
+}
+
+export interface DispatchContext {
+  invoiceId?: string
+  contractorId?: string
+  projectId?: string
+  triggeredBy?: string
+}
+
+export interface DispatchArgs {
+  /** users.id for the in-app feed; null = external-only recipient (e.g. contractor without portal) */
+  recipientUserId: string | null
+  recipient: DispatchRecipient
+  type: InAppNotificationType
+  title: string
+  body: string
+  link: string
+  invoiceId: string
+  context: DispatchContext
+}
+
+export interface DeliveryResult {
+  inApp: boolean
+  emailStatus: 'sent' | 'simulated' | 'failed' | 'skipped'
+  whatsAppStatus: 'sent' | 'simulated' | 'failed' | 'skipped'
+}
+
+const RESEND_API_KEY = process.env.RESEND_API_KEY
+const RESEND_FROM = process.env.RESEND_FROM_EMAIL || 'notifications@payflow.app'
+const TWILIO_SID = process.env.TWILIO_ACCOUNT_SID
+const TWILIO_TOKEN = process.env.TWILIO_AUTH_TOKEN
+const TWILIO_FROM = process.env.TWILIO_WHATSAPP_FROM || 'whatsapp:+14155238886'
+
+/** Role-aware deep link so each recipient lands on a page they can access. */
+function resolveLink(role: Role | undefined, invoiceId: string): string {
+  if (role === 'contractor') return `/vendor/invoices/${invoiceId}`
+  if (role === 'accountant') return `/accountant/invoices/${invoiceId}`
+  if (role === 'project_manager') return `/pm/invoices/${invoiceId}`
+  return `/invoices/${invoiceId}`
+}
+
+async function logDelivery(
+  supabase: ReturnType<typeof getSupabaseAdmin>,
+  args: DispatchArgs,
+  channel: 'email' | 'whatsapp' | 'in_app',
+  status: string,
+  to?: string
+) {
+  try {
+    await supabase.from('notification_logs').insert({
+      event_type: mapEventType(args.type),
+      channel,
+      recipient_name: args.recipient.name,
+      recipient_email: channel === 'email' ? to : args.recipient.email,
+      recipient_phone: channel === 'whatsapp' ? to : args.recipient.phone,
+      recipient_user_id: args.recipient.role !== 'contractor' ? args.recipientUserId : null,
+      recipient_contractor_id:
+        args.recipient.role === 'contractor' ? args.context.contractorId ?? args.recipient.id : null,
+      recipient_role: args.recipient.role,
+      subject: args.title,
+      message_preview: args.body?.substring(0, 500),
+      invoice_id: args.context.invoiceId,
+      project_id: args.context.projectId,
+      contractor_id: args.context.contractorId,
+      status,
+      triggered_by: args.context.triggeredBy,
+    })
+  } catch (e) {
+    console.error('[notify-dispatch] log failed:', e)
+  }
+}
+
+function mapEventType(type: InAppNotificationType): string {
+  // notification_logs.event_type accepts these legacy values
+  switch (type) {
+    case 'invoice_submitted':
+      return 'invoice_submitted'
+    case 'invoice_approved':
+      return 'invoice_approved'
+    case 'invoice_rejected':
+      return 'invoice_rejected'
+    case 'invoice_paid':
+      return 'payment_paid'
+    case 'invoice_disputed':
+      return 'general'
+    default:
+      return 'general'
+  }
+}
+
+async function sendEmail(to: string, subject: string, html: string, text: string) {
+  if (!RESEND_API_KEY) {
+    console.log('[RESEND EMAIL - SIMULATED]', JSON.stringify({ to, subject }))
+    return { status: 'simulated' as const }
+  }
+  try {
+    const res = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ from: RESEND_FROM, to, subject, html, text }),
+    })
+    return { status: res.ok ? ('sent' as const) : ('failed' as const) }
+  } catch (e) {
+    console.error('[notify-dispatch] email error:', e)
+    return { status: 'failed' as const }
+  }
+}
+
+async function sendWhatsApp(to: string, message: string) {
+  const waTo = to.startsWith('whatsapp:') ? to : `whatsapp:${to}`
+  if (!TWILIO_SID || !TWILIO_TOKEN) {
+    console.log('[TWILIO WHATSAPP - SIMULATED]', JSON.stringify({ to: waTo }))
+    return { status: 'simulated' as const }
+  }
+  try {
+    const creds = Buffer.from(`${TWILIO_SID}:${TWILIO_TOKEN}`).toString('base64')
+    const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${TWILIO_SID}/Messages.json`, {
+      method: 'POST',
+      headers: { Authorization: `Basic ${creds}`, 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ From: TWILIO_FROM, To: waTo, Body: message }),
+    })
+    return { status: res.ok ? ('sent' as const) : ('failed' as const) }
+  } catch (e) {
+    console.error('[notify-dispatch] whatsapp error:', e)
+    return { status: 'failed' as const }
+  }
+}
+
+function buildEmailHtml(title: string, body: string, link: string): string {
+  const url = `${getSiteUrl()}${link}`
+  return `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+      <div style="background: #334155; color: white; padding: 20px; border-radius: 8px 8px 0 0;">
+        <h1 style="margin: 0; font-size: 20px;">${title}</h1>
+      </div>
+      <div style="background: #f8fafc; padding: 20px; border: 1px solid #e2e8f0; border-top: none;">
+        <p style="margin: 0 0 16px;">${body}</p>
+        <a href="${url}" style="display: inline-block; background: #334155; color: white; padding: 12px 24px; border-radius: 6px; text-decoration: none;">View Invoice</a>
+      </div>
+      <div style="padding: 16px; text-align: center; color: #64748b; font-size: 12px;">PayFlow AP</div>
+    </div>`
+}
+
+/**
+ * Deliver a single notification across in-app + email + WhatsApp.
+ * Never throws — returns the per-channel delivery status.
+ */
+export async function sendNotificationToRecipient(args: DispatchArgs): Promise<DeliveryResult> {
+  const supabase = getSupabaseAdmin()
+  const result: DeliveryResult = { inApp: false, emailStatus: 'skipped', whatsAppStatus: 'skipped' }
+  const link = resolveLink(args.recipient.role, args.invoiceId)
+
+  // 1. In-app (only when we have a users.id)
+  if (args.recipientUserId) {
+    try {
+      await supabase.from('notifications').insert({
+        recipient_user_id: args.recipientUserId,
+        type: args.type,
+        title: args.title,
+        body: args.body,
+        link,
+        invoice_id: args.invoiceId,
+      })
+      result.inApp = true
+      await logDelivery(supabase, args, 'in_app', 'sent')
+    } catch (e) {
+      console.error('[notify-dispatch] in-app insert failed:', e)
+    }
+  }
+
+  // 2. Email
+  if (args.recipient.email && (args.recipient.emailEnabled ?? true)) {
+    const r = await sendEmail(
+      args.recipient.email,
+      args.title,
+      buildEmailHtml(args.title, args.body, link),
+      `${args.title}\n\n${args.body}`
+    )
+    result.emailStatus = r.status
+    await logDelivery(supabase, args, 'email', r.status, args.recipient.email)
+  } else if (!args.recipient.email) {
+    await logDelivery(supabase, args, 'email', 'skipped')
+  }
+
+  // 3. WhatsApp
+  if (args.recipient.phone && (args.recipient.whatsAppEnabled ?? true)) {
+    const r = await sendWhatsApp(args.recipient.phone, `*${args.title}*\n\n${args.body}`)
+    result.whatsAppStatus = r.status
+    await logDelivery(supabase, args, 'whatsapp', r.status, args.recipient.phone)
+  }
+
+  return result
+}
