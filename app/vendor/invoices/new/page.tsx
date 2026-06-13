@@ -18,7 +18,7 @@ import {
 import Link from 'next/link'
 import { useToast } from '@/hooks/use-toast'
 import { sendInvoiceSubmittedNotification } from '@/lib/notifications'
-import { getVendorProjects, submitVendorInvoice } from '@/lib/actions/vendor-invoices'
+import { getVendorProjects, submitVendorInvoice, getProjectTaxRate, getInvoiceNotificationRecipient, type ProjectTaxRate } from '@/lib/actions/vendor-invoices'
 
 // Removed mockProjects
 
@@ -33,14 +33,24 @@ export default function SubmitInvoicePage() {
   const [projectId, setProjectId] = useState('')
   const [invoiceNumber, setInvoiceNumber] = useState('')
   const [invoiceDate, setInvoiceDate] = useState('')
-  const [totalAmount, setTotalAmount] = useState('')
+  const [subtotal, setSubtotal] = useState('')
   const [applyHoldback, setApplyHoldback] = useState(true)
   const [uploadedFile, setUploadedFile] = useState<File | null>(null)
+  const [taxRate, setTaxRate] = useState<ProjectTaxRate | null>(null)
+  const [taxLoading, setTaxLoading] = useState(false)
 
-  // Calculate amounts
-  const totalAmountNum = parseFloat(totalAmount) || 0
+  // Calculate amounts from the subtotal + province tax rates
+  const subtotalNum = parseFloat(subtotal) || 0
+  const gstHstAmount = taxRate ? subtotalNum * taxRate.gstHstRate : 0
+  const pstAmount = taxRate ? subtotalNum * taxRate.pstRate : 0
+  const qstAmount = taxRate ? subtotalNum * taxRate.qstRate : 0
+  const totalAmountNum = subtotalNum + gstHstAmount + pstAmount + qstAmount
   const holdbackAmount = applyHoldback ? totalAmountNum * 0.10 : 0
   const netPayable = totalAmountNum - holdbackAmount
+
+  const gstHstLabel = taxRate?.usesHst
+    ? `HST (${(taxRate.gstHstRate * 100).toFixed(0)}%)`
+    : `GST (${((taxRate?.gstHstRate ?? 0) * 100).toFixed(0)}%)`
 
   // File upload handlers
   const handleDrag = useCallback((e: React.DragEvent) => {
@@ -85,6 +95,27 @@ export default function SubmitInvoicePage() {
     load()
   }, [])
 
+  // Load the province tax rate whenever the selected project changes
+  useEffect(() => {
+    if (!projectId) {
+      setTaxRate(null)
+      return
+    }
+    let cancelled = false
+    setTaxLoading(true)
+    getProjectTaxRate(projectId)
+      .then((res) => {
+        if (cancelled) return
+        setTaxRate(res.success && res.rate ? res.rate : null)
+      })
+      .finally(() => {
+        if (!cancelled) setTaxLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [projectId])
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsSubmitting(true)
@@ -95,7 +126,14 @@ export default function SubmitInvoicePage() {
       formData.append('invoiceNumber', invoiceNumber)
       formData.append('invoiceDate', invoiceDate)
       formData.append('dueDate', new Date(new Date(invoiceDate).getTime() + 30*24*60*60*1000).toISOString().split('T')[0]) // 30 days
-      formData.append('totalAmount', totalAmount)
+      formData.append('totalAmount', totalAmountNum.toString())
+      formData.append('subtotal', subtotalNum.toString())
+      formData.append('gstHst', gstHstAmount.toString())
+      formData.append('pst', pstAmount.toString())
+      formData.append('qst', qstAmount.toString())
+      formData.append('gstHstRate', (taxRate?.gstHstRate ?? 0).toString())
+      formData.append('pstRate', (taxRate?.pstRate ?? 0).toString())
+      formData.append('qstRate', (taxRate?.qstRate ?? 0).toString())
       formData.append('holdbackAmount', holdbackAmount.toString())
       if (uploadedFile) {
         formData.append('file', uploadedFile)
@@ -104,18 +142,34 @@ export default function SubmitInvoicePage() {
       const result = await submitVendorInvoice(formData)
       if (result.success) {
         const selectedProject = projects.find(p => p.id === projectId)
-        await sendInvoiceSubmittedNotification(
-          { name: 'Project Manager', email: 'pm@company.com', phone: '+14165551234' },
-          { invoiceNumber, amount: totalAmountNum, projectName: selectedProject?.name || 'Unknown Project', contractorName: 'Current Vendor' }
-        )
+
+        // Resolve and notify the project's actually-assigned PM (no hardcoded address).
+        const { recipient } = await getInvoiceNotificationRecipient(projectId)
+        let notified = false
+        if (recipient && (recipient.email || recipient.phone)) {
+          const notifyResult = await sendInvoiceSubmittedNotification(
+            { name: recipient.name, email: recipient.email, phone: recipient.phone, role: 'project_manager' },
+            {
+              invoiceNumber,
+              amount: totalAmountNum,
+              projectName: selectedProject?.name || 'Unknown Project',
+              contractorName: recipient.contractorName,
+            },
+            { projectId, invoiceId: result.invoice?.id },
+          )
+          notified = notifyResult.success
+        }
+
         toast({
           title: 'Invoice Submitted Successfully',
-          description: (
+          description: notified ? (
             <div className="flex items-center gap-2 mt-1">
               <Mail className="w-4 h-4 text-primary" />
               <MessageSquare className="w-4 h-4 text-green-500" />
-              <span className="text-sm">Notification sent to PM via Email & WhatsApp</span>
+              <span className="text-sm">Project manager notified via Email &amp; WhatsApp</span>
             </div>
+          ) : (
+            <span className="text-sm">Submitted for review. No project manager is assigned yet to notify.</span>
           ),
         })
         setIsSuccess(true)
@@ -152,6 +206,28 @@ export default function SubmitInvoicePage() {
           </div>
           <div className="bg-card border border-border rounded-xl p-4 text-left space-y-3">
             <div className="flex justify-between text-sm">
+              <span className="text-muted-foreground">Subtotal</span>
+              <span className="font-medium">{formatCurrency(subtotalNum)}</span>
+            </div>
+            {gstHstAmount > 0 && (
+              <div className="flex justify-between text-sm">
+                <span className="text-muted-foreground">{gstHstLabel}</span>
+                <span className="font-medium">{formatCurrency(gstHstAmount)}</span>
+              </div>
+            )}
+            {pstAmount > 0 && (
+              <div className="flex justify-between text-sm">
+                <span className="text-muted-foreground">PST ({((taxRate?.pstRate ?? 0) * 100).toFixed(0)}%)</span>
+                <span className="font-medium">{formatCurrency(pstAmount)}</span>
+              </div>
+            )}
+            {qstAmount > 0 && (
+              <div className="flex justify-between text-sm">
+                <span className="text-muted-foreground">QST ({((taxRate?.qstRate ?? 0) * 100).toFixed(2)}%)</span>
+                <span className="font-medium">{formatCurrency(qstAmount)}</span>
+              </div>
+            )}
+            <div className="flex justify-between text-sm pt-2 border-t border-border">
               <span className="text-muted-foreground">Invoice Total</span>
               <span className="font-medium">{formatCurrency(totalAmountNum)}</span>
             </div>
@@ -178,7 +254,7 @@ export default function SubmitInvoicePage() {
               setProjectId('')
               setInvoiceNumber('')
               setInvoiceDate('')
-              setTotalAmount('')
+              setSubtotal('')
               setApplyHoldback(true)
               setUploadedFile(null)
             }}>
@@ -280,25 +356,31 @@ export default function SubmitInvoicePage() {
                     </div>
                   </div>
 
-                  {/* Total Amount */}
+                  {/* Subtotal Amount */}
                   <div className="space-y-2">
-                    <Label htmlFor="totalAmount">Total Amount (CAD) *</Label>
+                    <Label htmlFor="subtotal">Subtotal Before Tax (CAD) *</Label>
                     <div className="relative">
                       <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
                       <Input
-                        id="totalAmount"
+                        id="subtotal"
                         type="number"
                         step="0.01"
                         min="0"
                         placeholder="0.00"
                         className="pl-7"
-                        value={totalAmount}
-                        onChange={(e) => setTotalAmount(e.target.value)}
+                        value={subtotal}
+                        onChange={(e) => setSubtotal(e.target.value)}
                         required
                       />
                     </div>
                     <p className="text-xs text-muted-foreground">
-                      Enter the total invoice amount including taxes
+                      {!projectId
+                        ? 'Select a project first to apply the correct provincial tax.'
+                        : taxLoading
+                          ? 'Loading provincial tax rate…'
+                          : taxRate
+                            ? `Taxes for ${taxRate.province} are calculated automatically below.`
+                            : 'Tax rate unavailable for this project — enter subtotal only.'}
                     </p>
                   </div>
 
@@ -396,6 +478,32 @@ export default function SubmitInvoicePage() {
 
                   <div className="space-y-3">
                     <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">Subtotal</span>
+                      <span className="font-medium">{formatCurrency(subtotalNum)}</span>
+                    </div>
+
+                    {gstHstAmount > 0 && (
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">{gstHstLabel}</span>
+                        <span className="font-medium">{formatCurrency(gstHstAmount)}</span>
+                      </div>
+                    )}
+
+                    {pstAmount > 0 && (
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">PST ({((taxRate?.pstRate ?? 0) * 100).toFixed(0)}%)</span>
+                        <span className="font-medium">{formatCurrency(pstAmount)}</span>
+                      </div>
+                    )}
+
+                    {qstAmount > 0 && (
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">QST ({((taxRate?.qstRate ?? 0) * 100).toFixed(2)}%)</span>
+                        <span className="font-medium">{formatCurrency(qstAmount)}</span>
+                      </div>
+                    )}
+
+                    <div className="flex justify-between text-sm pt-2 border-t border-border">
                       <span className="text-muted-foreground">Invoice Total</span>
                       <span className="font-medium">{formatCurrency(totalAmountNum)}</span>
                     </div>
@@ -424,7 +532,7 @@ export default function SubmitInvoicePage() {
                     type="submit" 
                     className="w-full" 
                     size="lg"
-                    disabled={!projectId || !invoiceNumber || !invoiceDate || !totalAmount || !uploadedFile || isSubmitting}
+                    disabled={!projectId || !invoiceNumber || !invoiceDate || !subtotal || !uploadedFile || isSubmitting}
                   >
                     {isSubmitting ? (
                       <>
@@ -437,14 +545,14 @@ export default function SubmitInvoicePage() {
                   </Button>
 
                   {/* Validation Messages */}
-                  {(!projectId || !invoiceNumber || !invoiceDate || !totalAmount || !uploadedFile) && (
+                  {(!projectId || !invoiceNumber || !invoiceDate || !subtotal || !uploadedFile) && (
                     <div className="text-xs text-muted-foreground space-y-1">
                       <p className="font-medium">Required to submit:</p>
                       <ul className="space-y-0.5">
                         {!projectId && <li className="flex items-center gap-1"><X className="w-3 h-3 text-destructive" /> Select a project</li>}
                         {!invoiceNumber && <li className="flex items-center gap-1"><X className="w-3 h-3 text-destructive" /> Enter invoice number</li>}
                         {!invoiceDate && <li className="flex items-center gap-1"><X className="w-3 h-3 text-destructive" /> Enter invoice date</li>}
-                        {!totalAmount && <li className="flex items-center gap-1"><X className="w-3 h-3 text-destructive" /> Enter total amount</li>}
+                        {!subtotal && <li className="flex items-center gap-1"><X className="w-3 h-3 text-destructive" /> Enter subtotal amount</li>}
                         {!uploadedFile && <li className="flex items-center gap-1"><X className="w-3 h-3 text-destructive" /> Upload invoice PDF</li>}
                       </ul>
                     </div>

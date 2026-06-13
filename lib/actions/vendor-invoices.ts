@@ -18,7 +18,7 @@ export async function submitVendorInvoice(formData: FormData) {
     // Get the contractor record associated with this user
     const { data: contractor, error: contractorError } = await adminSupabase
       .from('contractors')
-      .select('id, status')
+      .select('id, status, company_name')
       .eq('auth_user_id', user.id)
       .single()
 
@@ -44,6 +44,15 @@ export async function submitVendorInvoice(formData: FormData) {
     const dueDate = formData.get('dueDate') as string
     const description = formData.get('description') as string
     const file = formData.get('file') as File | null
+
+    // Optional tax breakdown supplied by the form. Falls back gracefully when absent.
+    const subtotalRaw = parseFloat(formData.get('subtotal') as string)
+    const gstHstRaw = parseFloat(formData.get('gstHst') as string)
+    const pstRaw = parseFloat(formData.get('pst') as string)
+    const qstRaw = parseFloat(formData.get('qst') as string)
+    const gstHstRate = parseFloat(formData.get('gstHstRate') as string)
+    const pstRate = parseFloat(formData.get('pstRate') as string)
+    const qstRate = parseFloat(formData.get('qstRate') as string)
 
     if (!projectId || !invoiceNumber || isNaN(totalAmount)) {
       return { success: false, error: 'Missing required fields' }
@@ -77,6 +86,16 @@ export async function submitVendorInvoice(formData: FormData) {
     const netPayableCents = totalCents - holdbackCents
     const holdbackPercentage = totalCents > 0 ? (holdbackCents / totalCents) * 100 : 0
 
+    // Tax breakdown in cents. When the form provides a subtotal we trust it,
+    // otherwise we fall back to treating the full amount as the subtotal so
+    // legacy/partial submissions still persist coherently.
+    const gstHstCents = !isNaN(gstHstRaw) ? Math.round(gstHstRaw * 100) : 0
+    const pstCents = !isNaN(pstRaw) ? Math.round(pstRaw * 100) : 0
+    const qstCents = !isNaN(qstRaw) ? Math.round(qstRaw * 100) : 0
+    const subtotalCents = !isNaN(subtotalRaw)
+      ? Math.round(subtotalRaw * 100)
+      : totalCents - gstHstCents - pstCents - qstCents
+
     // 1. Create the invoice
     const { data: invoice, error: invoiceError } = await adminSupabase
       .from('invoices')
@@ -84,7 +103,13 @@ export async function submitVendorInvoice(formData: FormData) {
         invoice_number: invoiceNumber,
         project_id: projectId,
         contractor_id: contractor.id,
-        subtotal_cents: totalCents,
+        subtotal_cents: subtotalCents,
+        gst_hst_cents: gstHstCents,
+        gst_hst_rate: !isNaN(gstHstRate) ? gstHstRate : 0,
+        pst_cents: pstCents,
+        pst_rate: !isNaN(pstRate) ? pstRate : 0,
+        qst_cents: qstCents,
+        qst_rate: !isNaN(qstRate) ? qstRate : 0,
         total_cents: totalCents,
         holdback_cents: holdbackCents,
         holdback_percent: holdbackPercentage,
@@ -93,6 +118,7 @@ export async function submitVendorInvoice(formData: FormData) {
         status: 'submitted',
         invoice_date: invoiceDate,
         due_date: dueDate,
+        description: description || null,
         total_certified_cents: 0,
         total_paid_cents: 0,
         amount_remaining_cents: netPayableCents,
@@ -197,5 +223,137 @@ export async function getVendorProjects() {
   } catch (err) {
     console.error('Get vendor projects error:', err)
     return { success: false, projects: [] }
+  }
+}
+
+export interface ProjectTaxRate {
+  province: string
+  gstHstRate: number
+  pstRate: number
+  qstRate: number
+  usesHst: boolean
+  usesQst: boolean
+}
+
+/**
+ * Resolve the combined Canadian tax rates for a project's province so the
+ * vendor invoice form can compute GST/HST + PST/QST from a subtotal.
+ */
+export async function getProjectTaxRate(
+  projectId: string,
+): Promise<{ success: boolean; rate?: ProjectTaxRate; error?: string }> {
+  try {
+    const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return { success: false, error: 'Unauthorized' }
+
+    const adminSupabase = getSupabaseAdmin()
+
+    const { data: project, error: projectError } = await adminSupabase
+      .from('projects')
+      .select('province')
+      .eq('id', projectId)
+      .single()
+
+    if (projectError || !project?.province) {
+      return { success: false, error: 'Project province not found' }
+    }
+
+    const { data: taxRow, error: taxError } = await adminSupabase
+      .from('canadian_tax_rates')
+      .select('province, gst_rate, hst_rate, pst_rate, qst_rate, uses_hst, uses_qst')
+      .eq('province', project.province)
+      .maybeSingle()
+
+    if (taxError || !taxRow) {
+      return { success: false, error: 'Tax rate not found for province' }
+    }
+
+    return {
+      success: true,
+      rate: {
+        province: taxRow.province as string,
+        // GST and HST are mutually exclusive per province; combine into one rate.
+        gstHstRate: taxRow.uses_hst ? Number(taxRow.hst_rate) : Number(taxRow.gst_rate),
+        pstRate: Number(taxRow.pst_rate) || 0,
+        qstRate: Number(taxRow.qst_rate) || 0,
+        usesHst: Boolean(taxRow.uses_hst),
+        usesQst: Boolean(taxRow.uses_qst),
+      },
+    }
+  } catch (err) {
+    console.error('Get project tax rate error:', err)
+    return { success: false, error: 'An unexpected error occurred' }
+  }
+}
+
+export interface InvoiceNotificationRecipient {
+  name: string
+  email?: string
+  phone?: string
+  contractorName: string
+}
+
+/**
+ * Resolve the project's actually-assigned project manager so invoice-submitted
+ * notifications go to a real person instead of a hardcoded address. Falls back
+ * to no recipient (caller can skip notifying) when no PM is assigned.
+ */
+export async function getInvoiceNotificationRecipient(
+  projectId: string,
+): Promise<{ success: boolean; recipient?: InvoiceNotificationRecipient; error?: string }> {
+  try {
+    const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return { success: false, error: 'Unauthorized' }
+
+    const adminSupabase = getSupabaseAdmin()
+
+    // Identify the calling contractor so we can label the notification correctly.
+    const { data: contractor } = await adminSupabase
+      .from('contractors')
+      .select('company_name')
+      .eq('auth_user_id', user.id)
+      .single()
+
+    const contractorName = contractor?.company_name || 'Vendor'
+
+    // Find the project manager assigned to this project.
+    const { data: assignment, error: assignError } = await adminSupabase
+      .from('project_assignments')
+      .select('user:users(first_name, last_name, email, phone, notification_email, notification_phone)')
+      .eq('project_id', projectId)
+      .eq('role', 'project_manager')
+      .limit(1)
+      .maybeSingle()
+
+    if (assignError) {
+      console.error('Get PM assignment error:', assignError)
+      return { success: false, error: 'Unable to resolve project manager' }
+    }
+
+    const pm = assignment?.user
+      ? (Array.isArray(assignment.user) ? assignment.user[0] : assignment.user)
+      : null
+
+    if (!pm) {
+      // No PM assigned — caller should skip notifying rather than emailing a stub.
+      return { success: true, recipient: undefined }
+    }
+
+    const name = `${pm.first_name || ''} ${pm.last_name || ''}`.trim() || 'Project Manager'
+
+    return {
+      success: true,
+      recipient: {
+        name,
+        email: pm.notification_email || pm.email || undefined,
+        phone: pm.notification_phone || pm.phone || undefined,
+        contractorName,
+      },
+    }
+  } catch (err) {
+    console.error('Get invoice notification recipient error:', err)
+    return { success: false, error: 'An unexpected error occurred' }
   }
 }
