@@ -12,14 +12,14 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Separator } from '@/components/ui/separator'
 import { useToast } from '@/hooks/use-toast'
-import { getPMProjects, getContractors, createPMInvoice } from '../../actions'
+import { getPMProjects, createPMInvoice } from '../../actions'
+import { getProjectContractors } from '@/app/projects/[id]/actions'
 import { AppHeader } from '@/components/app-header'
 
 type Project = {
   id: string
   name: string
   project_number: string
-  default_holdback_percentage?: number
 }
 
 type Contractor = {
@@ -47,25 +47,67 @@ export default function NewInvoicePage() {
   const [projects, setProjects] = useState<Project[]>([])
   const [contractors, setContractors] = useState<Contractor[]>([])
   const [loading, setLoading] = useState(true)
+  const [projectsError, setProjectsError] = useState<string | null>(null)
+  const [contractorsLoading, setContractorsLoading] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   
   useEffect(() => {
-    const loadData = async () => {
-      const [projectsResult, contractorsResult] = await Promise.all([
-        getPMProjects(),
-        getContractors()
-      ])
+    const loadProjects = async () => {
+      const projectsResult = await getPMProjects()
       
       if (projectsResult.success) {
         setProjects(projectsResult.projects as Project[])
-      }
-      if (contractorsResult.success) {
-        setContractors(contractorsResult.contractors as Contractor[])
+        setProjectsError(null)
+      } else {
+        setProjects([])
+        setProjectsError(
+          (projectsResult as { error?: string }).error ||
+            'Unable to load projects. You may not have permission, or there are no active projects.'
+        )
       }
       setLoading(false)
     }
-    loadData()
+    loadProjects()
   }, [])
+  
+  // Load only the contractors assigned to the selected project.
+  // Resets the chosen contractor whenever the project changes.
+  useEffect(() => {
+    if (!projectId) {
+      setContractors([])
+      setContractorId('')
+      return
+    }
+    
+    let cancelled = false
+    const loadContractors = async () => {
+      setContractorsLoading(true)
+      setContractorId('')
+      const result = await getProjectContractors(projectId)
+      if (cancelled) return
+      
+      if (result.success && result.data) {
+        // Flatten the join rows into the contractor shape the select expects.
+        const mapped: Contractor[] = result.data
+          .filter(row => row.contractor)
+          .map(row => ({
+            id: row.contractor.id,
+            company_name: row.contractor.company_name,
+            contact_name: row.contractor.contact_name,
+            status: row.contractor.status,
+          }))
+        setContractors(mapped)
+      } else {
+        setContractors([])
+      }
+      setContractorsLoading(false)
+    }
+    loadContractors()
+    
+    return () => {
+      cancelled = true
+    }
+  }, [projectId])
   
   const totalCents = Math.round(parseFloat(invoiceTotal || '0') * 100)
   const holdbackRate = parseFloat(holdbackPercentage || '0') / 100
@@ -73,12 +115,6 @@ export default function NewInvoicePage() {
   const netPayableCents = totalCents - holdbackCents
   
   const selectedProject = projects.find(p => p.id === projectId)
-  
-  useEffect(() => {
-    if (selectedProject?.default_holdback_percentage !== undefined) {
-      setHoldbackPercentage(selectedProject.default_holdback_percentage.toString())
-    }
-  }, [selectedProject])
   
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -150,9 +186,9 @@ export default function NewInvoicePage() {
               <CardContent className="space-y-4">
                 <div className="space-y-2">
                   <Label htmlFor="project">Project *</Label>
-                  <Select value={projectId} onValueChange={setProjectId}>
+                  <Select value={projectId} onValueChange={setProjectId} disabled={projects.length === 0}>
                     <SelectTrigger id="project">
-                      <SelectValue placeholder="Select a project" />
+                      <SelectValue placeholder={projects.length === 0 ? 'No projects available' : 'Select a project'} />
                     </SelectTrigger>
                     <SelectContent>
                       {projects.map(project => (
@@ -165,13 +201,30 @@ export default function NewInvoicePage() {
                       ))}
                     </SelectContent>
                   </Select>
+                  {projectsError && (
+                    <p className="text-xs text-destructive">{projectsError}</p>
+                  )}
                 </div>
                 
                 <div className="space-y-2">
                   <Label htmlFor="contractor">Contractor *</Label>
-                  <Select value={contractorId} onValueChange={setContractorId}>
+                  <Select
+                    value={contractorId}
+                    onValueChange={setContractorId}
+                    disabled={!projectId || contractorsLoading || contractors.length === 0}
+                  >
                     <SelectTrigger id="contractor">
-                      <SelectValue placeholder="Select a contractor" />
+                      <SelectValue
+                        placeholder={
+                          !projectId
+                            ? 'Select a project first'
+                            : contractorsLoading
+                            ? 'Loading contractors...'
+                            : contractors.length === 0
+                            ? 'No contractors assigned to this project'
+                            : 'Select a contractor'
+                        }
+                      />
                     </SelectTrigger>
                     <SelectContent>
                       {contractors.map(contractor => (
@@ -184,6 +237,11 @@ export default function NewInvoicePage() {
                       ))}
                     </SelectContent>
                   </Select>
+                  {projectId && !contractorsLoading && contractors.length === 0 && (
+                    <p className="text-xs text-muted-foreground">
+                      This project has no assigned contractors yet. Assign one on the project page before invoicing.
+                    </p>
+                  )}
                 </div>
               </CardContent>
             </Card>
