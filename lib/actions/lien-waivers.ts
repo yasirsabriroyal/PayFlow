@@ -67,7 +67,6 @@ export async function getVendorLienWaivers() {
 }
 
 export async function signLienWaiver(paymentRequestId: string, signatureData: string) {
-  console.log('[v0] signLienWaiver called with paymentRequestId:', paymentRequestId)
   try {
     const supabase = await createClient()
     const { data: { user } } = await supabase.auth.getUser()
