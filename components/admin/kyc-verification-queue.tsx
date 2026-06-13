@@ -1,7 +1,11 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { createClient } from "@/lib/supabase/client"
+import {
+  getPendingKycDocuments,
+  verifyKycDocument,
+  rejectKycDocument,
+} from "@/lib/actions/vendor-kyc"
 import {
   FileText,
   Check,
@@ -33,7 +37,7 @@ interface KYCDocument {
   document_type: string
   file_name: string
   document_url: string
-  status: "pending" | "verified" | "rejected"
+  status: "pending" | "verified" | "rejected" | "expired"
   uploaded_at: string
   expiry_date: string | null
   rejection_reason: string | null
@@ -43,58 +47,6 @@ interface KYCDocument {
     email: string
   }
 }
-
-// Mock data for when database is empty
-const mockDocuments: KYCDocument[] = [
-  {
-    id: "1",
-    contractor_id: "c1",
-    document_type: "wcb_clearance",
-    file_name: "WCB_Clearance_2026.pdf",
-    document_url: "#",
-    status: "pending",
-    uploaded_at: "2026-03-05T14:30:00Z",
-    expiry_date: "2027-06-15",
-    rejection_reason: null,
-    contractor: {
-      company_name: "Northern Electrical Ltd.",
-      contact_name: "Mike Johnson",
-      email: "mike@northernelectric.ca",
-    },
-  },
-  {
-    id: "2",
-    contractor_id: "c2",
-    document_type: "void_cheque",
-    file_name: "Void_Cheque_TD.jpg",
-    document_url: "#",
-    status: "pending",
-    uploaded_at: "2026-03-04T09:15:00Z",
-    expiry_date: null,
-    rejection_reason: null,
-    contractor: {
-      company_name: "Prairie Plumbing Co.",
-      contact_name: "Sarah Williams",
-      email: "sarah@prairieplumbing.ca",
-    },
-  },
-  {
-    id: "3",
-    contractor_id: "c3",
-    document_type: "wcb_clearance",
-    file_name: "WCB_Letter_March2026.pdf",
-    document_url: "#",
-    status: "pending",
-    uploaded_at: "2026-03-03T11:45:00Z",
-    expiry_date: "2027-03-01",
-    rejection_reason: null,
-    contractor: {
-      company_name: "Mountain HVAC Services",
-      contact_name: "David Chen",
-      email: "david@mountainhvac.ca",
-    },
-  },
-]
 
 const documentTypeLabels: Record<string, string> = {
   wcb_clearance: "WCB Clearance Letter",
@@ -114,21 +66,11 @@ export function KYCVerificationQueue() {
 
   useEffect(() => {
     const fetchDocuments = async () => {
-      const supabase = createClient()
-
-      const { data, error } = await supabase
-        .from("vendor_kyc_documents")
-        .select(`
-          *,
-          contractor:contractors(company_name, contact_name, email)
-        `)
-        .eq("status", "pending")
-        .order("uploaded_at", { ascending: false })
-
-      if (error || !data || data.length === 0) {
-        setDocuments(mockDocuments)
+      const result = await getPendingKycDocuments()
+      if (result.success) {
+        setDocuments(result.documents as unknown as KYCDocument[])
       } else {
-        setDocuments(data as KYCDocument[])
+        setDocuments([])
       }
       setLoading(false)
     }
@@ -138,34 +80,24 @@ export function KYCVerificationQueue() {
 
   const handleVerify = async (doc: KYCDocument) => {
     setIsProcessing(true)
-    const supabase = createClient()
-
-    // In real implementation, update the database
-    // await supabase.from("vendor_kyc_documents").update({ status: "verified", verified_at: new Date().toISOString() }).eq("id", doc.id)
-
-    // Simulate API call
-    await new Promise((resolve) => setTimeout(resolve, 1000))
-
-    setDocuments((prev) => prev.filter((d) => d.id !== doc.id))
-    setSelectedDoc(null)
+    const result = await verifyKycDocument(doc.id)
+    if (result.success) {
+      setDocuments((prev) => prev.filter((d) => d.id !== doc.id))
+      setSelectedDoc(null)
+    }
     setIsProcessing(false)
   }
 
   const handleReject = async () => {
     if (!selectedDoc) return
     setIsProcessing(true)
-    const supabase = createClient()
-
-    // In real implementation, update the database
-    // await supabase.from("vendor_kyc_documents").update({ status: "rejected", rejection_reason: rejectionReason }).eq("id", selectedDoc.id)
-
-    // Simulate API call
-    await new Promise((resolve) => setTimeout(resolve, 1000))
-
-    setDocuments((prev) => prev.filter((d) => d.id !== selectedDoc.id))
-    setSelectedDoc(null)
-    setIsRejectDialogOpen(false)
-    setRejectionReason("")
+    const result = await rejectKycDocument(selectedDoc.id, rejectionReason)
+    if (result.success) {
+      setDocuments((prev) => prev.filter((d) => d.id !== selectedDoc.id))
+      setSelectedDoc(null)
+      setIsRejectDialogOpen(false)
+      setRejectionReason("")
+    }
     setIsProcessing(false)
   }
 

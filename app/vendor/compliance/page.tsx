@@ -1,6 +1,7 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { getVendorLienWaivers, signLienWaiver } from '@/lib/actions/lien-waivers'
 import {
   CheckCircle,
   FileText,
@@ -9,7 +10,8 @@ import {
   PenTool,
   Clock,
   FileSignature,
-  AlertCircle
+  AlertCircle,
+  Loader2
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { AppHeader } from '@/components/app-header'
@@ -26,97 +28,95 @@ import {
 import { Label } from '@/components/ui/label'
 import { Checkbox } from '@/components/ui/checkbox'
 
-// Mock data for paid invoices
-const mockPaidInvoices = [
-  {
-    id: '1',
-    project: 'Oakwood Towers - Phase 1',
-    invoiceNumber: 'INV-2024-0125',
-    amount: 45000,
-    paidDate: '2024-01-10',
-    paymentRef: 'EFT-20240110-001',
-    lienWaiverSigned: false,
-  },
-  {
-    id: '2',
-    project: 'Oakwood Towers - Phase 1',
-    invoiceNumber: 'INV-2024-0118',
-    amount: 32500,
-    paidDate: '2024-01-05',
-    paymentRef: 'EFT-20240105-003',
-    lienWaiverSigned: true,
-    lienWaiverSignedDate: '2024-01-06',
-  },
-  {
-    id: '3',
-    project: 'Riverside Commercial Plaza',
-    invoiceNumber: 'INV-2024-0102',
-    amount: 78000,
-    paidDate: '2023-12-28',
-    paymentRef: 'EFT-20231228-002',
-    lienWaiverSigned: false,
-  },
-  {
-    id: '4',
-    project: 'Heritage Renovation Project',
-    invoiceNumber: 'INV-2024-0095',
-    amount: 28500,
-    paidDate: '2023-12-20',
-    paymentRef: 'EFT-20231220-001',
-    lienWaiverSigned: true,
-    lienWaiverSignedDate: '2023-12-21',
-  },
-  {
-    id: '5',
-    project: 'Oakwood Towers - Phase 1',
-    invoiceNumber: 'INV-2024-0088',
-    amount: 56000,
-    paidDate: '2023-12-15',
-    paymentRef: 'EFT-20231215-004',
-    lienWaiverSigned: false,
-  },
-]
+type LienWaiver = {
+  id: string
+  payment_request_id: string | null
+  invoice_id: string
+  invoice_number: string
+  project_name: string
+  amount_cents: number
+  payment_date: string
+  status: 'signed' | 'pending'
+  waiver_type: string
+  signed_at: string | null
+}
 
 export default function VendorCompliancePage() {
-  const [invoices, setInvoices] = useState(mockPaidInvoices)
+  const [waivers, setWaivers] = useState<LienWaiver[]>([])
+  const [loading, setLoading] = useState(true)
   const [signDialogOpen, setSignDialogOpen] = useState(false)
-  const [selectedInvoice, setSelectedInvoice] = useState<typeof mockPaidInvoices[0] | null>(null)
+  const [selectedWaiver, setSelectedWaiver] = useState<LienWaiver | null>(null)
   const [signatureName, setSignatureName] = useState('')
   const [agreedToTerms, setAgreedToTerms] = useState(false)
+  const [isSubmitting, setIsSubmitting] = useState(false)
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
+  const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
-  const handleOpenSign = (invoice: typeof mockPaidInvoices[0]) => {
-    setSelectedInvoice(invoice)
+  useEffect(() => {
+    const fetchWaivers = async () => {
+      const result = await getVendorLienWaivers()
+      if (result.success) {
+        setWaivers(result.waivers as LienWaiver[])
+      } else {
+        setWaivers([])
+      }
+      setLoading(false)
+    }
+    fetchWaivers()
+  }, [])
+
+  const handleOpenSign = (waiver: LienWaiver) => {
+    setSelectedWaiver(waiver)
     setSignatureName('')
     setAgreedToTerms(false)
+    setErrorMessage(null)
     setSignDialogOpen(true)
   }
 
-  const handleSign = () => {
-    if (!selectedInvoice || !signatureName.trim() || !agreedToTerms) return
+  const handleSign = async () => {
+    if (!selectedWaiver || !signatureName.trim() || !agreedToTerms) return
+    if (!selectedWaiver.payment_request_id) {
+      setErrorMessage('This invoice has no associated payment request to waive yet.')
+      return
+    }
 
-    setInvoices(prev => prev.map(inv => 
-      inv.id === selectedInvoice.id 
-        ? { ...inv, lienWaiverSigned: true, lienWaiverSignedDate: new Date().toISOString().slice(0, 10) }
-        : inv
-    ))
+    setIsSubmitting(true)
+    setErrorMessage(null)
 
-    setSignDialogOpen(false)
-    setSelectedInvoice(null)
-    setSuccessMessage(`Lien waiver for ${selectedInvoice.invoiceNumber} has been signed and submitted.`)
-    setTimeout(() => setSuccessMessage(null), 4000)
+    const signaturePayload = JSON.stringify({
+      name: signatureName.trim(),
+      signed_at: new Date().toISOString(),
+    })
+
+    const result = await signLienWaiver(selectedWaiver.payment_request_id, signaturePayload)
+
+    if (result.success) {
+      const signedDate = new Date().toISOString()
+      setWaivers(prev => prev.map(w =>
+        w.id === selectedWaiver.id
+          ? { ...w, status: 'signed', signed_at: signedDate }
+          : w
+      ))
+      setSignDialogOpen(false)
+      setSuccessMessage(`Lien waiver for ${selectedWaiver.invoice_number} has been signed and submitted.`)
+      setSelectedWaiver(null)
+      setTimeout(() => setSuccessMessage(null), 4000)
+    } else {
+      setErrorMessage(result.error || 'Failed to sign waiver. Please try again.')
+    }
+    setIsSubmitting(false)
   }
 
-  const formatCurrency = (amount: number) => {
+  const formatCurrency = (cents: number) => {
     return new Intl.NumberFormat('en-CA', {
       style: 'currency',
       currency: 'CAD',
-    }).format(amount)
+    }).format((cents || 0) / 100)
   }
 
-  const pendingWaivers = invoices.filter(inv => !inv.lienWaiverSigned)
-  const signedWaivers = invoices.filter(inv => inv.lienWaiverSigned)
-  const totalPaid = invoices.reduce((sum, inv) => sum + inv.amount, 0)
+  const pendingWaivers = waivers.filter(w => w.status !== 'signed')
+  const signedWaivers = waivers.filter(w => w.status === 'signed')
+  const totalPaid = waivers.reduce((sum, w) => sum + (w.amount_cents || 0), 0)
 
   return (
     <div className="min-h-screen bg-background">
@@ -132,7 +132,6 @@ export default function VendorCompliancePage() {
             <p className="font-medium">{successMessage}</p>
           </div>
         )}
-
         {/* Stats */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <div className="bg-card border border-border rounded-xl p-5">
@@ -152,7 +151,7 @@ export default function VendorCompliancePage() {
                 <FileText className="w-5 h-5 text-primary" />
               </div>
               <div>
-                <p className="text-2xl font-semibold">{invoices.length}</p>
+                <p className="text-2xl font-semibold">{waivers.length}</p>
                 <p className="text-sm text-muted-foreground">Paid Invoices</p>
               </div>
             </div>
@@ -203,67 +202,85 @@ export default function VendorCompliancePage() {
           </div>
           
           <div className="divide-y divide-border">
-            {invoices.map((invoice) => (
-              <div 
-                key={invoice.id} 
-                className="px-6 py-4 flex items-center justify-between hover:bg-muted/30 transition-colors"
-              >
-                <div className="flex items-center gap-4">
-                  <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
-                    invoice.lienWaiverSigned 
-                      ? 'bg-success/10' 
-                      : 'bg-warning/10'
-                  }`}>
-                    {invoice.lienWaiverSigned ? (
-                      <CheckCircle className="w-5 h-5 text-success" />
-                    ) : (
-                      <FileSignature className="w-5 h-5 text-warning" />
-                    )}
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <p className="font-medium">{invoice.invoiceNumber}</p>
-                      {invoice.lienWaiverSigned ? (
-                        <span className="px-2 py-0.5 text-xs font-medium bg-success/10 text-success rounded-full">
-                          Signed
-                        </span>
+            {loading ? (
+              <div className="px-6 py-16 flex flex-col items-center justify-center text-muted-foreground">
+                <Loader2 className="w-6 h-6 animate-spin mb-3" />
+                <p className="text-sm">Loading paid invoices...</p>
+              </div>
+            ) : waivers.length === 0 ? (
+              <div className="px-6 py-16 flex flex-col items-center justify-center text-center">
+                <div className="w-12 h-12 bg-muted rounded-full flex items-center justify-center mb-3">
+                  <FileText className="w-6 h-6 text-muted-foreground" />
+                </div>
+                <p className="font-medium">No paid invoices yet</p>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Once your invoices are paid, lien waivers will appear here for signing.
+                </p>
+              </div>
+            ) : (
+              waivers.map((waiver) => {
+                const isSigned = waiver.status === 'signed'
+                return (
+                  <div
+                    key={waiver.id}
+                    className="px-6 py-4 flex items-center justify-between hover:bg-muted/30 transition-colors"
+                  >
+                    <div className="flex items-center gap-4">
+                      <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
+                        isSigned ? 'bg-success/10' : 'bg-warning/10'
+                      }`}>
+                        {isSigned ? (
+                          <CheckCircle className="w-5 h-5 text-success" />
+                        ) : (
+                          <FileSignature className="w-5 h-5 text-warning" />
+                        )}
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <p className="font-medium">{waiver.invoice_number}</p>
+                          {isSigned ? (
+                            <span className="px-2 py-0.5 text-xs font-medium bg-success/10 text-success rounded-full">
+                              Signed
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 text-xs font-medium bg-warning/10 text-warning rounded-full">
+                              Pending
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-sm text-muted-foreground">{waiver.project_name}</p>
+                        <p className="text-xs text-muted-foreground">
+                          Paid: {new Date(waiver.payment_date).toLocaleDateString('en-CA')}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-4">
+                      <div className="text-right">
+                        <p className="font-semibold">{formatCurrency(waiver.amount_cents)}</p>
+                        {isSigned && waiver.signed_at && (
+                          <p className="text-xs text-muted-foreground">
+                            Signed on {new Date(waiver.signed_at).toLocaleDateString('en-CA')}
+                          </p>
+                        )}
+                      </div>
+
+                      {!isSigned ? (
+                        <Button onClick={() => handleOpenSign(waiver)}>
+                          <PenTool className="w-4 h-4 mr-2" />
+                          Sign Lien Waiver
+                        </Button>
                       ) : (
-                        <span className="px-2 py-0.5 text-xs font-medium bg-warning/10 text-warning rounded-full">
-                          Pending
-                        </span>
+                        <Button variant="outline" size="sm">
+                          <FileText className="w-4 h-4 mr-2" />
+                          View
+                        </Button>
                       )}
                     </div>
-                    <p className="text-sm text-muted-foreground">{invoice.project}</p>
-                    <p className="text-xs text-muted-foreground">
-                      Paid: {invoice.paidDate} | Ref: {invoice.paymentRef}
-                    </p>
                   </div>
-                </div>
-                
-                <div className="flex items-center gap-4">
-                  <div className="text-right">
-                    <p className="font-semibold">{formatCurrency(invoice.amount)}</p>
-                    {invoice.lienWaiverSigned && invoice.lienWaiverSignedDate && (
-                      <p className="text-xs text-muted-foreground">
-                        Signed on {invoice.lienWaiverSignedDate}
-                      </p>
-                    )}
-                  </div>
-                  
-                  {!invoice.lienWaiverSigned ? (
-                    <Button onClick={() => handleOpenSign(invoice)}>
-                      <PenTool className="w-4 h-4 mr-2" />
-                      Sign Lien Waiver
-                    </Button>
-                  ) : (
-                    <Button variant="outline" size="sm">
-                      <FileText className="w-4 h-4 mr-2" />
-                      View
-                    </Button>
-                  )}
-                </div>
-              </div>
-            ))}
+                )
+              })
+            )}
           </div>
         </div>
       </main>
@@ -277,7 +294,7 @@ export default function VendorCompliancePage() {
             </div>
             <DialogTitle className="text-center text-xl">Sign Lien Waiver</DialogTitle>
             <DialogDescription className="text-center">
-              Statutory Declaration for Invoice {selectedInvoice?.invoiceNumber}
+              Statutory Declaration for Invoice {selectedWaiver?.invoice_number}
             </DialogDescription>
           </DialogHeader>
           
@@ -286,15 +303,17 @@ export default function VendorCompliancePage() {
             <div className="bg-muted/50 rounded-lg p-4 space-y-2">
               <div className="flex items-center justify-between text-sm">
                 <span className="text-muted-foreground">Project</span>
-                <span className="font-medium">{selectedInvoice?.project}</span>
+                <span className="font-medium">{selectedWaiver?.project_name}</span>
               </div>
               <div className="flex items-center justify-between text-sm">
                 <span className="text-muted-foreground">Invoice Amount</span>
-                <span className="font-medium">{selectedInvoice && formatCurrency(selectedInvoice.amount)}</span>
+                <span className="font-medium">{selectedWaiver && formatCurrency(selectedWaiver.amount_cents)}</span>
               </div>
               <div className="flex items-center justify-between text-sm">
                 <span className="text-muted-foreground">Payment Date</span>
-                <span className="font-medium">{selectedInvoice?.paidDate}</span>
+                <span className="font-medium">
+                  {selectedWaiver && new Date(selectedWaiver.payment_date).toLocaleDateString('en-CA')}
+                </span>
               </div>
             </div>
 
@@ -341,19 +360,30 @@ export default function VendorCompliancePage() {
                 my company and that all information provided is true and accurate.
               </Label>
             </div>
+
+            {errorMessage && (
+              <div className="bg-destructive/10 border border-destructive/20 text-destructive rounded-lg p-3 flex items-center gap-2 text-sm">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                <p>{errorMessage}</p>
+              </div>
+            )}
           </div>
 
           <DialogFooter className="flex-col sm:flex-row gap-2">
-            <Button variant="outline" className="flex-1" onClick={() => setSignDialogOpen(false)}>
+            <Button variant="outline" className="flex-1" onClick={() => setSignDialogOpen(false)} disabled={isSubmitting}>
               Cancel
             </Button>
             <Button 
               className="flex-1" 
               onClick={handleSign}
-              disabled={!signatureName.trim() || !agreedToTerms}
+              disabled={!signatureName.trim() || !agreedToTerms || isSubmitting}
             >
-              <CheckCircle className="w-4 h-4 mr-2" />
-              Sign & Submit
+              {isSubmitting ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <CheckCircle className="w-4 h-4 mr-2" />
+              )}
+              {isSubmitting ? 'Submitting...' : 'Sign & Submit'}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -96,7 +96,7 @@ export async function signLienWaiver(paymentRequestId: string, signatureData: st
       .single()
 
     if (existing) {
-      await adminSupabase
+      const { error: updateError } = await adminSupabase
         .from('lien_waivers')
         .update({
           is_signed: true,
@@ -104,30 +104,41 @@ export async function signLienWaiver(paymentRequestId: string, signatureData: st
           signature_data: signatureData
         })
         .eq('id', existing.id)
+
+      if (updateError) {
+        console.error('[v0] Lien waiver update failed:', updateError)
+        return { success: false, error: 'Failed to record signature.' }
+      }
     } else {
       // Need project_id and amount_cents from the payment_request
-      const { data: pr } = await adminSupabase
+      const { data: pr, error: prError } = await adminSupabase
         .from('payment_requests')
         .select('project_id, requested_amount_cents')
         .eq('id', paymentRequestId)
         .single()
-        
-      if (pr) {
-        await adminSupabase
-          .from('lien_waivers')
-          .insert({
-            payment_request_id: paymentRequestId,
-            contractor_id: contractor.id,
-            project_id: pr.project_id,
-            amount_cents: pr.requested_amount_cents,
-            waiver_type: 'progress',
-            is_signed: true,
-            signed_at: new Date().toISOString(),
-            signature_data: signatureData,
-            valid_through_date: new Date().toISOString().split('T')[0]
-          })
-      } else {
+
+      if (prError || !pr) {
+        console.error('[v0] Payment request lookup failed:', prError)
         return { success: false, error: 'Payment request not found' }
+      }
+
+      const { error: insertError } = await adminSupabase
+        .from('lien_waivers')
+        .insert({
+          payment_request_id: paymentRequestId,
+          contractor_id: contractor.id,
+          project_id: pr.project_id,
+          amount_cents: pr.requested_amount_cents,
+          waiver_type: 'progress',
+          is_signed: true,
+          signed_at: new Date().toISOString(),
+          signature_data: signatureData,
+          valid_through_date: new Date().toISOString().split('T')[0]
+        })
+
+      if (insertError) {
+        console.error('[v0] Lien waiver insert failed:', insertError)
+        return { success: false, error: 'Failed to create lien waiver record.' }
       }
     }
 

@@ -40,7 +40,7 @@ export async function getFinancialSummary(filters?: ReportFilters) {
     // Get total invoices by status
     const { data: invoiceStats } = await supabase
       .from('invoices')
-      .select('status, amount_cents')
+      .select('status, total_cents')
     
     // Get project budget summaries
     const { data: projectStats } = await supabase
@@ -55,13 +55,13 @@ export async function getFinancialSummary(filters?: ReportFilters) {
       .eq('status', 'completed')
     
     // Calculate summaries
-    const totalInvoiced = invoiceStats?.reduce((sum, inv) => sum + (inv.amount_cents || 0), 0) || 0
+    const totalInvoiced = invoiceStats?.reduce((sum, inv) => sum + (inv.total_cents || 0), 0) || 0
     const totalPaid = paymentStats?.reduce((sum, batch) => sum + (batch.total_amount_cents || 0), 0) || 0
     const totalBudget = projectStats?.reduce((sum, proj) => sum + (proj.current_budget_cents || 0), 0) || 0
     const totalSpent = projectStats?.reduce((sum, proj) => sum + (proj.spent_cents || 0), 0) || 0
     
     const statusBreakdown = invoiceStats?.reduce((acc, inv) => {
-      acc[inv.status] = (acc[inv.status] || 0) + (inv.amount_cents || 0)
+      acc[inv.status] = (acc[inv.status] || 0) + (inv.total_cents || 0)
       return acc
     }, {} as Record<string, number>) || {}
     
