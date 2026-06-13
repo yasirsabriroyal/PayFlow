@@ -207,6 +207,7 @@ interface ResolvedRecipient {
   phone: string | null
   role: string
   emailEnabled: boolean
+  smsEnabled: boolean
   whatsAppEnabled: boolean
 }
 
@@ -288,7 +289,7 @@ async function dispatchStatusNotifications(input: DispatchInput): Promise<void> 
   if (staffRoles.length > 0) {
     const { data: staff } = await supabase
       .from('users')
-      .select('id, email, phone, first_name, last_name, role, notification_email, notification_phone, email_notifications_enabled, whatsapp_notifications_enabled, is_active')
+      .select('id, email, phone, first_name, last_name, role, notification_email, notification_phone, email_notifications_enabled, sms_notifications_enabled, whatsapp_notifications_enabled, is_active')
       .in('role', staffRoles)
       .eq('is_active', true)
 
@@ -300,7 +301,8 @@ async function dispatchStatusNotifications(input: DispatchInput): Promise<void> 
         phone: u.notification_phone || u.phone,
         role: u.role,
         emailEnabled: u.email_notifications_enabled ?? true,
-        whatsAppEnabled: u.whatsapp_notifications_enabled ?? true,
+        smsEnabled: u.sms_notifications_enabled ?? true,
+        whatsAppEnabled: u.whatsapp_notifications_enabled ?? false,
       })
     }
   }
@@ -310,7 +312,7 @@ async function dispatchStatusNotifications(input: DispatchInput): Promise<void> 
   if (projectId && pmStatuses.includes(newStatus)) {
     const { data: assignments } = await supabase
       .from('project_assignments')
-      .select('user_id, users:user_id (id, email, phone, first_name, last_name, role, notification_email, notification_phone, email_notifications_enabled, whatsapp_notifications_enabled, is_active)')
+      .select('user_id, users:user_id (id, email, phone, first_name, last_name, role, notification_email, notification_phone, email_notifications_enabled, sms_notifications_enabled, whatsapp_notifications_enabled, is_active)')
       .eq('project_id', projectId)
 
     for (const a of assignments ?? []) {
@@ -324,7 +326,8 @@ async function dispatchStatusNotifications(input: DispatchInput): Promise<void> 
           phone: (u.notification_phone as string) || (u.phone as string),
           role: u.role as string,
           emailEnabled: (u.email_notifications_enabled as boolean) ?? true,
-          whatsAppEnabled: (u.whatsapp_notifications_enabled as boolean) ?? true,
+          smsEnabled: (u.sms_notifications_enabled as boolean) ?? true,
+          whatsAppEnabled: (u.whatsapp_notifications_enabled as boolean) ?? false,
         })
       }
     }
@@ -345,7 +348,7 @@ async function dispatchStatusNotifications(input: DispatchInput): Promise<void> 
       if (contractor.auth_user_id) {
         const { data: cu } = await supabase
           .from('users')
-          .select('id, email_notifications_enabled, whatsapp_notifications_enabled')
+          .select('id, email_notifications_enabled, sms_notifications_enabled, whatsapp_notifications_enabled')
           .eq('auth_user_id', contractor.auth_user_id)
           .maybeSingle()
         contractorUserId = cu?.id ?? null
@@ -358,7 +361,8 @@ async function dispatchStatusNotifications(input: DispatchInput): Promise<void> 
             phone: contractor.phone,
             role: 'contractor',
             emailEnabled: cu?.email_notifications_enabled ?? true,
-            whatsAppEnabled: cu?.whatsapp_notifications_enabled ?? true,
+            smsEnabled: cu?.sms_notifications_enabled ?? true,
+            whatsAppEnabled: cu?.whatsapp_notifications_enabled ?? false,
           })
         }
       }
@@ -400,6 +404,7 @@ async function dispatchStatusNotifications(input: DispatchInput): Promise<void> 
           phone: r.phone ?? undefined,
           role: r.role as 'admin' | 'accountant' | 'project_manager' | 'contractor',
           emailEnabled: r.emailEnabled,
+          smsEnabled: r.smsEnabled,
           whatsAppEnabled: r.whatsAppEnabled,
         },
         type,

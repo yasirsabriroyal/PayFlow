@@ -7,7 +7,8 @@
  *   - Writing the user-facing in-app `notifications` row (always, when we have a
  *     recipient users.id)
  *   - Sending email via Resend when RESEND_API_KEY is configured
- *   - Sending WhatsApp via Twilio when credentials are configured
+ *   - Sending SMS via Twilio when credentials are configured (default text channel)
+ *   - Sending WhatsApp via Twilio when credentials are configured (opt-in)
  *   - Logging every delivery attempt to `notification_logs` with a TRUTHFUL
  *     status: 'sent' for real delivery, 'simulated' when no provider key exists,
  *     'failed' on error, 'skipped' when disabled/missing contact.
@@ -33,6 +34,9 @@ export interface DispatchRecipient {
   phone?: string
   role?: Role
   emailEnabled?: boolean
+  /** SMS is the default text channel; defaults to enabled. */
+  smsEnabled?: boolean
+  /** WhatsApp is kept wired but opt-in; defaults to disabled. */
   whatsAppEnabled?: boolean
 }
 
@@ -55,17 +59,23 @@ export interface DispatchArgs {
   context: DispatchContext
 }
 
+type ChannelStatus = 'sent' | 'simulated' | 'failed' | 'skipped'
+
 export interface DeliveryResult {
   inApp: boolean
-  emailStatus: 'sent' | 'simulated' | 'failed' | 'skipped'
-  whatsAppStatus: 'sent' | 'simulated' | 'failed' | 'skipped'
+  emailStatus: ChannelStatus
+  smsStatus: ChannelStatus
+  whatsAppStatus: ChannelStatus
 }
 
 const RESEND_API_KEY = process.env.RESEND_API_KEY
 const RESEND_FROM = process.env.RESEND_FROM_EMAIL || 'notifications@payflow.app'
 const TWILIO_SID = process.env.TWILIO_ACCOUNT_SID
 const TWILIO_TOKEN = process.env.TWILIO_AUTH_TOKEN
-const TWILIO_FROM = process.env.TWILIO_WHATSAPP_FROM || 'whatsapp:+14155238886'
+const TWILIO_WHATSAPP_FROM = process.env.TWILIO_WHATSAPP_FROM || 'whatsapp:+14155238886'
+// A Twilio SMS-capable sender. Set TWILIO_SMS_FROM to a Twilio phone number
+// (E.164, e.g. +14155551234) or a Messaging Service SID (starts with "MG").
+const TWILIO_SMS_FROM = process.env.TWILIO_SMS_FROM
 
 /** Role-aware deep link so each recipient lands on a page they can access. */
 function resolveLink(role: Role | undefined, invoiceId: string): string {
@@ -78,7 +88,7 @@ function resolveLink(role: Role | undefined, invoiceId: string): string {
 async function logDelivery(
   supabase: ReturnType<typeof getSupabaseAdmin>,
   args: DispatchArgs,
-  channel: 'email' | 'whatsapp' | 'in_app',
+  channel: 'email' | 'sms' | 'whatsapp' | 'in_app',
   status: string,
   to?: string
 ) {
@@ -142,6 +152,39 @@ async function sendEmail(to: string, subject: string, html: string, text: string
   }
 }
 
+/** Post a message to the Twilio Messages API. Shared by SMS and WhatsApp. */
+async function twilioSend(params: Record<string, string>) {
+  const creds = Buffer.from(`${TWILIO_SID}:${TWILIO_TOKEN}`).toString('base64')
+  const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${TWILIO_SID}/Messages.json`, {
+    method: 'POST',
+    headers: { Authorization: `Basic ${creds}`, 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams(params),
+  })
+  return res.ok
+}
+
+/** SMS via Twilio. `to` should be an E.164 number (e.g. +14155551234). */
+async function sendSms(to: string, message: string) {
+  if (!TWILIO_SID || !TWILIO_TOKEN || !TWILIO_SMS_FROM) {
+    console.log('[TWILIO SMS - SIMULATED]', JSON.stringify({ to }))
+    return { status: 'simulated' as const }
+  }
+  try {
+    // A Messaging Service SID uses `MessagingServiceSid`; a phone number uses `From`.
+    const params: Record<string, string> = { To: to, Body: message }
+    if (TWILIO_SMS_FROM.startsWith('MG')) {
+      params.MessagingServiceSid = TWILIO_SMS_FROM
+    } else {
+      params.From = TWILIO_SMS_FROM
+    }
+    const ok = await twilioSend(params)
+    return { status: ok ? ('sent' as const) : ('failed' as const) }
+  } catch (e) {
+    console.error('[notify-dispatch] sms error:', e)
+    return { status: 'failed' as const }
+  }
+}
+
 async function sendWhatsApp(to: string, message: string) {
   const waTo = to.startsWith('whatsapp:') ? to : `whatsapp:${to}`
   if (!TWILIO_SID || !TWILIO_TOKEN) {
@@ -149,13 +192,8 @@ async function sendWhatsApp(to: string, message: string) {
     return { status: 'simulated' as const }
   }
   try {
-    const creds = Buffer.from(`${TWILIO_SID}:${TWILIO_TOKEN}`).toString('base64')
-    const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${TWILIO_SID}/Messages.json`, {
-      method: 'POST',
-      headers: { Authorization: `Basic ${creds}`, 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({ From: TWILIO_FROM, To: waTo, Body: message }),
-    })
-    return { status: res.ok ? ('sent' as const) : ('failed' as const) }
+    const ok = await twilioSend({ From: TWILIO_WHATSAPP_FROM, To: waTo, Body: message })
+    return { status: ok ? ('sent' as const) : ('failed' as const) }
   } catch (e) {
     console.error('[notify-dispatch] whatsapp error:', e)
     return { status: 'failed' as const }
@@ -183,7 +221,12 @@ function buildEmailHtml(title: string, body: string, link: string): string {
  */
 export async function sendNotificationToRecipient(args: DispatchArgs): Promise<DeliveryResult> {
   const supabase = getSupabaseAdmin()
-  const result: DeliveryResult = { inApp: false, emailStatus: 'skipped', whatsAppStatus: 'skipped' }
+  const result: DeliveryResult = {
+    inApp: false,
+    emailStatus: 'skipped',
+    smsStatus: 'skipped',
+    whatsAppStatus: 'skipped',
+  }
   const link = resolveLink(args.recipient.role, args.invoiceId)
 
   // 1. In-app (only when we have a users.id)
@@ -218,8 +261,15 @@ export async function sendNotificationToRecipient(args: DispatchArgs): Promise<D
     await logDelivery(supabase, args, 'email', 'skipped')
   }
 
-  // 3. WhatsApp
-  if (args.recipient.phone && (args.recipient.whatsAppEnabled ?? true)) {
+  // 3. SMS (default text channel — enabled unless explicitly turned off)
+  if (args.recipient.phone && (args.recipient.smsEnabled ?? true)) {
+    const r = await sendSms(args.recipient.phone, `${args.title}\n\n${args.body}\n\nReply STOP to opt out.`)
+    result.smsStatus = r.status
+    await logDelivery(supabase, args, 'sms', r.status, args.recipient.phone)
+  }
+
+  // 4. WhatsApp (kept wired but opt-in — disabled unless explicitly enabled)
+  if (args.recipient.phone && (args.recipient.whatsAppEnabled ?? false)) {
     const r = await sendWhatsApp(args.recipient.phone, `*${args.title}*\n\n${args.body}`)
     result.whatsAppStatus = r.status
     await logDelivery(supabase, args, 'whatsapp', r.status, args.recipient.phone)
