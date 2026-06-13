@@ -121,45 +121,54 @@ export async function getProjectHub(projectId: string): Promise<{
       .select('id, user_id, role, assigned_at, user:users!project_assignments_user_id_fkey(id, first_name, last_name, email, role)')
       .eq('project_id', projectId)
 
-    // Get unique contractors from invoices
-    const contractorIds = [...new Set((invoices || []).map(inv => {
-      // Extract contractor_id from the invoice if available
-      return (inv as unknown as { contractor_id?: string }).contractor_id
-    }).filter(Boolean))]
+    // Fetch contractors actually assigned to this project via the join table.
+    // This is the source of truth for "who is on this project" — independent of
+    // whether they have invoiced yet.
+    const { data: projectContractors } = await supabase
+      .from('project_contractors')
+      .select('contractor_id, status, contractor:contractors(id, company_name, contact_name, email, status)')
+      .eq('project_id', projectId)
 
-    // For contractors, we aggregate invoice data
-    const contractorMap = new Map<string, {
-      id: string
-      company_name: string
-      contact_name: string
-      email: string
-      status: string
-      total_billed_cents: number
-      total_paid_cents: number
-    }>()
-
-    // Build contractor summary from invoices
+    // Aggregate billed amounts per contractor_id from invoices.
+    const billedByContractor = new Map<string, number>()
     for (const inv of (invoices || [])) {
-      const contractor = inv.contractor as unknown as { company_name: string } | null
-      if (contractor) {
-        const existing = contractorMap.get(contractor.company_name)
-        if (existing) {
-          existing.total_billed_cents += inv.total_cents || 0
-        } else {
-          contractorMap.set(contractor.company_name, {
-            id: contractor.company_name, // Use company_name as temp ID
-            company_name: contractor.company_name,
-            contact_name: '',
-            email: '',
-            status: 'active',
-            total_billed_cents: inv.total_cents || 0,
-            total_paid_cents: 0,
-          })
-        }
+      const cId = (inv as unknown as { contractor_id?: string }).contractor_id
+      if (cId) {
+        billedByContractor.set(cId, (billedByContractor.get(cId) || 0) + (inv.total_cents || 0))
       }
     }
 
-    const contractors = Array.from(contractorMap.values())
+    // Aggregate paid amounts per contractor_id from paid invoices.
+    const paidByContractor = new Map<string, number>()
+    for (const inv of (invoices || [])) {
+      const cId = (inv as unknown as { contractor_id?: string }).contractor_id
+      if (cId && inv.status === 'paid') {
+        paidByContractor.set(cId, (paidByContractor.get(cId) || 0) + (inv.total_cents || 0))
+      }
+    }
+
+    // Build the contractor list from real assignments, enriched with billing totals.
+    const contractors = (projectContractors || [])
+      .map(pc => {
+        const c = (Array.isArray(pc.contractor) ? pc.contractor[0] : pc.contractor) as {
+          id: string
+          company_name: string
+          contact_name: string
+          email: string
+          status: string
+        } | null
+        if (!c) return null
+        return {
+          id: c.id,
+          company_name: c.company_name,
+          contact_name: c.contact_name || '',
+          email: c.email || '',
+          status: c.status,
+          total_billed_cents: billedByContractor.get(c.id) || 0,
+          total_paid_cents: paidByContractor.get(c.id) || 0,
+        }
+      })
+      .filter((c): c is NonNullable<typeof c> => c !== null)
 
     // Calculate summary
     const totalInvoicedCents = (invoices || []).reduce((sum, inv) => sum + (inv.total_cents || 0), 0)

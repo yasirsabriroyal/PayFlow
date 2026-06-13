@@ -124,20 +124,46 @@ export async function getVendorProjects() {
     if (!user) return { success: false, projects: [] }
 
     const adminSupabase = getSupabaseAdmin()
-    
-    // In a real app we would join via project_contractors
-    // For now we just return active projects since we're assuming the vendor can see them
-    const { data: projects, error } = await adminSupabase
-      .from('projects')
-      .select('id, name, project_number')
-      .eq('is_active', true)
 
-    if (error) {
+    // Resolve the contractor record for the signed-in user.
+    const { data: contractor, error: contractorError } = await adminSupabase
+      .from('contractors')
+      .select('id')
+      .eq('auth_user_id', user.id)
+      .single()
+
+    if (contractorError || !contractor) {
       return { success: false, projects: [] }
     }
 
+    // Only return projects this contractor is assigned to via project_contractors.
+    const { data: assignments, error: assignError } = await adminSupabase
+      .from('project_contractors')
+      .select('project:projects(id, name, project_number, is_active)')
+      .eq('contractor_id', contractor.id)
+
+    if (assignError) {
+      console.error('Get vendor projects error:', assignError)
+      return { success: false, projects: [] }
+    }
+
+    // Flatten the join relation and keep only active projects, de-duplicated.
+    const seen = new Set<string>()
+    const projects = (assignments || [])
+      .map(a => (Array.isArray(a.project) ? a.project[0] : a.project))
+      .filter((p): p is { id: string; name: string; project_number: string; is_active: boolean } =>
+        Boolean(p) && p.is_active
+      )
+      .filter(p => {
+        if (seen.has(p.id)) return false
+        seen.add(p.id)
+        return true
+      })
+      .map(({ id, name, project_number }) => ({ id, name, project_number }))
+
     return { success: true, projects }
   } catch (err) {
+    console.error('Get vendor projects error:', err)
     return { success: false, projects: [] }
   }
 }

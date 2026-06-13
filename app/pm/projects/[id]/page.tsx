@@ -20,7 +20,8 @@ import {
   Users,
   ChevronRight
 } from 'lucide-react'
-import { getPMProjects, getPMInvoices, getPMContractors } from '../../actions'
+import { getPMProjects, getPMInvoices } from '../../actions'
+import { getProjectContractors } from '@/app/projects/[id]/actions'
 import { AppHeader } from '@/components/app-header'
 import { RoleTabBar } from '@/components/role-tab-bar'
 import { WorkflowLink } from '@/components/workflow-link'
@@ -70,7 +71,7 @@ export default function PMProjectDetailPage({ params }: { params: Promise<{ id: 
       const [projectsResult, invoicesResult, contractorsResult] = await Promise.all([
         getPMProjects(),
         getPMInvoices(),
-        getPMContractors()
+        getProjectContractors(resolvedParams.id)
       ])
       
       if (projectsResult.success) {
@@ -86,8 +87,17 @@ export default function PMProjectDetailPage({ params }: { params: Promise<{ id: 
         setInvoices(projectInvoices)
       }
       
-      if (contractorsResult.success) {
-        setContractors(contractorsResult.contractors as Contractor[])
+      if (contractorsResult.success && contractorsResult.data) {
+        // Map the project_contractors join rows into the Contractor shape.
+        const mapped: Contractor[] = contractorsResult.data
+          .filter(row => row.contractor)
+          .map(row => ({
+            id: row.contractor.id,
+            company_name: row.contractor.company_name,
+            contact_name: row.contractor.contact_name,
+            status: row.contractor.status,
+          }))
+        setContractors(mapped)
       }
       
       setIsLoading(false)

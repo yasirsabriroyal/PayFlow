@@ -21,7 +21,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Building2, Plus, Search, AlertCircle, RefreshCw, Pencil, UserPlus, X, Users, Eye } from 'lucide-react'
+import { Building2, Plus, Search, AlertCircle, RefreshCw, Pencil, UserPlus, X, Users, Eye, Power, PowerOff } from 'lucide-react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -31,7 +31,9 @@ import {
   updateProject, 
   getProjectManagers,
   assignProjectManager,
-  removeProjectAssignment
+  removeProjectAssignment,
+  archiveProject,
+  restoreProject
 } from './project-actions'
 import { useListStatePreservation } from '@/lib/workflow-navigation'
 import { AppHeader } from '@/components/app-header'
@@ -291,6 +293,24 @@ export default function AdminProjectsPage() {
     }
   }
 
+  // Toggle project active status (one-click activate / deactivate)
+  const [togglingId, setTogglingId] = useState<string | null>(null)
+  const handleToggleActive = async (project: Project) => {
+    setTogglingId(project.id)
+    try {
+      const result = project.is_active
+        ? await archiveProject(project.id)
+        : await restoreProject(project.id)
+      if (result?.success) {
+        fetchData()
+      }
+    } catch (err) {
+      console.error('Failed to toggle project status:', err)
+    } finally {
+      setTogglingId(null)
+    }
+  }
+
   // Open edit modal
   const openEditModal = (project: Project) => {
     setEditingProject({ ...project })
@@ -470,6 +490,20 @@ export default function AdminProjectsPage() {
                           }}
                         >
                           <UserPlus className="h-4 w-4" />
+                        </Button>
+                        <Button 
+                          variant="ghost" 
+                          size="sm" 
+                          disabled={togglingId === project.id}
+                          title={project.is_active ? 'Deactivate project' : 'Activate project'}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            handleToggleActive(project)
+                          }}
+                        >
+                          {project.is_active
+                            ? <PowerOff className="h-4 w-4 text-muted-foreground" />
+                            : <Power className="h-4 w-4 text-primary" />}
                         </Button>
                         <Button 
                           variant="ghost" 
