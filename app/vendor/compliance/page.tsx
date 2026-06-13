@@ -27,6 +27,7 @@ import {
 } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
 import { Checkbox } from '@/components/ui/checkbox'
+import { ComplianceDocuments } from './compliance-documents'
 
 type LienWaiver = {
   id: string
@@ -132,6 +133,9 @@ export default function VendorCompliancePage() {
             <p className="font-medium">{successMessage}</p>
           </div>
         )}
+        {/* Compliance documents (insurance, licenses, safety, WCB) */}
+        <ComplianceDocuments />
+
         {/* Stats */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <div className="bg-card border border-border rounded-xl p-5">

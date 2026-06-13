@@ -202,7 +202,7 @@ async function sendWhatsApp(to: string, message: string) {
   }
 }
 
-function buildEmailHtml(title: string, body: string, link: string): string {
+function buildEmailHtml(title: string, body: string, link: string, ctaLabel = 'View Invoice'): string {
   const url = `${getSiteUrl()}${link}`
   return `
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
@@ -211,10 +211,69 @@ function buildEmailHtml(title: string, body: string, link: string): string {
       </div>
       <div style="background: #f8fafc; padding: 20px; border: 1px solid #e2e8f0; border-top: none;">
         <p style="margin: 0 0 16px;">${body}</p>
-        <a href="${url}" style="display: inline-block; background: #334155; color: white; padding: 12px 24px; border-radius: 6px; text-decoration: none;">View Invoice</a>
+        <a href="${url}" style="display: inline-block; background: #334155; color: white; padding: 12px 24px; border-radius: 6px; text-decoration: none;">${ctaLabel}</a>
       </div>
       <div style="padding: 16px; text-align: center; color: #64748b; font-size: 12px;">PayFlow AP</div>
     </div>`
+}
+
+export interface GenericAlertArgs {
+  /** users.id for the in-app feed; null = external-only recipient */
+  recipientUserId: string | null
+  recipient: DispatchRecipient
+  /** stored verbatim in notifications.type (free text column) */
+  type: string
+  title: string
+  body: string
+  /** absolute in-app path the recipient can access, e.g. /vendor/compliance */
+  link: string
+}
+
+/**
+ * Deliver a NON-invoice notification (e.g. compliance expiry) across in-app +
+ * email + SMS. Unlike `sendNotificationToRecipient`, the link is passed in
+ * directly rather than derived from an invoice id. Never throws.
+ */
+export async function sendGenericAlert(args: GenericAlertArgs): Promise<DeliveryResult> {
+  const supabase = getSupabaseAdmin()
+  const result: DeliveryResult = {
+    inApp: false,
+    emailStatus: 'skipped',
+    smsStatus: 'skipped',
+    whatsAppStatus: 'skipped',
+  }
+
+  if (args.recipientUserId) {
+    try {
+      await supabase.from('notifications').insert({
+        recipient_user_id: args.recipientUserId,
+        type: args.type,
+        title: args.title,
+        body: args.body,
+        link: args.link,
+      })
+      result.inApp = true
+    } catch (e) {
+      console.error('[notify-dispatch] generic in-app insert failed:', e)
+    }
+  }
+
+  if (args.recipient.email && (args.recipient.emailEnabled ?? true)) {
+    const r = await sendEmail(
+      args.recipient.email,
+      args.title,
+      buildEmailHtml(args.title, args.body, args.link, 'View Details'),
+      `${args.title}\n\n${args.body}`
+    )
+    result.emailStatus = r.status
+  }
+
+  if (args.recipient.phone && (args.recipient.smsEnabled ?? true)) {
+    const r = await sendSms(args.recipient.phone, `${args.title}\n\n${args.body}\n\nReply STOP to opt out.`)
+    result.smsStatus = r.status
+  }
+
+  return result
 }
 
 /**

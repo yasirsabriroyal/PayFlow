@@ -14,6 +14,7 @@ interface Tab {
 const VENDOR_TABS: Tab[] = [
   { label: 'Portal', href: ROUTES.vendor.portal },
   { label: 'Compliance', href: ROUTES.vendor.compliance },
+  { label: 'Profile', href: ROUTES.vendor.profile },
 ]
 
 const TAB_MAP: Record<Role, Tab[]> = {

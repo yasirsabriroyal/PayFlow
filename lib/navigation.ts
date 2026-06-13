@@ -36,6 +36,7 @@ export const ROUTES = {
   vendor: {
     portal: '/vendor/portal',
     compliance: '/vendor/compliance',
+    profile: '/vendor/profile',
     onboarding: '/vendor/onboarding',
   },
   shared: {

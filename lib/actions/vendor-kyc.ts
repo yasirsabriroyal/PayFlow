@@ -115,6 +115,74 @@ export async function submitVendorKYC(formData: FormData) {
 import { requireRole } from '@/lib/permissions/protect-route'
 import { revalidatePath } from 'next/cache'
 
+const COMPLIANCE_UPLOAD_TYPES = [
+  'wcb_clearance',
+  'insurance_certificate',
+  'business_license',
+  'safety_certification',
+] as const
+
+/**
+ * Contractor self-service upload of a compliance document (insurance, license,
+ * safety cert, WCB) with an optional expiry date. Inserts a new pending
+ * document for admin verification. Scoped by auth_user_id (IDOR-safe).
+ */
+export async function uploadComplianceDocument(formData: FormData) {
+  try {
+    const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return { success: false, error: 'Unauthorized' }
+
+    const documentType = formData.get('documentType') as string
+    if (!COMPLIANCE_UPLOAD_TYPES.includes(documentType as (typeof COMPLIANCE_UPLOAD_TYPES)[number])) {
+      return { success: false, error: 'Invalid document type' }
+    }
+
+    const file = formData.get('file') as File | null
+    if (!file || file.size === 0) {
+      return { success: false, error: 'A file is required' }
+    }
+
+    const admin = getSupabaseAdmin()
+    const { data: contractor } = await admin
+      .from('contractors')
+      .select('id')
+      .eq('auth_user_id', user.id)
+      .single()
+
+    if (!contractor) return { success: false, error: 'Contractor profile not found' }
+
+    const expiry = (formData.get('expiryDate') as string) || null
+    const timestamp = Date.now()
+    const cleanName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_')
+    const pathname = `users/${user.id}/compliance/${timestamp}-${cleanName}`
+    const blob = await put(pathname, file, { access: 'private' })
+
+    const { error: insertError } = await admin.from('vendor_kyc_documents').insert({
+      contractor_id: contractor.id,
+      document_type: documentType,
+      document_url: blob.pathname,
+      file_name: file.name,
+      file_size_bytes: file.size,
+      mime_type: file.type,
+      status: 'pending',
+      expiry_date: expiry,
+    })
+
+    if (insertError) {
+      console.error('uploadComplianceDocument insert error:', insertError)
+      return { success: false, error: insertError.message }
+    }
+
+    revalidatePath('/vendor/compliance')
+    revalidatePath('/vendor/portal')
+    return { success: true }
+  } catch (err) {
+    console.error('uploadComplianceDocument error:', err)
+    return { success: false, error: 'An unexpected error occurred' }
+  }
+}
+
 /**
  * Fetch all pending KYC documents for the admin verification queue.
  * Returns documents joined with their contractor's basic info.
