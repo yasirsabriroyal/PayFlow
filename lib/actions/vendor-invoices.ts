@@ -18,12 +18,22 @@ export async function submitVendorInvoice(formData: FormData) {
     // Get the contractor record associated with this user
     const { data: contractor, error: contractorError } = await adminSupabase
       .from('contractors')
-      .select('id')
+      .select('id, status')
       .eq('auth_user_id', user.id)
       .single()
 
     if (contractorError || !contractor) {
       return { success: false, error: 'Contractor profile not found' }
+    }
+
+    // Only fully-verified (active) contractors may submit invoices.
+    // pending_kyc / suspended / inactive contractors are blocked server-side.
+    if (contractor.status !== 'active') {
+      return {
+        success: false,
+        error:
+          'Your account is not active yet. Please complete verification before submitting invoices.',
+      }
     }
 
     const projectId = formData.get('projectId') as string
@@ -37,6 +47,28 @@ export async function submitVendorInvoice(formData: FormData) {
 
     if (!projectId || !invoiceNumber || isNaN(totalAmount)) {
       return { success: false, error: 'Missing required fields' }
+    }
+
+    // IDOR guard: confirm this contractor is actually assigned to the project
+    // they're submitting against. Because this action uses the service-role
+    // client (RLS is bypassed), this check is the enforcement layer.
+    const { data: assignment, error: assignmentError } = await adminSupabase
+      .from('project_contractors')
+      .select('id, status')
+      .eq('project_id', projectId)
+      .eq('contractor_id', contractor.id)
+      .maybeSingle()
+
+    if (assignmentError) {
+      console.error('Project assignment lookup error:', assignmentError)
+      return { success: false, error: 'Unable to verify project assignment' }
+    }
+
+    if (!assignment || assignment.status === 'terminated') {
+      return {
+        success: false,
+        error: 'You are not assigned to this project.',
+      }
     }
 
     // Convert to cents
