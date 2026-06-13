@@ -24,6 +24,30 @@ export function ServiceWorkerRegistration() {
       return
     }
 
+    // Never run the service worker outside of production. In development it
+    // serves stale cached JS bundles (stale-while-revalidate), which breaks
+    // HMR and causes React useId hydration mismatches (e.g. Radix `radix-_R_*`
+    // ids) because the cached bundle diverges from the freshly SSR-ed HTML.
+    // Proactively unregister any existing worker and clear its caches.
+    if (process.env.NODE_ENV !== 'production') {
+      navigator.serviceWorker.getRegistrations().then((registrations) => {
+        registrations.forEach((registration) => {
+          registration.unregister()
+        })
+      })
+      if (typeof caches !== 'undefined') {
+        caches.keys().then((names) => {
+          names.forEach((name) => {
+            if (name.startsWith('payflow-')) {
+              caches.delete(name)
+            }
+          })
+        })
+      }
+      console.log('[PWA] Service worker disabled in development')
+      return
+    }
+
     setSwState(prev => ({ ...prev, isSupported: true }))
 
     const registerServiceWorker = async () => {
