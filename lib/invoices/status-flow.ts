@@ -314,7 +314,8 @@ async function dispatchStatusNotifications(input: DispatchInput): Promise<void> 
       .eq('project_id', projectId)
 
     for (const a of assignments ?? []) {
-      const u = (a as { users?: Record<string, unknown> }).users
+      const rawUsers = (a as { users?: unknown }).users
+      const u = (Array.isArray(rawUsers) ? rawUsers[0] : rawUsers) as Record<string, unknown> | undefined
       if (u && u.is_active && u.role === 'project_manager') {
         recipients.set(u.id as string, {
           userId: u.id as string,

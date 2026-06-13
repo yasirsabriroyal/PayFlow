@@ -33,7 +33,7 @@ import {
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import Link from 'next/link'
-import { approveInvoice, rejectInvoice, getInvoiceQueue } from '../actions'
+  import { approveInvoice, disputeInvoice, getInvoiceQueue } from '../actions'
 import { createClient } from '@/lib/supabase/client'
 import { usePermissions } from '@/hooks/use-permissions'
 import { useToast } from '@/hooks/use-toast'
@@ -329,14 +329,23 @@ function AccountantQueueContent() {
 
   const handleDispute = async () => {
     if (!selectedInvoice) return
-    
+
+    if (!disputeReason.trim()) {
+      toast({
+        title: 'Reason required',
+        description: 'Please describe the dispute before flagging this invoice.',
+        variant: 'destructive',
+      })
+      return
+    }
+
     setIsProcessing(true)
-    const result = await rejectInvoice({ invoice_id: selectedInvoice.id, reason: disputeReason })
-    
+    const result = await disputeInvoice({ invoice_id: selectedInvoice.id, reason: disputeReason })
+
     if (result.success) {
       toast({
-        title: 'Invoice Rejected',
-        description: `Invoice ${selectedInvoice.invoiceNumber} has been rejected.`,
+        title: 'Invoice Disputed',
+        description: `Invoice ${selectedInvoice.invoiceNumber} has been flagged as disputed. The team has been notified.`,
       })
       setIsDisputeOpen(false)
       setIsReviewOpen(false)
@@ -344,8 +353,8 @@ function AccountantQueueContent() {
       setShortPayAmount('')
     } else {
       toast({
-        title: 'Rejection Failed',
-        description: result.error || 'Failed to reject invoice.',
+        title: 'Dispute Failed',
+        description: result.error || 'Failed to flag invoice as disputed.',
         variant: 'destructive',
       })
     }

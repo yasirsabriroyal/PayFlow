@@ -3,6 +3,8 @@
 import { getSupabaseAdmin } from '@/lib/supabase/admin'
 import { createClient } from '@/lib/supabase/server'
 import { put } from '@vercel/blob'
+import { applyInvoiceStatusChange } from '@/lib/invoices/status-flow'
+import { resolveInternalUserId } from '@/lib/utils/resolve-user'
 
 export async function submitVendorInvoice(formData: FormData) {
   try {
@@ -151,19 +153,27 @@ export async function submitVendorInvoice(formData: FormData) {
       })
     }
 
-    // 3. Log the action
-    await adminSupabase.from('audit_logs').insert({
-      action: 'invoice_submitted',
-      entity_type: 'invoice',
-      entity_id: invoice.id,
-      user_id: user.id,
-      description: `Vendor submitted invoice ${invoiceNumber} for $${(totalCents / 100).toFixed(2)}`,
-      new_values: {
-        invoice_number: invoiceNumber,
-        total_cents: totalCents,
-        status: 'submitted'
-      },
-    })
+    // 3. Move the freshly-created invoice into the review queue via the
+    // centralized status engine. This writes the audit log + status history
+    // and notifies accountants, admins, and the assigned PM (server-side,
+    // using real contact info — not the contractor who just submitted).
+    const actorUserId = await resolveInternalUserId(user.id, adminSupabase)
+    try {
+      await applyInvoiceStatusChange({
+        invoiceId: invoice.id,
+        newStatus: 'pending_approval',
+        actor: {
+          userId: actorUserId,
+          name: contractor.company_name || 'Contractor',
+          role: 'contractor',
+          authUserId: user.id,
+        },
+        reason: `Submitted invoice ${invoiceNumber} for $${(totalCents / 100).toFixed(2)}`,
+      })
+    } catch (statusErr) {
+      // Never fail the submission because of a downstream notification/audit issue.
+      console.error('[v0] Invoice submit status transition failed:', statusErr)
+    }
 
     return { success: true, invoice }
   } catch (err) {

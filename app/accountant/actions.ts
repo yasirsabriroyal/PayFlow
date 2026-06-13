@@ -1432,12 +1432,14 @@ export async function recordCertificatePayment(input: {
     // 6. Update invoice total_paid_cents
     const { data: invoice } = await supabase
       .from('invoices')
-      .select('total_paid_cents, net_payable_cents')
+      .select('total_paid_cents, net_payable_cents, status')
       .eq('id', certificate.invoice_id)
       .single()
     
+    let invoiceFullyPaid = false
     if (invoice) {
       const newTotalPaid = (invoice.total_paid_cents || 0) + input.amount_cents
+      invoiceFullyPaid = newTotalPaid >= (invoice.net_payable_cents || 0)
       await supabase
         .from('invoices')
         .update({
@@ -1447,6 +1449,27 @@ export async function recordCertificatePayment(input: {
           updated_at: new Date().toISOString(),
         })
         .eq('id', certificate.invoice_id)
+    }
+
+    // 6b. Flip the invoice status (paid / partially_paid) through the centralized
+    //     status engine so audit + history + notifications fire consistently.
+    if (invoice && invoice.status !== 'paid') {
+      try {
+        await applyInvoiceStatusChange({
+          invoiceId: certificate.invoice_id,
+          newStatus: invoiceFullyPaid ? 'paid' : 'partially_paid',
+          actor: {
+            userId: internalUserId,
+            name: userData.email || 'Accountant',
+            role: userData.role ?? 'accountant',
+            authUserId: userData.id,
+          },
+          reason: `Payment of $${(input.amount_cents / 100).toFixed(2)} recorded for certificate ${certificate.certificate_number}`,
+        })
+      } catch (statusErr) {
+        // Non-fatal — payment is already recorded.
+        console.error('[v0] Paid status transition failed:', statusErr)
+      }
     }
     
     // 7. Create a holdback ledger entry if this certificate withholds a holdback.
