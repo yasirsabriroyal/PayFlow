@@ -965,8 +965,7 @@ export async function getInvoiceById(invoiceId: string) {
           province,
           postal_code,
           bank_name,
-          bank_institution_number,
-          bank_transit_number,
+          bank_account_last4,
           bank_account_number,
           wcb_clearance_expiry,
           status

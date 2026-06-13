@@ -221,9 +221,13 @@ export default function PaymentsPage() {
           id: inv.id as string,
           contractor: (inv.contractor as Record<string, unknown>)?.company_name as string || 'Unknown',
           contractorId: (inv.contractor as Record<string, unknown>)?.id as string || '',
-          bankInfo: (inv.contractor as Record<string, unknown>)?.bank_account_number 
-            ? `**** ${((inv.contractor as Record<string, unknown>)?.bank_account_number as string).slice(-4)}`
-            : 'Not set',
+          bankInfo: (() => {
+            const c = inv.contractor as Record<string, unknown>
+            const last4 =
+              (c?.bank_account_last4 as string) ||
+              ((c?.bank_account_number as string) ? (c.bank_account_number as string).slice(-4) : '')
+            return last4 ? `**** ${last4}` : 'Not set'
+          })(),
           project: (inv.project as Record<string, unknown>)?.name as string || 'Unknown',
           invoiceNumber: inv.invoice_number as string,
           approvedDate: inv.updated_at as string, // Use updated_at since approved_at doesn't exist

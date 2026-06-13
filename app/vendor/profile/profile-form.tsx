@@ -15,6 +15,7 @@ import {
 } from '@/components/ui/select'
 import { useToast } from '@/hooks/use-toast'
 import { updateVendorProfile, type VendorProfile } from '@/lib/actions/vendor-profile'
+import { BankingChangeDialog } from './banking-change-dialog'
 
 const PROVINCES = [
   { value: 'AB', label: 'Alberta' },
@@ -236,9 +237,12 @@ export function ProfileForm({ profile }: { profile: VendorProfile }) {
               }
               disabled
             />
-            <p className="text-xs text-muted-foreground">
-              Banking changes require approval and are managed separately.
-            </p>
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-xs text-muted-foreground">
+                Banking changes require approval and are managed separately.
+              </p>
+              <BankingChangeDialog />
+            </div>
           </div>
         </div>
       </section>

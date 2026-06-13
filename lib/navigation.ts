@@ -19,6 +19,7 @@ export const ROUTES = {
     queue: '/accountant/queue',
     payments: '/accountant/payments',
     holdbacks: '/accountant/holdbacks',
+    bankingChanges: '/accountant/banking-changes',
     invoice: (id: string) => `/accountant/invoices/${id}`,
     contractor: (id: string) => `/accountant/contractors/${id}`,
   },

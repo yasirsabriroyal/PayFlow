@@ -28,7 +28,7 @@ export async function getContractorCompliance(): Promise<{
     const admin = getSupabaseAdmin()
     const { data: contractor } = await admin
       .from('contractors')
-      .select('id, bank_account_number')
+      .select('id, bank_account_number, bank_account_encrypted, bank_account_last4')
       .eq('auth_user_id', user.id)
       .single()
 
@@ -95,7 +95,9 @@ export async function getContractorCompliance(): Promise<{
     return {
       success: true,
       items,
-      bankingOnFile: Boolean(contractor.bank_account_number),
+      bankingOnFile: Boolean(
+        contractor.bank_account_encrypted || contractor.bank_account_last4 || contractor.bank_account_number
+      ),
     }
   } catch (err) {
     console.error('getContractorCompliance error:', err)

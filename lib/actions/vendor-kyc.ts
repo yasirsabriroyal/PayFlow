@@ -2,6 +2,7 @@
 
 import { getSupabaseAdmin } from '@/lib/supabase/admin'
 import { createClient } from '@/lib/supabase/server'
+import { encrypt, lastFour, isBankEncryptionAvailable } from '@/lib/security/crypto'
 
 interface KYCSubmissionData {
   companyName: string
@@ -44,6 +45,35 @@ export async function submitVendorKYC(formData: FormData) {
 
     const adminSupabase = getSupabaseAdmin()
 
+    const bankName = formData.get('bankName') as string
+    const bankTransit = formData.get('bankTransitNumber') as string
+    const bankInstitution = formData.get('bankInstitutionNumber') as string
+    const bankAccount = formData.get('bankAccountNumber') as string
+
+    // Encrypt banking at rest when the key is configured; keep only last-4 in
+    // the clear. Falls back to legacy plaintext columns if encryption isn't
+    // available yet (pre-key), so onboarding never breaks — a later backfill
+    // encrypts and clears those plaintext values.
+    const encryptionOn = isBankEncryptionAvailable()
+    const bankColumns = encryptionOn
+      ? {
+          bank_name: bankName,
+          bank_account_encrypted: encrypt(bankAccount),
+          bank_transit_encrypted: encrypt(bankTransit),
+          bank_institution_encrypted: encrypt(bankInstitution),
+          bank_account_last4: lastFour(bankAccount),
+          bank_account_number: null,
+          bank_transit_number: null,
+          bank_institution_number: null,
+        }
+      : {
+          bank_name: bankName,
+          bank_transit_number: bankTransit,
+          bank_institution_number: bankInstitution,
+          bank_account_number: bankAccount,
+          bank_account_last4: lastFour(bankAccount),
+        }
+
     // 1. Update the existing contractor record
     const { data: contractor, error: updateError } = await adminSupabase
       .from('contractors')
@@ -60,11 +90,10 @@ export async function submitVendorKYC(formData: FormData) {
         
         business_number: formData.get('businessNumber') as string,
         is_corporation: formData.get('isCorporation') === 'true',
+        trade_category: (formData.get('tradeCategory') as string) || null,
+        preferred_payment_method: (formData.get('paymentMethod') as string) || null,
         
-        bank_name: formData.get('bankName') as string,
-        bank_transit_number: formData.get('bankTransitNumber') as string,
-        bank_institution_number: formData.get('bankInstitutionNumber') as string,
-        bank_account_number: formData.get('bankAccountNumber') as string,
+        ...bankColumns,
         
         wcb_account_number: formData.get('wcbAccountNumber') as string,
         wcb_clearance_expiry: formData.get('wcbExpiryDate') as string || null,

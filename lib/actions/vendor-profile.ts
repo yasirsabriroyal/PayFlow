@@ -38,15 +38,17 @@ export async function getVendorProfile(): Promise<{ success: boolean; profile: V
     const { data: c, error } = await admin
       .from('contractors')
       .select(
-        'id, company_name, contact_name, email, phone, address_line1, address_line2, city, province, postal_code, trade_category, business_number, is_corporation, preferred_payment_method, status, bank_name, bank_account_number'
+        'id, company_name, contact_name, email, phone, address_line1, address_line2, city, province, postal_code, trade_category, business_number, is_corporation, preferred_payment_method, status, bank_name, bank_account_last4, bank_account_number'
       )
       .eq('auth_user_id', user.id)
       .single()
 
     if (error || !c) return { success: false, profile: null }
 
+    // Prefer the stored last4 (encrypted-data era); fall back to deriving it
+    // from any legacy plaintext that hasn't been backfilled yet.
     const acct = (c.bank_account_number as string) || ''
-    const last4 = acct ? acct.slice(-4) : null
+    const last4 = (c.bank_account_last4 as string) || (acct ? acct.slice(-4) : null)
 
     return {
       success: true,
