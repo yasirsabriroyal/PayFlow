@@ -74,6 +74,12 @@ export default function VendorCompliancePage() {
   }
 
   const handleSign = async () => {
+    console.log('[v0] handleSign fired', {
+      hasWaiver: !!selectedWaiver,
+      name: signatureName,
+      agreed: agreedToTerms,
+      prId: selectedWaiver?.payment_request_id,
+    })
     if (!selectedWaiver || !signatureName.trim() || !agreedToTerms) return
     if (!selectedWaiver.payment_request_id) {
       setErrorMessage('This invoice has no associated payment request to waive yet.')
