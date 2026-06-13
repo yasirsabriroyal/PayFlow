@@ -8,7 +8,7 @@ import {
   CheckCircle2, Clock, AlertTriangle, XCircle, Download,
   Send, CreditCard, Banknote, History, Paperclip, User,
   MapPin, Phone, Mail, Hash, RefreshCw, Printer, MoreHorizontal,
-  ChevronRight, ChevronDown, ExternalLink, Shield, Receipt
+  ChevronRight, ChevronDown, ExternalLink, Shield, Receipt, RotateCcw
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -77,6 +77,7 @@ function getStatusInfo(status: string) {
     paid: { label: 'Paid', color: 'text-success', bgColor: 'bg-success/10', icon: Banknote },
     disputed: { label: 'Disputed', color: 'text-destructive', bgColor: 'bg-destructive/10', icon: AlertTriangle },
     rejected: { label: 'Rejected', color: 'text-destructive', bgColor: 'bg-destructive/10', icon: XCircle },
+    revision_requested: { label: 'Revision Requested', color: 'text-warning', bgColor: 'bg-warning/10', icon: RotateCcw },
     cancelled: { label: 'Cancelled', color: 'text-muted-foreground', bgColor: 'bg-muted', icon: XCircle },
   }
   return statusMap[status] || { label: status, color: 'text-muted-foreground', bgColor: 'bg-muted', icon: FileText }
