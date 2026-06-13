@@ -92,7 +92,7 @@ export default async function VendorPortalPage() {
           </div>
 
           {/* Quick Actions */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <WorkflowLink
               href="/vendor/invoices/new"
               contextTitle="New Invoice"
@@ -107,6 +107,23 @@ export default async function VendorPortalPage() {
               <h2 className="font-semibold text-lg">Submit New Invoice</h2>
               <p className="text-sm text-muted-foreground mt-1">
                 Submit an invoice for payment processing
+              </p>
+            </WorkflowLink>
+
+            <WorkflowLink
+              href="/vendor/invoices"
+              contextTitle="My Invoices"
+              className="bg-card border border-border rounded-xl p-6 hover:border-primary/30 hover:shadow-sm transition-all group"
+            >
+              <div className="flex items-center justify-between mb-4">
+                <div className="w-12 h-12 bg-warning/10 rounded-lg flex items-center justify-center">
+                  <History className="w-6 h-6 text-warning" />
+                </div>
+                <ChevronRight className="w-5 h-5 text-muted-foreground group-hover:text-primary transition-colors" />
+              </div>
+              <h2 className="font-semibold text-lg">My Invoices</h2>
+              <p className="text-sm text-muted-foreground mt-1">
+                View and track the status of submitted invoices
               </p>
             </WorkflowLink>
 
