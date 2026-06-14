@@ -59,10 +59,14 @@ export async function GET(
       })
     }
 
+    // `?inline=1` renders the file in-browser (preview); default forces download.
+    const inline = request.nextUrl.searchParams.get('inline') === '1'
+    const disposition = inline ? 'inline' : 'attachment'
+
     return new NextResponse(result.stream, {
       headers: {
         'Content-Type': result.blob.contentType || document.file_type,
-        'Content-Disposition': `attachment; filename="${document.file_name}"`,
+        'Content-Disposition': `${disposition}; filename="${document.file_name}"`,
         ETag: result.blob.etag,
         'Cache-Control': 'private, no-cache',
       },

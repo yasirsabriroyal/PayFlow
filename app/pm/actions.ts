@@ -1367,3 +1367,43 @@ export async function getPMInvoiceById(invoiceId: string) {
     return { success: true as const, invoice }
   })
 }
+
+/**
+ * List attachments for an invoice for the PM detail page, enforcing
+ * assignment-based access. Returns lightweight metadata; the actual file is
+ * streamed by the role-aware `/api/documents/[id]` route.
+ */
+export async function getPMInvoiceDocuments(invoiceId: string) {
+  return withPermission(PERMISSIONS.INVOICES.VIEW_AP_QUEUE, async (user) => {
+    const supabase = getSupabaseAdmin()
+
+    // Confirm the invoice exists and resolve its project for scope checks.
+    const { data: invoice, error: invoiceError } = await supabase
+      .from('invoices')
+      .select('id, project_id')
+      .eq('id', invoiceId)
+      .single()
+
+    if (invoiceError || !invoice) {
+      return { success: false as const, documents: [], error: 'Invoice not found' }
+    }
+
+    const scope = await resolvePmScope(user)
+    if (scope.scoped && !scope.projectIds.includes(invoice.project_id)) {
+      return { success: false as const, documents: [], error: 'Invoice not found' }
+    }
+
+    const { data: documents, error } = await supabase
+      .from('invoice_documents')
+      .select('id, file_name, file_type, file_size_bytes, document_type, description, created_at')
+      .eq('invoice_id', invoiceId)
+      .order('created_at', { ascending: false })
+
+    if (error) {
+      console.error('Get PM invoice documents error:', error)
+      return { success: false as const, documents: [], error: error.message }
+    }
+
+    return { success: true as const, documents: documents || [] }
+  })
+}
