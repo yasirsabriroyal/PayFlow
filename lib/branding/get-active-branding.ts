@@ -27,6 +27,10 @@ export interface EmailBranding {
   logoUrl: string | null
   /** Tenant contact details (fall back to nulls when unset). */
   supportEmail: string | null
+  /** Named support/contact person shown in the help section. */
+  supportContact: string | null
+  /** Email sender display name (the "From" label). */
+  senderDisplayName: string | null
   phone: string | null
   website: string | null
   address: string | null
@@ -90,7 +94,10 @@ export const getEmailBranding = cache(async (orgId?: OrganizationId | null): Pro
 
   const { data, error } = await supabaseAdmin
     .from('company_settings')
-    .select('company_name, logo_url, email, phone, website, address, city, province, postal_code')
+    .select(
+      'company_name, legal_name, logo_url, email, phone, website, address, city, province, postal_code, ' +
+        'primary_color, accent_color, support_contact, sender_display_name, white_label_enabled'
+    )
     .limit(1)
     .single()
 
@@ -100,6 +107,8 @@ export const getEmailBranding = cache(async (orgId?: OrganizationId | null): Pro
       legalName: null,
       logoUrl: null,
       supportEmail: null,
+      supportContact: null,
+      senderDisplayName: null,
       phone: null,
       website: null,
       address: null,
@@ -113,14 +122,21 @@ export const getEmailBranding = cache(async (orgId?: OrganizationId | null): Pro
 
   return {
     companyName: data.company_name || DEFAULT_COMPANY,
-    legalName: null,
+    legalName: data.legal_name ?? null,
     logoUrl: data.logo_url ?? null,
     supportEmail: data.email ?? null,
+    supportContact: data.support_contact ?? null,
+    senderDisplayName: data.sender_display_name ?? null,
     phone: data.phone ?? null,
     website: data.website ?? null,
     address: addressParts.length ? addressParts.join(', ') : null,
-    primaryColor: DEFAULT_PRIMARY,
-    accentColor: DEFAULT_ACCENT,
-    whiteLabelEnabled: false,
+    primaryColor: isValidHex(data.primary_color) ? data.primary_color! : DEFAULT_PRIMARY,
+    accentColor: isValidHex(data.accent_color) ? data.accent_color! : DEFAULT_ACCENT,
+    whiteLabelEnabled: data.white_label_enabled === true,
   }
 })
+
+/** Accepts #RGB or #RRGGBB; everything else falls back to the PayFlow default. */
+function isValidHex(value: string | null | undefined): value is string {
+  return typeof value === 'string' && /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(value.trim())
+}

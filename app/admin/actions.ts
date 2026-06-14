@@ -304,6 +304,13 @@ export interface UpdateCompanySettingsInput {
   website?: string
   hst_number?: string
   logo_url?: string
+  // Communication & Branding Center fields
+  legal_name?: string
+  primary_color?: string
+  accent_color?: string
+  support_contact?: string
+  sender_display_name?: string
+  white_label_enabled?: boolean
 }
 
 export async function updateCompanySettings(data: UpdateCompanySettingsInput) {
@@ -347,6 +354,8 @@ export async function updateCompanySettings(data: UpdateCompanySettingsInput) {
     })
 
     revalidatePath('/admin')
+    revalidatePath('/admin/settings')
+    revalidatePath('/admin/settings/communication')
     return { success: true }
   })
 }
