@@ -6,7 +6,6 @@ import {
   Download,
   FileText,
   ArrowLeft,
-  DollarSign,
   Building2,
   CreditCard,
   Banknote,
@@ -74,96 +73,25 @@ type PaymentSettings = {
   statutory_declaration_threshold: number
 }
 
-// Mock data for approved invoices ready for payment
-// Including compliance status for guardrail enforcement
-const mockApprovedInvoices = [
-  {
-    id: '1',
-    contractor: 'ABC Electrical Ltd.',
-    contractorId: 'C001',
-    bankInfo: '**** 4521',
-    project: 'Oakwood Towers - Phase 1',
-    invoiceNumber: 'INV-2024-0139',
-    approvedDate: '2024-01-15',
-    amount: 45000,
-    holdback: 4500,
-    netPayable: 40500,
-    // Compliance fields - in production these come from joined contractor data
-    wcbExpiry: '2025-06-15', // Valid
-    hasLienWaiver: true,
-  },
-  {
-    id: '2',
-    contractor: 'Superior Plumbing Inc.',
-    contractorId: 'C002',
-    bankInfo: '**** 7892',
-    project: 'Oakwood Towers - Phase 1',
-    invoiceNumber: 'INV-2024-0140',
-    approvedDate: '2024-01-16',
-    amount: 78500,
-    holdback: 7850,
-    netPayable: 70650,
-    wcbExpiry: '2024-01-01', // EXPIRED - will be blocked
-    hasLienWaiver: true,
-  },
-  {
-    id: '3',
-    contractor: 'Metro HVAC Systems',
-    contractorId: 'C003',
-    bankInfo: '**** 3456',
-    project: 'Riverside Commercial Plaza',
-    invoiceNumber: 'INV-2024-0141',
-    approvedDate: '2024-01-17',
-    amount: 62000,
-    holdback: 6200,
-    netPayable: 55800,
-    wcbExpiry: '2025-12-31',
-    hasLienWaiver: false, // Missing lien waiver - will be blocked
-  },
-  {
-    id: '4',
-    contractor: 'Classic Masonry Co.',
-    contractorId: 'C004',
-    bankInfo: '**** 9012',
-    project: 'Heritage Renovation Project',
-    invoiceNumber: 'INV-2024-0142',
-    approvedDate: '2024-01-18',
-    amount: 32000,
-    holdback: 3200,
-    netPayable: 28800,
-    wcbExpiry: '2025-08-20',
-    hasLienWaiver: true,
-  },
-  {
-    id: '5',
-    contractor: 'Pacific Drywall Ltd.',
-    contractorId: 'C005',
-    bankInfo: '**** 5678',
-    project: 'Oakwood Towers - Phase 1',
-    invoiceNumber: 'INV-2024-0143',
-    approvedDate: '2024-01-19',
-    amount: 28500,
-    holdback: 2850,
-    netPayable: 25650,
-    wcbExpiry: '2025-03-15',
-    hasLienWaiver: true,
-  },
-  {
-    id: '6',
-    contractor: 'West Coast Concrete Inc.',
-    contractorId: 'C006',
-    bankInfo: '**** 2345',
-    project: 'Riverside Commercial Plaza',
-    invoiceNumber: 'INV-2024-0144',
-    approvedDate: '2024-01-20',
-    amount: 95000, // Over $50k - needs statutory declaration
-    holdback: 9500,
-    netPayable: 85500,
-    wcbExpiry: '2025-11-30',
-    hasLienWaiver: true,
-    hasStatutoryDeclaration: false, // Missing - may be blocked based on settings
-  },
-]
+// Approved invoice ready for payment (mapped from getApprovedInvoices).
+// Compliance fields drive the guardrail enforcement in checkCompliance().
+type ApprovedInvoice = {
+  id: string
+  contractor: string
+  contractorId: string
+  bankInfo: string
+  project: string
+  invoiceNumber: string
+  approvedDate: string
+  dueDate?: string
+  amount: number
+  holdback: number
+  netPayable: number
+  wcbExpiry: string
+  hasLienWaiver: boolean
+  hasStatutoryDeclaration?: boolean
+  hasUnpaidCerts?: boolean
+}
 
 // Default settings (fallback if DB fetch fails)
 const defaultSettings: PaymentSettings = {
@@ -183,13 +111,13 @@ export default function PaymentsPage() {
   // List state preservation (scroll position)
   const { initialState } = useListStatePreservation('/accountant/payments')
   
-  const [invoices, setInvoices] = useState<typeof mockApprovedInvoices>([])
+  const [invoices, setInvoices] = useState<ApprovedInvoice[]>([])
   const [invoicesLoading, setInvoicesLoading] = useState(true)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [searchTerm, setSearchTerm] = useState('')
   const [successDialogOpen, setSuccessDialogOpen] = useState(false)
   const [generatedBatchId, setGeneratedBatchId] = useState('')
-  const [paidInvoices, setPaidInvoices] = useState<typeof mockApprovedInvoices>([])
+  const [paidInvoices, setPaidInvoices] = useState<ApprovedInvoice[]>([])
   const [paymentSettings, setPaymentSettings] = useState<PaymentSettings>(defaultSettings)
   const [settingsLoaded, setSettingsLoaded] = useState(false)
   const [eftReviewOpen, setEftReviewOpen] = useState(false)
@@ -229,9 +157,11 @@ export default function PaymentsPage() {
           project: (inv.project as Record<string, unknown>)?.name as string || 'Unknown',
           invoiceNumber: inv.invoice_number as string,
           approvedDate: inv.updated_at as string, // Use updated_at since approved_at doesn't exist
+          dueDate: (inv.due_date as string) || '',
           amount: ((inv.total_cents as number) || 0) / 100,
           holdback: ((inv.holdback_cents as number) || 0) / 100,
-          netPayable: (((inv.total_cents as number) || 0) - ((inv.holdback_cents as number) || 0)) / 100,
+          netPayable: (((inv.net_payable_cents as number) ??
+            (((inv.total_cents as number) || 0) - ((inv.holdback_cents as number) || 0))) || 0) / 100,
           wcbExpiry: ((inv.contractor as Record<string, unknown>)?.wcb_clearance_expiry as string) || '',
           hasLienWaiver: true as boolean, // Would come from separate table in production
           hasStatutoryDeclaration: false as boolean,
@@ -331,7 +261,7 @@ export default function PaymentsPage() {
   }
 
   // Check compliance for an invoice based on active settings
-  const checkCompliance = (invoice: typeof mockApprovedInvoices[0]): InvoiceCompliance => {
+  const checkCompliance = (invoice: ApprovedInvoice): InvoiceCompliance => {
     const issues: ComplianceIssue[] = []
 
     // Check WCB expiry
@@ -501,7 +431,39 @@ export default function PaymentsPage() {
     }).format(amount)
   }
 
+  const formatDate = (value?: string) => {
+    if (!value) return '—'
+    const d = new Date(value)
+    if (Number.isNaN(d.getTime())) return '—'
+    return d.toLocaleDateString('en-CA', { month: 'short', day: 'numeric', year: 'numeric' })
+  }
+
   const totalPending = invoices.reduce((sum, inv) => sum + inv.netPayable, 0)
+
+  // Due/overdue framing so the accountant immediately sees what must go out now.
+  const startOfToday = new Date()
+  startOfToday.setHours(0, 0, 0, 0)
+  const inSevenDays = new Date(startOfToday)
+  inSevenDays.setDate(inSevenDays.getDate() + 7)
+
+  const parseDue = (inv: ApprovedInvoice) => {
+    if (!inv.dueDate) return null
+    const d = new Date(inv.dueDate)
+    return Number.isNaN(d.getTime()) ? null : d
+  }
+  const isOverdueToPay = (inv: ApprovedInvoice) => {
+    const d = parseDue(inv)
+    return d !== null && d < startOfToday
+  }
+  const isDueThisWeek = (inv: ApprovedInvoice) => {
+    const d = parseDue(inv)
+    return d !== null && d >= startOfToday && d <= inSevenDays
+  }
+
+  const overdueInvoices = invoices.filter(isOverdueToPay)
+  const overdueTotal = overdueInvoices.reduce((sum, inv) => sum + inv.netPayable, 0)
+  const dueThisWeekInvoices = invoices.filter(isDueThisWeek)
+  const dueThisWeekTotal = dueThisWeekInvoices.reduce((sum, inv) => sum + inv.netPayable, 0)
 
   return (
     <div className="min-h-screen bg-background">
@@ -513,49 +475,57 @@ export default function PaymentsPage() {
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-6 py-8 space-y-6">
-        {/* Stats */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <div className="bg-card border border-border rounded-xl p-5">
+        {/* Money-first summary band - answers "what must go out now" at a glance */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          {/* Overdue to Pay */}
+          <div className={`bg-card border rounded-xl p-5 ${overdueInvoices.length > 0 ? 'border-destructive/40' : 'border-border'}`}>
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-success/10 rounded-lg flex items-center justify-center">
-                <CheckCircle className="w-5 h-5 text-success" />
+              <div className="w-10 h-10 bg-destructive/10 rounded-lg flex items-center justify-center flex-shrink-0">
+                <AlertTriangle className="w-5 h-5 text-destructive" />
               </div>
-              <div>
-                <p className="text-2xl font-semibold">{invoices.length}</p>
-                <p className="text-sm text-muted-foreground">Ready to Pay</p>
+              <div className="min-w-0">
+                <p className="text-2xl font-semibold leading-tight truncate">{formatCurrency(overdueTotal)}</p>
+                <p className="text-sm text-muted-foreground truncate">Overdue to Pay</p>
+                <p className="text-xs font-medium text-destructive">{overdueInvoices.length} invoice{overdueInvoices.length === 1 ? '' : 's'}</p>
               </div>
             </div>
           </div>
+          {/* Due This Week */}
           <div className="bg-card border border-border rounded-xl p-5">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-primary/10 rounded-lg flex items-center justify-center">
-                <DollarSign className="w-5 h-5 text-primary" />
-              </div>
-              <div>
-                <p className="text-2xl font-semibold">{formatCurrency(totalPending)}</p>
-                <p className="text-sm text-muted-foreground">Total Pending</p>
-              </div>
-            </div>
-          </div>
-          <div className="bg-card border border-border rounded-xl p-5">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-accent/10 rounded-lg flex items-center justify-center">
-                <CreditCard className="w-5 h-5 text-accent" />
-              </div>
-              <div>
-                <p className="text-2xl font-semibold">{selectedIds.size}</p>
-                <p className="text-sm text-muted-foreground">Selected</p>
-              </div>
-            </div>
-          </div>
-          <div className="bg-card border border-border rounded-xl p-5">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-warning/10 rounded-lg flex items-center justify-center">
+              <div className="w-10 h-10 bg-warning/10 rounded-lg flex items-center justify-center flex-shrink-0">
                 <Banknote className="w-5 h-5 text-warning" />
               </div>
-              <div>
-                <p className="text-2xl font-semibold">{formatCurrency(totalSelected)}</p>
-                <p className="text-sm text-muted-foreground">Selected Total</p>
+              <div className="min-w-0">
+                <p className="text-2xl font-semibold leading-tight truncate">{formatCurrency(dueThisWeekTotal)}</p>
+                <p className="text-sm text-muted-foreground truncate">Due This Week</p>
+                <p className="text-xs font-medium text-foreground/70">{dueThisWeekInvoices.length} invoice{dueThisWeekInvoices.length === 1 ? '' : 's'}</p>
+              </div>
+            </div>
+          </div>
+          {/* Ready to Pay (all approved) */}
+          <div className="bg-card border border-border rounded-xl p-5">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-success/10 rounded-lg flex items-center justify-center flex-shrink-0">
+                <CheckCircle className="w-5 h-5 text-success" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-2xl font-semibold leading-tight truncate">{formatCurrency(totalPending)}</p>
+                <p className="text-sm text-muted-foreground truncate">Ready to Pay</p>
+                <p className="text-xs font-medium text-foreground/70">{invoices.length} invoice{invoices.length === 1 ? '' : 's'}</p>
+              </div>
+            </div>
+          </div>
+          {/* In This Run (selected) */}
+          <div className={`bg-card border rounded-xl p-5 ${selectedIds.size > 0 ? 'border-primary/40' : 'border-border'}`}>
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-primary/10 rounded-lg flex items-center justify-center flex-shrink-0">
+                <CreditCard className="w-5 h-5 text-primary" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-2xl font-semibold leading-tight truncate">{formatCurrency(totalSelected)}</p>
+                <p className="text-sm text-muted-foreground truncate">In This Run</p>
+                <p className="text-xs font-medium text-primary">{selectedIds.size} selected</p>
               </div>
             </div>
           </div>
@@ -598,13 +568,26 @@ export default function PaymentsPage() {
               title={!canExecuteEFT ? 'You do not have permission to execute EFT payments' : undefined}
             >
               <FileSpreadsheet className="w-5 h-5 mr-2" />
-              Review & Generate EFT (CPA-005)
+              {selectedIds.size > 0 ? `Pay Selected (EFT) · ${formatCurrency(totalSelected)}` : 'Pay Selected (EFT)'}
             </Button>
           </div>
         </div>
 
-        {/* Invoices Table */}
+        {/* Invoice Payments (EFT batch) */}
         <div className="bg-card border border-border rounded-xl overflow-hidden">
+          <div className="px-6 py-4 border-b border-border bg-muted/30">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h2 className="text-base font-semibold">Invoice Payments — EFT Batch</h2>
+                <p className="text-sm text-muted-foreground">
+                  Select approved invoices and pay them together in one electronic funds transfer (EFT) batch.
+                </p>
+              </div>
+              {invoices.length > 0 && (
+                <span className="text-sm font-medium text-muted-foreground whitespace-nowrap">{invoices.length} ready</span>
+              )}
+            </div>
+          </div>
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
@@ -631,6 +614,9 @@ export default function PaymentsPage() {
                   <th className="px-6 py-4 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                     Invoice #
                   </th>
+                  <th className="px-6 py-4 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                    Due Date
+                  </th>
                   <th className="px-6 py-4 text-right text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                     Amount
                   </th>
@@ -648,7 +634,7 @@ export default function PaymentsPage() {
               <tbody className="divide-y divide-border">
                 {filteredInvoices.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="px-6 py-12 text-center text-muted-foreground">
+                    <td colSpan={9} className="px-6 py-12 text-center text-muted-foreground">
                       <FileText className="w-12 h-12 mx-auto mb-3 opacity-20" />
                       <p>No invoices ready for payment</p>
                     </td>
@@ -748,7 +734,20 @@ export default function PaymentsPage() {
                             {invoice.invoiceNumber}
                             <ExternalLink className="w-3 h-3 opacity-70" />
                           </a>
-                          <p className="text-xs text-muted-foreground">Approved: {invoice.approvedDate}</p>
+                          <p className="text-xs text-muted-foreground">Approved {formatDate(invoice.approvedDate)}</p>
+                          {invoice.hasUnpaidCerts && (
+                            <p className="text-xs font-medium text-destructive mt-0.5">Pay certificate first</p>
+                          )}
+                        </td>
+                        <td className="px-6 py-4">
+                          {invoice.dueDate ? (
+                            <span className={`text-sm ${isOverdueToPay(invoice) ? 'font-medium text-destructive' : isBlocked ? 'text-muted-foreground' : ''}`}>
+                              {formatDate(invoice.dueDate)}
+                              {isOverdueToPay(invoice) && <span className="ml-1 text-xs">(overdue)</span>}
+                            </span>
+                          ) : (
+                            <span className="text-sm text-muted-foreground">—</span>
+                          )}
                         </td>
                         <td className="px-6 py-4 text-right">
                           <p className={`font-medium ${isBlocked ? 'text-muted-foreground' : ''}`}>{formatCurrency(invoice.amount)}</p>
@@ -789,10 +788,12 @@ export default function PaymentsPage() {
                 </div>
                 <Button
                   onClick={openEFTReview}
+                  disabled={!canExecuteEFT}
                   className="bg-primary hover:bg-primary/90"
+                  title={!canExecuteEFT ? 'You do not have permission to execute EFT payments' : undefined}
                 >
                   <FileSpreadsheet className="w-4 h-4 mr-2" />
-                  Review & Generate EFT
+                  Pay Selected (EFT)
                 </Button>
               </div>
             </div>
@@ -804,11 +805,13 @@ export default function PaymentsPage() {
         <div className="px-6 py-4 border-b border-border bg-muted/30">
           <div className="flex items-center justify-between">
             <div>
-              <h2 className="text-base font-semibold">Approved Payment Certificates</h2>
-              <p className="text-sm text-muted-foreground">Certificates approved by a project manager and ready for individual payment</p>
+              <h2 className="text-base font-semibold">Certificate Payments</h2>
+              <p className="text-sm text-muted-foreground">
+                PM-approved certificates paid individually. An invoice with an unpaid certificate stays blocked in the EFT batch above until its certificate is paid here.
+              </p>
             </div>
             {approvedCerts.length > 0 && (
-              <span className="text-sm font-medium text-muted-foreground">{approvedCerts.length} ready</span>
+              <span className="text-sm font-medium text-muted-foreground whitespace-nowrap">{approvedCerts.length} ready</span>
             )}
           </div>
         </div>
@@ -1002,8 +1005,12 @@ export default function PaymentsPage() {
       <Dialog open={eftReviewOpen} onOpenChange={setEftReviewOpen}>
         <DialogContent className="sm:max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle className="text-xl">Review EFT Payment Batch</DialogTitle>
-            <DialogDescription>Please review all invoices before confirming payment.</DialogDescription>
+            <DialogTitle className="text-xl">
+              Pay {selectedInvoices.length} invoice{selectedInvoices.length === 1 ? '' : 's'} · {formatCurrency(totalSelected)}
+            </DialogTitle>
+            <DialogDescription>
+              Review the recipients below, then confirm to generate the CPA-005 compliant EFT batch file.
+            </DialogDescription>
           </DialogHeader>
 
           {/* Missing bank account warning */}

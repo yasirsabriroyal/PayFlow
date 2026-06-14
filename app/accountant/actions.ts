@@ -1319,9 +1319,11 @@ export async function getApprovedInvoices(options?: { limit?: number }) {
         id,
         invoice_number,
         invoice_date,
+        due_date,
         updated_at,
         total_cents,
         holdback_cents,
+        net_payable_cents,
         contractor:contractors(
           id,
           company_name,
