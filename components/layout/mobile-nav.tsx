@@ -18,6 +18,7 @@ import {
   Briefcase,
   PenTool,
   Database,
+  Bell,
   LogOut,
   ChevronRight
 } from 'lucide-react'
@@ -43,6 +44,7 @@ const navItems: NavItem[] = [
   { label: 'PM Approvals', href: '/pm/approvals', icon: Calculator, roles: ['admin', 'project_manager'] },
   { label: 'Accounting Sync', href: '/admin/accounting', icon: Database, roles: ['admin'] },
   { label: 'Permissions', href: '/admin/settings/permissions', icon: Shield, roles: ['admin'] },
+  { label: 'Notification Rules', href: '/admin/settings/notifications', icon: Bell, roles: ['admin'] },
   { label: 'Vendor Portal', href: '/vendor/portal', icon: Briefcase, roles: ['contractor'] },
   { label: 'Submit Invoice', href: '/vendor/invoices/new', icon: FileText, roles: ['contractor'] },
   { label: 'Lien Waivers', href: '/vendor/compliance', icon: PenTool, roles: ['contractor'] },

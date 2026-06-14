@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, FileText, Calendar, Building2, DollarSign, Clock, CheckCircle, XCircle, AlertCircle, Send, RotateCcw, Pencil, Mail, Phone, MapPin, FolderOpen, Shield, Plus } from 'lucide-react'
+import { ArrowLeft, FileText, Calendar, Building2, DollarSign, Clock, CheckCircle, XCircle, AlertCircle, Send, RotateCcw, Pencil, Mail, Phone, MapPin, FolderOpen, Shield, Plus, History } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -23,6 +23,7 @@ import { createClient } from '@/lib/supabase/client'
 import { AppHeader } from '@/components/app-header'
 import { RoleTabBar } from '@/components/role-tab-bar'
 import { PaymentReceiptModal } from '@/components/payment-receipt-modal'
+import { InvoiceStatusTimeline } from '@/components/invoice-status-timeline'
 import {
   getCertificatesForInvoice,
   submitCertificate,
@@ -30,6 +31,9 @@ import {
   approvePaymentCertificate,
   rejectPaymentCertificate,
   updatePaymentCertificate,
+  pmApproveInvoice,
+  pmRejectInvoice,
+  pmDisputeInvoice,
 } from '../../actions'
 
 type Invoice = {
@@ -242,41 +246,46 @@ export default function PMInvoiceDetailPage() {
 
   const handleApprove = async () => {
     setActionLoading(true)
-    const supabase = createClient()
-
-    const { error } = await supabase
-      .from('invoices')
-      .update({ status: 'approved' })
-      .eq('id', invoiceId)
-
-    if (error) {
-      console.error('Error approving invoice:', error)
-      alert('Failed to approve invoice')
-    } else {
+    const result = await pmApproveInvoice(invoiceId)
+    if (result.success) {
       setInvoice(prev => prev ? { ...prev, status: 'approved' } : null)
+      toast({ title: 'Invoice Approved', description: 'The contractor and finance team have been notified.' })
+    } else {
+      toast({ title: 'Unable to approve', description: result.error || 'Failed to approve invoice', variant: 'destructive' })
     }
     setActionLoading(false)
   }
 
   const handleReject = async () => {
     if (!notes.trim()) {
-      alert('Please provide a reason for rejection')
+      toast({ title: 'Reason required', description: 'Please provide a reason for rejection.', variant: 'destructive' })
       return
     }
 
     setActionLoading(true)
-    const supabase = createClient()
-
-    const { error } = await supabase
-      .from('invoices')
-      .update({ status: 'rejected' })
-      .eq('id', invoiceId)
-
-    if (error) {
-      console.error('Error rejecting invoice:', error)
-      alert('Failed to reject invoice')
-    } else {
+    const result = await pmRejectInvoice(invoiceId, notes.trim())
+    if (result.success) {
       setInvoice(prev => prev ? { ...prev, status: 'rejected' } : null)
+      toast({ title: 'Invoice Rejected', description: 'The contractor has been notified with your reason.' })
+    } else {
+      toast({ title: 'Unable to reject', description: result.error || 'Failed to reject invoice', variant: 'destructive' })
+    }
+    setActionLoading(false)
+  }
+
+  const handleDispute = async () => {
+    if (!notes.trim()) {
+      toast({ title: 'Reason required', description: 'Please describe the dispute before flagging.', variant: 'destructive' })
+      return
+    }
+
+    setActionLoading(true)
+    const result = await pmDisputeInvoice(invoiceId, notes.trim())
+    if (result.success) {
+      setInvoice(prev => prev ? { ...prev, status: 'disputed' } : null)
+      toast({ title: 'Invoice Disputed', description: 'The finance team has been notified to review this dispute.' })
+    } else {
+      toast({ title: 'Unable to dispute', description: result.error || 'Failed to flag dispute', variant: 'destructive' })
     }
     setActionLoading(false)
   }
@@ -849,6 +858,19 @@ export default function PMInvoiceDetailPage() {
             </CardContent>
           </Card>
 
+          {/* Status History */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <History className="w-5 h-5" />
+                Status History
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <InvoiceStatusTimeline invoiceId={invoiceId} />
+            </CardContent>
+          </Card>
+
           {/* Invoice Review Actions */}
           {canTakeAction && (
             <Card>
@@ -857,15 +879,15 @@ export default function PMInvoiceDetailPage() {
               </CardHeader>
               <CardContent className="space-y-4">
                 <div>
-                  <label className="text-sm font-medium mb-2 block">Notes (required for rejection)</label>
+                  <label className="text-sm font-medium mb-2 block">Notes (required for rejection or dispute)</label>
                   <Textarea
-                    placeholder="Add notes or reason for rejection..."
+                    placeholder="Add notes, a reason for rejection, or details of a dispute..."
                     value={notes}
                     onChange={(e) => setNotes(e.target.value)}
                     rows={3}
                   />
                 </div>
-                <div className="flex gap-3">
+                <div className="flex flex-wrap gap-3">
                   <Button
                     onClick={handleApprove}
                     disabled={actionLoading}
@@ -882,6 +904,15 @@ export default function PMInvoiceDetailPage() {
                   >
                     <XCircle className="w-4 h-4" />
                     Reject Invoice
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={handleDispute}
+                    disabled={actionLoading}
+                    className="gap-2"
+                  >
+                    <AlertCircle className="w-4 h-4" />
+                    Flag Dispute
                   </Button>
                 </div>
               </CardContent>

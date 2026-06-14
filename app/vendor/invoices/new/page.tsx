@@ -3,7 +3,7 @@
 import { useState, useCallback, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { Building2, Upload, FileText, Calculator, ArrowLeft, Check, X, Loader2, Mail, MessageSquare } from 'lucide-react'
+import { Building2, Upload, FileText, Calculator, ArrowLeft, Check, X, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -17,8 +17,7 @@ import {
 } from '@/components/ui/select'
 import Link from 'next/link'
 import { useToast } from '@/hooks/use-toast'
-import { sendInvoiceSubmittedNotification } from '@/lib/notifications'
-import { getVendorProjects, submitVendorInvoice, getProjectTaxRate, getInvoiceNotificationRecipient, type ProjectTaxRate } from '@/lib/actions/vendor-invoices'
+import { getVendorProjects, submitVendorInvoice, getProjectTaxRate, type ProjectTaxRate } from '@/lib/actions/vendor-invoices'
 
 // Removed mockProjects
 
@@ -141,35 +140,13 @@ export default function SubmitInvoicePage() {
 
       const result = await submitVendorInvoice(formData)
       if (result.success) {
-        const selectedProject = projects.find(p => p.id === projectId)
-
-        // Resolve and notify the project's actually-assigned PM (no hardcoded address).
-        const { recipient } = await getInvoiceNotificationRecipient(projectId)
-        let notified = false
-        if (recipient && (recipient.email || recipient.phone)) {
-          const notifyResult = await sendInvoiceSubmittedNotification(
-            { name: recipient.name, email: recipient.email, phone: recipient.phone, role: 'project_manager' },
-            {
-              invoiceNumber,
-              amount: totalAmountNum,
-              projectName: selectedProject?.name || 'Unknown Project',
-              contractorName: recipient.contractorName,
-            },
-            { projectId, invoiceId: result.invoice?.id },
-          )
-          notified = notifyResult.success
-        }
-
+        // Notifications (in-app + email/WhatsApp to accountants, admins, and the
+        // assigned PM) are dispatched server-side by submitVendorInvoice via the
+        // centralized status engine — no client-side notification call needed.
         toast({
           title: 'Invoice Submitted Successfully',
-          description: notified ? (
-            <div className="flex items-center gap-2 mt-1">
-              <Mail className="w-4 h-4 text-primary" />
-              <MessageSquare className="w-4 h-4 text-green-500" />
-              <span className="text-sm">Project manager notified via Email &amp; WhatsApp</span>
-            </div>
-          ) : (
-            <span className="text-sm">Submitted for review. No project manager is assigned yet to notify.</span>
+          description: (
+            <span className="text-sm">Your invoice has been submitted and the review team has been notified.</span>
           ),
         })
         setIsSuccess(true)

@@ -15,6 +15,90 @@ import { PERMISSIONS } from '@/lib/permissions/constants'
 import { getSupabaseAdmin } from '@/lib/supabase/admin'
 import { PAID_PAYMENT_STATUSES } from '@/lib/payments/status'
 import { resolveInternalUserId } from '@/lib/utils/resolve-user'
+import { applyInvoiceStatusChange } from '@/lib/invoices/status-flow'
+
+/**
+ * Build a status-engine actor from the authenticated user. Resolves the
+ * internal users.id and a display name for audit/history/notifications.
+ */
+async function buildActor(user: { id: string; email?: string; role: string }) {
+  const supabase = getSupabaseAdmin()
+  const { data: u } = await supabase
+    .from('users')
+    .select('id, first_name, last_name')
+    .eq('auth_user_id', user.id)
+    .maybeSingle()
+  return {
+    userId: u?.id ?? null,
+    name: `${u?.first_name ?? ''} ${u?.last_name ?? ''}`.trim() || user.email || 'User',
+    role: user.role,
+    authUserId: user.id,
+  }
+}
+
+/**
+ * Approve an invoice (PM). Routes through the centralized status engine so the
+ * transition is validated and audit + history + notifications are emitted.
+ */
+export async function pmApproveInvoice(invoiceId: string) {
+  return withPermission(PERMISSIONS.INVOICES.APPROVE_INVOICES, async (user) => {
+    const actor = await buildActor(user)
+    const { invoice } = await applyInvoiceStatusChange({
+      invoiceId,
+      newStatus: 'approved',
+      actor,
+    })
+    return { success: true as const, invoice }
+  })
+}
+
+/**
+ * Reject an invoice (PM) with a required reason.
+ */
+export async function pmRejectInvoice(invoiceId: string, reason: string) {
+  return withPermission(PERMISSIONS.INVOICES.REJECT_INVOICES, async (user) => {
+    if (!reason?.trim()) {
+      return { success: false as const, error: 'A rejection reason is required' }
+    }
+    const actor = await buildActor(user)
+    const { invoice } = await applyInvoiceStatusChange({
+      invoiceId,
+      newStatus: 'rejected',
+      actor,
+      reason,
+      extraInvoiceUpdates: {
+        rejection_reason: reason,
+        rejected_by_user_id: actor.userId,
+        rejected_at: new Date().toISOString(),
+      },
+    })
+    return { success: true as const, invoice }
+  })
+}
+
+/**
+ * Flag an invoice as disputed (PM) with a required reason.
+ */
+export async function pmDisputeInvoice(invoiceId: string, reason: string) {
+  return withPermission(PERMISSIONS.INVOICES.DISPUTE_INVOICES, async (user) => {
+    if (!reason?.trim()) {
+      return { success: false as const, error: 'A dispute reason is required' }
+    }
+    const actor = await buildActor(user)
+    const { invoice } = await applyInvoiceStatusChange({
+      invoiceId,
+      newStatus: 'disputed',
+      actor,
+      reason,
+      extraInvoiceUpdates: {
+        dispute_reason: reason,
+        disputed_by_user_id: actor.userId,
+        disputed_at: new Date().toISOString(),
+      },
+    })
+    return { success: true as const, invoice }
+  })
+}
 
 /**
  * Fetch payment certificates for a specific invoice.

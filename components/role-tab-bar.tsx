@@ -14,6 +14,7 @@ interface Tab {
 const VENDOR_TABS: Tab[] = [
   { label: 'Portal', href: ROUTES.vendor.portal },
   { label: 'Compliance', href: ROUTES.vendor.compliance },
+  { label: 'Profile', href: ROUTES.vendor.profile },
 ]
 
 const TAB_MAP: Record<Role, Tab[]> = {
@@ -30,6 +31,7 @@ const TAB_MAP: Record<Role, Tab[]> = {
     { label: 'Queue', href: ROUTES.accountant.queue },
     { label: 'Payments', href: ROUTES.accountant.payments },
     { label: 'Holdbacks', href: ROUTES.accountant.holdbacks },
+    { label: 'Banking Changes', href: ROUTES.accountant.bankingChanges },
   ],
   project_manager: [
     { label: 'Dashboard', href: ROUTES.pm.dashboard },

@@ -11,6 +11,7 @@ import {
 } from '@/lib/security/secureAction'
 import { getSupabaseAdmin } from '@/lib/supabase/admin'
 import { resolveInternalUserId } from '@/lib/utils/resolve-user'
+import { applyInvoiceStatusChange } from '@/lib/invoices/status-flow'
 
 // =====================================================
 // INVOICE APPROVAL / REJECTION ACTIONS
@@ -54,43 +55,37 @@ export const approveInvoice = secureAction(
     
     const supabase = getSupabaseAdmin()
     
-    // Get user record
+    // Get user record (incl. name + role for the status-change actor)
     const { data: userData } = await supabase
       .from('users')
-      .select('id')
+      .select('id, first_name, last_name, role, email')
       .eq('auth_user_id', user.id)
       .single()
     
     if (!userData) {
       throw new Error('User not found')
     }
-    
-    // Update invoice status only (invoices table doesn't have approved_by or notes columns)
-    const { data: invoice, error } = await supabase
-      .from('invoices')
-      .update({
-        status: 'approved',
-      })
-      .eq('id', input.invoice_id)
-      .select()
-      .single()
-    
-    if (error) {
-      console.error('Approve invoice error:', error)
-      throw new Error(error.message)
+
+    const eftActor = {
+      userId: userData.id,
+      name: `${userData.first_name ?? ''} ${userData.last_name ?? ''}`.trim() || userData.email || 'Accountant',
+      role: userData.role ?? 'accountant',
+      authUserId: user.id,
     }
     
-    // Log the action with approver details in audit_logs
-    // user_id in audit_logs references the users table id
-    if (userData?.id) {
-      await supabase.from('audit_logs').insert({
-        action: 'invoice_approved',
-        entity_type: 'invoice',
-        entity_id: input.invoice_id,
-        user_id: userData.id,
-        new_values: { status: 'approved', approved_by: userData.id, notes: input.notes },
-      })
-    }
+    // Centralized transition: validates, updates status, writes audit + history,
+    // and dispatches notifications (contractor + assigned PM + accountants).
+    const { invoice } = await applyInvoiceStatusChange({
+      invoiceId: input.invoice_id,
+      newStatus: 'approved',
+      actor: {
+        userId: userData.id,
+        name: `${userData.first_name ?? ''} ${userData.last_name ?? ''}`.trim() || 'User',
+        role: userData.role,
+        authUserId: user.id,
+      },
+      reason: input.notes,
+    })
     
     revalidatePath('/accountant/queue')
     revalidatePath('/accountant/payments')
@@ -113,6 +108,98 @@ export const approveInvoice = secureAction(
   }
 )
 
+export interface ApproveInvoicesBatchInput {
+  invoice_ids: string[]
+  notes?: string
+}
+
+export interface BatchApproveResult {
+  invoice_id: string
+  success: boolean
+  error?: string
+}
+
+/**
+ * Approve multiple invoices in one action.
+ *
+ * Each invoice is processed through the SAME per-invoice transition
+ * (`applyInvoiceStatusChange`) used by `approveInvoice`, so every financial
+ * control is preserved: status-flow validation, audit + history writes, and
+ * notifications. Failures are isolated per-invoice — one bad invoice does not
+ * abort the rest — and a per-item result is returned so the UI can report
+ * partial success.
+ *
+ * Requires: approve_invoices permission (enforced once for the batch).
+ */
+export const approveInvoicesBatch = secureAction(
+  PERMISSIONS.INVOICES.APPROVE_INVOICES,
+  async (user, input: ApproveInvoicesBatchInput) => {
+    if (!Array.isArray(input.invoice_ids) || input.invoice_ids.length === 0) {
+      throw new Error('No invoices selected')
+    }
+
+    const supabase = getSupabaseAdmin()
+
+    const { data: userData } = await supabase
+      .from('users')
+      .select('id, first_name, last_name, role')
+      .eq('auth_user_id', user.id)
+      .single()
+
+    if (!userData) {
+      throw new Error('User not found')
+    }
+
+    const actor = {
+      userId: userData.id,
+      name: `${userData.first_name ?? ''} ${userData.last_name ?? ''}`.trim() || 'User',
+      role: userData.role,
+      authUserId: user.id,
+    }
+
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+    const results: BatchApproveResult[] = []
+
+    for (const invoiceId of input.invoice_ids) {
+      if (!invoiceId || !uuidRegex.test(invoiceId)) {
+        results.push({ invoice_id: invoiceId, success: false, error: 'Invalid invoice ID' })
+        continue
+      }
+
+      try {
+        await applyInvoiceStatusChange({
+          invoiceId,
+          newStatus: 'approved',
+          actor,
+          reason: input.notes,
+        })
+        results.push({ invoice_id: invoiceId, success: true })
+      } catch (err) {
+        results.push({
+          invoice_id: invoiceId,
+          success: false,
+          error: err instanceof Error ? err.message : 'Approval failed',
+        })
+      }
+    }
+
+    revalidatePath('/accountant/queue')
+    revalidatePath('/accountant/payments')
+
+    const approvedCount = results.filter((r) => r.success).length
+    return {
+      results,
+      approvedCount,
+      failedCount: results.length - approvedCount,
+    }
+  },
+  {
+    actionName: 'approveInvoicesBatch',
+    module: 'accountant',
+    isCritical: true,
+  }
+)
+
 /**
  * Reject an invoice with reason
  * Requires: reject_invoices permission
@@ -130,7 +217,7 @@ export const rejectInvoice = secureAction(
     // Get user record
     const { data: userData } = await supabase
       .from('users')
-      .select('id')
+      .select('id, first_name, last_name, role')
       .eq('auth_user_id', user.id)
       .single()
     
@@ -138,31 +225,23 @@ export const rejectInvoice = secureAction(
       return { success: false, error: 'User not found' }
     }
     
-    // Update invoice status
-    const { data: invoice, error } = await supabase
-      .from('invoices')
-      .update({
-        status: 'rejected',
+    // Centralized transition: validates, updates status + reject metadata,
+    // writes audit + history, and notifies contractor + assigned PM + accountants.
+    const { invoice } = await applyInvoiceStatusChange({
+      invoiceId: input.invoice_id,
+      newStatus: 'rejected',
+      actor: {
+        userId: userData.id,
+        name: `${userData.first_name ?? ''} ${userData.last_name ?? ''}`.trim() || 'User',
+        role: userData.role,
+        authUserId: user.id,
+      },
+      reason: input.reason,
+      extraInvoiceUpdates: {
         rejection_reason: input.reason,
         rejected_by_user_id: userData.id,
         rejected_at: new Date().toISOString(),
-      })
-      .eq('id', input.invoice_id)
-      .select()
-      .single()
-    
-    if (error) {
-      console.error('Reject invoice error:', error)
-      throw new Error(error.message)
-    }
-    
-    // Log the action
-    await supabase.from('audit_logs').insert({
-      action: 'invoice_rejected',
-      entity_type: 'invoice',
-      entity_id: input.invoice_id,
-      user_id: userData.id,
-      details: { reason: input.reason },
+      },
     })
     
     revalidatePath('/accountant/queue')
@@ -180,6 +259,93 @@ export const rejectInvoice = secureAction(
       return {
         projectId: rejectInput.project_id,
         assignedProjectIds: rejectInput.assigned_project_ids || [],
+      }
+    },
+  }
+)
+
+export interface DisputeInvoiceInput {
+  invoice_id: string
+  /** 'open' to flag a dispute, 'resolve' to clear it */
+  mode?: 'open' | 'resolve'
+  reason: string
+  /** Status to move to when resolving (defaults to pending_approval) */
+  resolve_to?: 'pending_approval' | 'rejected'
+  project_id?: string
+  assigned_project_ids?: string[]
+}
+
+/**
+ * Flag an invoice as disputed, or resolve an existing dispute.
+ * Requires: dispute_invoices permission
+ */
+export const disputeInvoice = secureAction(
+  PERMISSIONS.INVOICES.DISPUTE_INVOICES,
+  async (user, input: DisputeInvoiceInput) => {
+    if (!input.reason?.trim()) {
+      throw new Error('A reason is required')
+    }
+
+    const supabase = getSupabaseAdmin()
+    const { data: userData } = await supabase
+      .from('users')
+      .select('id, first_name, last_name, role')
+      .eq('auth_user_id', user.id)
+      .single()
+
+    if (!userData) {
+      throw new Error('User not found')
+    }
+
+    const actor = {
+      userId: userData.id,
+      name: `${userData.first_name ?? ''} ${userData.last_name ?? ''}`.trim() || 'User',
+      role: userData.role,
+      authUserId: user.id,
+    }
+
+    const mode = input.mode ?? 'open'
+
+    if (mode === 'resolve') {
+      const { invoice } = await applyInvoiceStatusChange({
+        invoiceId: input.invoice_id,
+        newStatus: input.resolve_to ?? 'pending_approval',
+        actor,
+        reason: input.reason,
+        extraInvoiceUpdates: {
+          dispute_reason: null,
+          disputed_by_user_id: null,
+          disputed_at: null,
+        },
+      })
+      revalidatePath('/accountant/queue')
+      return { invoice }
+    }
+
+    const { invoice } = await applyInvoiceStatusChange({
+      invoiceId: input.invoice_id,
+      newStatus: 'disputed',
+      actor,
+      reason: input.reason,
+      extraInvoiceUpdates: {
+        dispute_reason: input.reason,
+        disputed_by_user_id: userData.id,
+        disputed_at: new Date().toISOString(),
+      },
+    })
+
+    revalidatePath('/accountant/queue')
+    return { invoice }
+  },
+  {
+    actionName: 'disputeInvoice',
+    module: 'accountant',
+    isCritical: true,
+    getPolicyContext: (input) => {
+      const disputeInput = input as DisputeInvoiceInput
+      return {
+        projectId: disputeInput.project_id,
+        assignedProjectIds: disputeInput.assigned_project_ids || [],
       }
     },
   }
@@ -822,6 +988,7 @@ export async function getInvoiceQueue(options?: {
         due_date,
         total_cents,
         holdback_cents,
+        net_payable_cents,
         status,
         created_at,
         document_url,
@@ -898,9 +1065,7 @@ export async function getInvoiceById(invoiceId: string) {
           province,
           postal_code,
           bank_name,
-          bank_institution_number,
-          bank_transit_number,
-          bank_account_number,
+          bank_account_last4,
           wcb_clearance_expiry,
           status
         ),
@@ -1086,9 +1251,7 @@ export async function getContractorById(contractorId: string) {
         province,
         postal_code,
         bank_name,
-        bank_institution_number,
-        bank_transit_number,
-        bank_account_number,
+        bank_account_last4,
         wcb_clearance_expiry,
         wcb_account_number,
         business_number,
@@ -1163,16 +1326,16 @@ export async function getApprovedInvoices(options?: { limit?: number }) {
         id,
         invoice_number,
         invoice_date,
+        due_date,
         updated_at,
         total_cents,
         holdback_cents,
+        net_payable_cents,
         contractor:contractors(
           id,
           company_name,
           wcb_clearance_expiry,
-          bank_institution_number,
-          bank_transit_number,
-          bank_account_number
+          bank_account_last4
         ),
         project:projects(id, name, project_number)
       `)
@@ -1211,6 +1374,87 @@ export async function getApprovedInvoices(options?: { limit?: number }) {
   })
 }
 
+/**
+ * Summary totals for the payment dashboard: how much has gone out today and
+ * this calendar week. Keeps the accountant oriented on completed work alongside
+ * the "ready to pay" action items. Low row volume, so summed in JS.
+ */
+export async function getRecentPaymentTotals() {
+  return withPermission(PERMISSIONS.PAYMENTS.PROCESS_PAYMENTS, async () => {
+    const supabase = getSupabaseAdmin()
+
+    // Start of the current week (Monday), local-naive ISO date.
+    const now = new Date()
+    const day = now.getDay() // 0=Sun..6=Sat
+    const diffToMonday = (day + 6) % 7
+    const startOfWeek = new Date(now)
+    startOfWeek.setDate(now.getDate() - diffToMonday)
+    const weekStr = startOfWeek.toISOString().split('T')[0]
+    const todayStr = now.toISOString().split('T')[0]
+
+    const { data, error } = await supabase
+      .from('payments')
+      .select('amount_cents, payment_date')
+      .gte('payment_date', weekStr)
+
+    if (error) {
+      console.error('Get recent payment totals error:', error)
+      return { success: false, error: error.message, paidToday: 0, paidTodayCount: 0, paidWeek: 0, paidWeekCount: 0 }
+    }
+
+    const rows = data || []
+    let paidToday = 0, paidTodayCount = 0, paidWeek = 0, paidWeekCount = 0
+    for (const r of rows) {
+      paidWeek += r.amount_cents || 0
+      paidWeekCount += 1
+      if (r.payment_date === todayStr) {
+        paidToday += r.amount_cents || 0
+        paidTodayCount += 1
+      }
+    }
+
+    return { success: true, paidToday, paidTodayCount, paidWeek, paidWeekCount }
+  })
+}
+
+/**
+ * Most recent payments for quick verification and reference. Joins through
+ * payment_requests for the invoice number and to contractors for the name.
+ */
+export async function getRecentPayments(options?: { limit?: number }) {
+  return withPermission(PERMISSIONS.PAYMENTS.PROCESS_PAYMENTS, async () => {
+    const supabase = getSupabaseAdmin()
+
+    const { data, error } = await supabase
+      .from('payments')
+      .select(`
+        id,
+        amount_cents,
+        payment_method,
+        payment_date,
+        status,
+        cheque_number,
+        etransfer_reference,
+        wire_reference,
+        eft_file_id,
+        created_at,
+        contractor:contractors(id, company_name),
+        payment_request:payment_requests(id, invoice_id, request_number, invoice:invoices(invoice_number)),
+        certificate:payment_certificates(id, certificate_number)
+      `)
+      .order('payment_date', { ascending: false })
+      .order('created_at', { ascending: false })
+      .limit(options?.limit || 10)
+
+    if (error) {
+      console.error('Get recent payments error:', error)
+      return { success: false, error: error.message, payments: [] }
+    }
+
+    return { success: true, payments: data || [] }
+  })
+}
+
 // =====================================================
 // PAYMENT CERTIFICATE PAYMENT PROCESSING
 // =====================================================
@@ -1240,9 +1484,7 @@ export async function getApprovedCertificatesForPayment(options?: { limit?: numb
             id, 
             company_name,
             bank_name,
-            bank_institution_number,
-            bank_transit_number,
-            bank_account_number,
+            bank_account_last4,
             wcb_clearance_expiry
           )
         ),
@@ -1365,12 +1607,14 @@ export async function recordCertificatePayment(input: {
     // 6. Update invoice total_paid_cents
     const { data: invoice } = await supabase
       .from('invoices')
-      .select('total_paid_cents, net_payable_cents')
+      .select('total_paid_cents, net_payable_cents, status')
       .eq('id', certificate.invoice_id)
       .single()
     
+    let invoiceFullyPaid = false
     if (invoice) {
       const newTotalPaid = (invoice.total_paid_cents || 0) + input.amount_cents
+      invoiceFullyPaid = newTotalPaid >= (invoice.net_payable_cents || 0)
       await supabase
         .from('invoices')
         .update({
@@ -1380,6 +1624,27 @@ export async function recordCertificatePayment(input: {
           updated_at: new Date().toISOString(),
         })
         .eq('id', certificate.invoice_id)
+    }
+
+    // 6b. Flip the invoice status (paid / partially_paid) through the centralized
+    //     status engine so audit + history + notifications fire consistently.
+    if (invoice && invoice.status !== 'paid') {
+      try {
+        await applyInvoiceStatusChange({
+          invoiceId: certificate.invoice_id,
+          newStatus: invoiceFullyPaid ? 'paid' : 'partially_paid',
+          actor: {
+            userId: internalUserId,
+            name: userData.email || 'Accountant',
+            role: userData.role ?? 'accountant',
+            authUserId: userData.id,
+          },
+          reason: `Payment of $${(input.amount_cents / 100).toFixed(2)} recorded for certificate ${certificate.certificate_number}`,
+        })
+      } catch (statusErr) {
+        // Non-fatal — payment is already recorded.
+        console.error('[v0] Paid status transition failed:', statusErr)
+      }
     }
     
     // 7. Create a holdback ledger entry if this certificate withholds a holdback.

@@ -8,7 +8,7 @@ import {
   CheckCircle2, Clock, AlertTriangle, XCircle, Download,
   Send, CreditCard, Banknote, History, Paperclip, User,
   MapPin, Phone, Mail, Hash, RefreshCw, Printer, MoreHorizontal,
-  ChevronRight, ChevronDown, ExternalLink, Shield, Receipt
+  ChevronRight, ChevronDown, ExternalLink, Shield, Receipt, RotateCcw
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -37,6 +37,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { RoleTabBar } from '@/components/role-tab-bar'
 import { AppHeader } from '@/components/app-header'
 import { PaymentReceiptModal } from '@/components/payment-receipt-modal'
+import { InvoiceStatusTimeline } from '@/components/invoice-status-timeline'
 import { SETTLED_OR_SENT_STATUSES } from '@/lib/payments/status'
 import { 
   getInvoiceById, 
@@ -76,6 +77,7 @@ function getStatusInfo(status: string) {
     paid: { label: 'Paid', color: 'text-success', bgColor: 'bg-success/10', icon: Banknote },
     disputed: { label: 'Disputed', color: 'text-destructive', bgColor: 'bg-destructive/10', icon: AlertTriangle },
     rejected: { label: 'Rejected', color: 'text-destructive', bgColor: 'bg-destructive/10', icon: XCircle },
+    revision_requested: { label: 'Revision Requested', color: 'text-warning', bgColor: 'bg-warning/10', icon: RotateCcw },
     cancelled: { label: 'Cancelled', color: 'text-muted-foreground', bgColor: 'bg-muted', icon: XCircle },
   }
   return statusMap[status] || { label: status, color: 'text-muted-foreground', bgColor: 'bg-muted', icon: FileText }
@@ -805,6 +807,15 @@ export default function InvoiceDetailPage() {
                   </div>
                 )
               })()}
+            </div>
+
+            {/* Status History */}
+            <div className="bg-card border border-border rounded-xl p-6">
+              <h2 className="text-lg font-semibold flex items-center gap-2 mb-4">
+                <History className="w-5 h-5 text-primary" />
+                Status History
+              </h2>
+              <InvoiceStatusTimeline invoiceId={invoiceId} />
             </div>
 
             {/* Payment Mode Section */}

@@ -8,6 +8,7 @@ import {
   Bell, 
   Mail, 
   MessageSquare, 
+  Smartphone,
   Save, 
   Loader2, 
   Check,
@@ -31,6 +32,7 @@ interface UserSettings {
   phone: string | null
   role: string
   email_notifications_enabled: boolean
+  sms_notifications_enabled: boolean
   whatsapp_notifications_enabled: boolean
   notification_email: string | null
   notification_phone: string | null
@@ -55,7 +57,8 @@ export default function SettingsPage() {
   
   // Form state
   const [emailNotifications, setEmailNotifications] = useState(true)
-  const [whatsappNotifications, setWhatsappNotifications] = useState(true)
+  const [smsNotifications, setSmsNotifications] = useState(true)
+  const [whatsappNotifications, setWhatsappNotifications] = useState(false)
   const [notificationEmail, setNotificationEmail] = useState('')
   const [notificationPhone, setNotificationPhone] = useState('')
 
@@ -91,17 +94,20 @@ export default function SettingsPage() {
           phone: null,
           role: 'admin',
           email_notifications_enabled: true,
-          whatsapp_notifications_enabled: true,
+          sms_notifications_enabled: true,
+          whatsapp_notifications_enabled: false,
           notification_email: null,
           notification_phone: null,
         })
         setEmailNotifications(true)
-        setWhatsappNotifications(true)
+        setSmsNotifications(true)
+        setWhatsappNotifications(false)
         setNotificationEmail(user.email || '')
       } else {
         setSettings(data)
         setEmailNotifications(data.email_notifications_enabled ?? true)
-        setWhatsappNotifications(data.whatsapp_notifications_enabled ?? true)
+        setSmsNotifications(data.sms_notifications_enabled ?? true)
+        setWhatsappNotifications(data.whatsapp_notifications_enabled ?? false)
         setNotificationEmail(data.notification_email || data.email || '')
         setNotificationPhone(data.notification_phone || data.phone || '')
       }
@@ -121,6 +127,7 @@ export default function SettingsPage() {
       .from('users')
       .update({
         email_notifications_enabled: emailNotifications,
+        sms_notifications_enabled: smsNotifications,
         whatsapp_notifications_enabled: whatsappNotifications,
         notification_email: notificationEmail || null,
         notification_phone: notificationPhone || null,
@@ -236,7 +243,31 @@ export default function SettingsPage() {
                 </div>
               )}
 
-              {/* WhatsApp Toggle */}
+              {/* SMS Toggle (default text channel) */}
+              <div className="flex items-center justify-between p-4 bg-muted/30 rounded-lg">
+                <div className="flex items-center gap-4">
+                  <div className="w-10 h-10 bg-primary/10 rounded-lg flex items-center justify-center">
+                    <Smartphone className="w-5 h-5 text-primary" />
+                  </div>
+                  <div>
+                    <p className="font-medium flex items-center gap-2">
+                      SMS Notifications
+                      <span className="text-xs font-normal px-2 py-0.5 rounded-full bg-primary/10 text-primary">
+                        Default
+                      </span>
+                    </p>
+                    <p className="text-sm text-muted-foreground">
+                      Receive text-message alerts for invoice approvals, payments, and status changes
+                    </p>
+                  </div>
+                </div>
+                <Switch
+                  checked={smsNotifications}
+                  onCheckedChange={setSmsNotifications}
+                />
+              </div>
+
+              {/* WhatsApp Toggle (opt-in) */}
               <div className="flex items-center justify-between p-4 bg-muted/30 rounded-lg">
                 <div className="flex items-center gap-4">
                   <div className="w-10 h-10 bg-green-500/10 rounded-lg flex items-center justify-center">
@@ -245,7 +276,7 @@ export default function SettingsPage() {
                   <div>
                     <p className="font-medium">WhatsApp Notifications</p>
                     <p className="text-sm text-muted-foreground">
-                      Receive instant alerts via WhatsApp for urgent updates
+                      Optionally receive the same alerts via WhatsApp instead of, or in addition to, SMS
                     </p>
                   </div>
                 </div>
@@ -255,11 +286,11 @@ export default function SettingsPage() {
                 />
               </div>
 
-              {/* Phone number for WhatsApp */}
-              {whatsappNotifications && (
+              {/* Shared phone number for SMS / WhatsApp */}
+              {(smsNotifications || whatsappNotifications) && (
                 <div className="pl-14 space-y-2">
                   <Label htmlFor="notification-phone" className="text-sm">
-                    WhatsApp Phone Number
+                    Mobile Phone Number
                   </Label>
                   <Input
                     id="notification-phone"
@@ -270,7 +301,7 @@ export default function SettingsPage() {
                     className="max-w-md"
                   />
                   <p className="text-xs text-muted-foreground">
-                    Enter your phone number with country code (e.g., +14165550123)
+                    Used for both SMS and WhatsApp. Enter your number with country code (e.g., +14165550123).
                   </p>
                 </div>
               )}

@@ -1,14 +1,15 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
-import { Briefcase, Building2, FileText, DollarSign, Clock, Shield, ChevronRight, Plus, History, PenTool } from 'lucide-react'
+import { Briefcase, Building2, FileText, DollarSign, Clock, Shield, ChevronRight, Plus, History, PenTool, AlertTriangle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { LogoutButton } from '@/components/auth/logout-button'
 import { AppHeader } from '@/components/app-header'
 import { RoleTabBar } from '@/components/role-tab-bar'
 import { WorkflowLink } from '@/components/workflow-link'
 
-import { getVendorPortalStats } from '@/lib/actions/vendor-portal'
+import { getVendorPortalStats, getContractorCompliance } from '@/lib/actions/vendor-portal'
 import { formatCurrency } from '@/lib/utils'
+import { ROUTES } from '@/lib/navigation'
 
 export default async function VendorPortalPage() {
   const supabase = await createClient()
@@ -26,6 +27,44 @@ export default async function VendorPortalPage() {
     holdbackBalanceCents: 0,
     wcbStatus: 'Pending',
     wcbExpiry: 'N/A'
+  }
+
+  const { items: complianceItems, bankingOnFile } = await getContractorCompliance()
+  const expiringOrExpired = complianceItems.filter(
+    (i) => i.status === 'expiring' || i.status === 'expired',
+  )
+
+  const statusStyles: Record<string, { dot: string; text: string; label: (i: typeof complianceItems[number]) => string }> = {
+    verified: {
+      dot: 'bg-success/5 border-success/20',
+      text: 'text-success',
+      label: (i) => (i.expiryDate ? `Valid until ${new Date(i.expiryDate).toLocaleDateString('en-CA')}` : 'On file'),
+    },
+    expiring: {
+      dot: 'bg-warning/5 border-warning/20',
+      text: 'text-warning',
+      label: (i) => `Expires in ${i.daysUntilExpiry} day${i.daysUntilExpiry === 1 ? '' : 's'}`,
+    },
+    expired: {
+      dot: 'bg-destructive/5 border-destructive/20',
+      text: 'text-destructive',
+      label: () => 'Expired',
+    },
+    pending: {
+      dot: 'bg-muted border-border',
+      text: 'text-muted-foreground',
+      label: () => 'Under review',
+    },
+    rejected: {
+      dot: 'bg-destructive/5 border-destructive/20',
+      text: 'text-destructive',
+      label: () => 'Rejected — re-upload',
+    },
+    missing: {
+      dot: 'bg-muted border-border',
+      text: 'text-muted-foreground',
+      label: () => 'Not provided',
+    },
   }
 
   return (
@@ -145,41 +184,59 @@ export default async function VendorPortalPage() {
             </WorkflowLink>
           </div>
 
+          {/* Expiry alert banner */}
+          {expiringOrExpired.length > 0 && (
+            <div className="bg-warning/10 border border-warning/20 rounded-xl p-4 flex items-start gap-3">
+              <AlertTriangle className="w-5 h-5 text-warning mt-0.5 shrink-0" />
+              <div>
+                <p className="font-medium text-warning">Compliance documents need attention</p>
+                <p className="text-sm text-muted-foreground">
+                  {expiringOrExpired.map((i) => i.label).join(', ')}{' '}
+                  {expiringOrExpired.length === 1 ? 'is' : 'are'} expiring soon or expired.{' '}
+                  <WorkflowLink href={ROUTES.vendor.compliance} contextTitle="Compliance" className="text-warning underline font-medium">
+                    Update now
+                  </WorkflowLink>
+                </p>
+              </div>
+            </div>
+          )}
+
           {/* Compliance Status */}
           <div className="bg-card border border-border rounded-xl overflow-hidden">
             <div className="px-6 py-4 border-b border-border flex items-center justify-between">
               <h2 className="font-semibold">Compliance Status</h2>
               <Button variant="outline" size="sm" asChild>
-                <WorkflowLink href="/vendor/onboarding" contextTitle="Update Documents">Update Documents</WorkflowLink>
+                <WorkflowLink href={ROUTES.vendor.compliance} contextTitle="Update Documents">Manage Documents</WorkflowLink>
               </Button>
             </div>
             <div className="p-6">
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div className="flex items-center gap-3 p-3 bg-success/5 border border-success/20 rounded-lg">
-                  <div className="w-8 h-8 bg-success/10 rounded-full flex items-center justify-center">
-                    <Shield className="w-4 h-4 text-success" />
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                {complianceItems.map((item) => {
+                  const style = statusStyles[item.status] ?? statusStyles.missing
+                  return (
+                    <div
+                      key={item.documentType}
+                      className={`flex items-center gap-3 p-3 border rounded-lg ${style.dot}`}
+                    >
+                      <div className="w-8 h-8 bg-background rounded-full flex items-center justify-center shrink-0">
+                        <Shield className={`w-4 h-4 ${style.text}`} />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium truncate">{item.label}</p>
+                        <p className={`text-xs ${style.text}`}>{style.label(item)}</p>
+                      </div>
+                    </div>
+                  )
+                })}
+                <div className={`flex items-center gap-3 p-3 border rounded-lg ${bankingOnFile ? 'bg-success/5 border-success/20' : 'bg-muted border-border'}`}>
+                  <div className="w-8 h-8 bg-background rounded-full flex items-center justify-center shrink-0">
+                    <DollarSign className={`w-4 h-4 ${bankingOnFile ? 'text-success' : 'text-muted-foreground'}`} />
                   </div>
-                  <div>
-                    <p className="text-sm font-medium">WCB Clearance</p>
-                    <p className="text-xs text-success">{displayStats.wcbStatus === 'Valid' ? `Valid until ${displayStats.wcbExpiry}` : 'Pending'}</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-3 p-3 bg-success/5 border border-success/20 rounded-lg">
-                  <div className="w-8 h-8 bg-success/10 rounded-full flex items-center justify-center">
-                    <FileText className="w-4 h-4 text-success" />
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium">T5018 Consent</p>
-                    <p className="text-xs text-success">On file</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-3 p-3 bg-success/5 border border-success/20 rounded-lg">
-                  <div className="w-8 h-8 bg-success/10 rounded-full flex items-center justify-center">
-                    <DollarSign className="w-4 h-4 text-success" />
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium">Banking Info</p>
-                    <p className="text-xs text-success">Verified</p>
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium truncate">Banking Info</p>
+                    <p className={`text-xs ${bankingOnFile ? 'text-success' : 'text-muted-foreground'}`}>
+                      {bankingOnFile ? 'On file' : 'Not provided'}
+                    </p>
                   </div>
                 </div>
               </div>

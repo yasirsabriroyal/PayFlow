@@ -1,6 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
-import { Shield, Building2, Users, FileCheck, FolderKanban, ChevronRight, Database, Settings, UsersRound, FileBarChart, CreditCard } from 'lucide-react'
+import { Shield, Building2, Users, FileCheck, FolderKanban, ChevronRight, Database, Settings, UsersRound, FileBarChart, CreditCard, Bell } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { KYCVerificationQueue } from '@/components/admin/kyc-verification-queue'
 import { LogoutButton } from '@/components/auth/logout-button'
@@ -166,6 +166,23 @@ export default async function AdminDashboardPage() {
               <div className="mt-4">
                 <p className="font-semibold">Permissions</p>
                 <p className="text-sm text-muted-foreground">Role-based access control</p>
+              </div>
+            </WorkflowLink>
+
+            <WorkflowLink 
+              href="/admin/settings/notifications"
+              contextTitle="Notification Rules"
+              className="block p-5 bg-card border border-border rounded-xl hover:border-primary/30 hover:shadow-md transition-all group cursor-pointer"
+            >
+              <div className="flex items-center justify-between">
+                <div className="w-12 h-12 bg-teal-500/10 rounded-lg flex items-center justify-center">
+                  <Bell className="w-6 h-6 text-teal-500" />
+                </div>
+                <ChevronRight className="w-5 h-5 text-muted-foreground group-hover:text-primary transition-colors" />
+              </div>
+              <div className="mt-4">
+                <p className="font-semibold">Notification Rules</p>
+                <p className="text-sm text-muted-foreground">Who gets notified per event</p>
               </div>
             </WorkflowLink>
           </div>
