@@ -987,7 +987,84 @@ export default function PaymentsPage() {
             )}
           </div>
         </div>
-        <div className="overflow-x-auto">
+
+        {/* Mobile card view */}
+        <div className="md:hidden p-4 space-y-3">
+          {certsLoading ? (
+            <div className="flex justify-center py-12">
+              <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary" />
+            </div>
+          ) : approvedCerts.length === 0 ? (
+            <div className="text-center py-12">
+              <CreditCard className="w-10 h-10 mx-auto mb-2 opacity-20" />
+              <p className="text-muted-foreground">No approved certificates awaiting payment</p>
+            </div>
+          ) : (
+            approvedCerts.map((cert) => (
+              <DataCard key={cert.id}>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <h3 className="font-medium truncate">{cert.contractor?.company_name || 'Unknown'}</h3>
+                    <p className="text-sm text-muted-foreground truncate">
+                      {cert.project ? `${cert.project.project_number} – ${cert.project.name}` : '—'}
+                    </p>
+                  </div>
+                  <p className="font-semibold text-success whitespace-nowrap">
+                    {formatCurrency(cert.certified_amount_cents / 100)}
+                  </p>
+                </div>
+
+                <div className="flex items-center justify-between text-sm pt-1">
+                  <span className="text-muted-foreground">Invoice #</span>
+                  {cert.invoice?.id ? (
+                    <a
+                      href={`/accountant/invoices/${cert.invoice.id}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="font-mono inline-flex items-center gap-1 text-primary hover:underline"
+                    >
+                      {cert.invoice.invoice_number || '—'}
+                      <ExternalLink className="w-3 h-3 opacity-70" />
+                    </a>
+                  ) : (
+                    <span className="font-mono text-muted-foreground">—</span>
+                  )}
+                </div>
+
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">Certificate #</span>
+                  {cert.invoice?.id ? (
+                    <a
+                      href={`/invoices/${cert.invoice.id}/certificates/${cert.id}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="font-mono inline-flex items-center gap-1 text-primary hover:underline"
+                    >
+                      {cert.certificate_number}
+                      <ExternalLink className="w-3 h-3 opacity-70" />
+                    </a>
+                  ) : (
+                    <span className="font-mono">{cert.certificate_number}</span>
+                  )}
+                </div>
+
+                <div className="pt-3 border-t border-border">
+                  <Button
+                    size="sm"
+                    onClick={() => { setCertToReview(cert); setCertReviewDialogOpen(true) }}
+                    disabled={certPaymentLoading === cert.id || !canProcessPayments}
+                    className="w-full gap-1 h-10 touch-manipulation"
+                  >
+                    <Banknote className="w-4 h-4" />
+                    {certPaymentLoading === cert.id ? 'Paying…' : 'Review & Pay'}
+                  </Button>
+                </div>
+              </DataCard>
+            ))
+          )}
+        </div>
+
+        <div className="overflow-x-auto hidden md:block">
           <table className="w-full">
             <thead>
               <tr className="border-b border-border">
