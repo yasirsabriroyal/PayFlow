@@ -23,6 +23,7 @@ import { resolveRecipients, type DistributionEvent } from '@/lib/notifications/d
 import { resolveRenderedTemplate } from '@/lib/email/templates/resolve'
 import { getTemplateDefinition, type TemplateKey } from '@/lib/email/templates/catalog'
 import type { EmailDetailRow } from '@/emails/notification-email'
+import { getEmailBranding } from '@/lib/branding/get-active-branding'
 
 /**
  * Optional payment metadata used to enrich `paid` / `partially_paid`
@@ -374,6 +375,78 @@ async function buildPaymentEnrichment(
   }
 }
 
+/** Human-readable status label for the details table. */
+function humanStatus(status: InvoiceStatus): string {
+  switch (status) {
+    case 'pending_approval':
+      return 'Pending Approval'
+    case 'revision_requested':
+      return 'Revision Requested'
+    case 'partially_paid':
+      return 'Partially Paid'
+    default:
+      return status.charAt(0).toUpperCase() + status.slice(1)
+  }
+}
+
+/** Map an invoice status to its email template key, when one is defined. */
+function statusToTemplateKey(status: InvoiceStatus): TemplateKey | null {
+  switch (status) {
+    case 'submitted':
+    case 'pending_approval':
+      return 'invoice_submitted'
+    case 'approved':
+      return 'invoice_approved'
+    case 'rejected':
+      return 'invoice_rejected'
+    case 'revision_requested':
+      return 'revision_requested'
+    case 'paid':
+    case 'partially_paid':
+      return 'payment_confirmation'
+    default:
+      return null
+  }
+}
+
+/**
+ * Build the SYSTEM-CONTROLLED required-field rows for the email details table.
+ * These are rendered in code from the enriched payload and can never be removed
+ * by editing a template's content slots.
+ */
+function buildEmailDetails(
+  status: InvoiceStatus,
+  invoiceNumber: string,
+  amount: string,
+  reason: string | undefined,
+  e: PaidEnrichment | undefined
+): EmailDetailRow[] {
+  const rows: EmailDetailRow[] = []
+  if (e?.vendorName) rows.push({ label: 'Vendor Name', value: e.vendorName })
+  rows.push({ label: 'Invoice Number', value: invoiceNumber })
+  if (e?.projectName) rows.push({ label: 'Project Name', value: e.projectName })
+
+  if (status === 'paid' || status === 'partially_paid') {
+    const paid = typeof e?.amountPaidCents === 'number' ? formatCents(e.amountPaidCents) : amount
+    rows.push({ label: 'Payment Amount', value: paid, strong: true })
+    if (typeof e?.remainingCents === 'number') {
+      rows.push({ label: 'Remaining Balance', value: formatCents(e.remainingCents), strong: true })
+    }
+    if (e?.paymentDate) rows.push({ label: 'Payment Date', value: e.paymentDate })
+    if (e?.paymentMethod) rows.push({ label: 'Payment Method', value: e.paymentMethod.toUpperCase() })
+    if (e?.paymentReference) rows.push({ label: 'Payment Reference', value: e.paymentReference })
+    rows.push({ label: 'Payment Status', value: humanStatus(status), strong: true })
+    if (e?.issuedByName) rows.push({ label: 'Processed By', value: e.issuedByName })
+  } else {
+    rows.push({ label: 'Invoice Total', value: amount, strong: true })
+    rows.push({ label: 'Status', value: humanStatus(status), strong: true })
+    if (reason && (status === 'rejected' || status === 'revision_requested' || status === 'disputed')) {
+      rows.push({ label: status === 'revision_requested' ? 'Requested Changes' : 'Reason', value: reason })
+    }
+  }
+  return rows
+}
+
 /**
  * Send a branded payment-confirmation notification WITHOUT running a status
  * transition. Used by payment server actions (e.g. EFT batch execution) that
@@ -413,6 +486,94 @@ export async function dispatchPaymentConfirmation(input: {
   }
 }
 
+/** Map an invoice status to the email template that styles its notification. */
+const STATUS_TEMPLATE_KEY: Partial<Record<InvoiceStatus, TemplateKey>> = {
+  submitted: 'invoice_submitted',
+  pending_approval: 'invoice_submitted',
+  approved: 'invoice_approved',
+  rejected: 'invoice_rejected',
+  revision_requested: 'revision_requested',
+  paid: 'payment_confirmation',
+  partially_paid: 'payment_confirmation',
+}
+
+const STATUS_LABEL: Record<InvoiceStatus, string> = {
+  draft: 'Draft',
+  submitted: 'Submitted',
+  pending_approval: 'Pending Approval',
+  approved: 'Approved',
+  rejected: 'Rejected',
+  revision_requested: 'Revision Requested',
+  disputed: 'Disputed',
+  partially_paid: 'Partially Paid',
+  paid: 'Paid',
+}
+
+/**
+ * Build the SYSTEM-controlled email payload for a status event: the merge-field
+ * values and the required-fields detail table. These detail rows are NOT
+ * tenant-editable — they are always rendered by the email shell.
+ */
+function buildTemplatePayload(
+  status: InvoiceStatus,
+  invoiceNumber: string,
+  totalCents: number,
+  actorName: string,
+  e?: PaidEnrichment
+): {
+  key: TemplateKey | null
+  vars: Record<string, string | undefined>
+  details: EmailDetailRow[]
+} {
+  const key = STATUS_TEMPLATE_KEY[status] ?? null
+  const isPayment = status === 'paid' || status === 'partially_paid'
+  const paidCents = e?.amountPaidCents ?? (status === 'paid' ? totalCents : 0)
+  const remainingCents = e?.remainingCents ?? Math.max(0, totalCents - paidCents)
+  const statusLabel = STATUS_LABEL[status]
+  const methodLabel = e?.paymentMethod ? e.paymentMethod.toUpperCase() : undefined
+
+  const vars: Record<string, string | undefined> = {
+    recipient_name: e?.vendorName,
+    vendor_name: e?.vendorName,
+    invoice_number: invoiceNumber,
+    project_name: e?.projectName,
+    invoice_total: formatCents(totalCents),
+    payment_amount: formatCents(paidCents),
+    remaining_balance: formatCents(remainingCents),
+    payment_date: e?.paymentDate,
+    payment_method: methodLabel,
+    payment_reference: e?.paymentReference,
+    payment_status: statusLabel,
+    processed_by: e?.issuedByName || actorName,
+  }
+
+  const details: EmailDetailRow[] = []
+  const push = (label: string, value: string | undefined, strong = false) => {
+    if (value) details.push({ label, value, strong })
+  }
+
+  if (isPayment) {
+    push('Vendor Name', e?.vendorName)
+    push('Invoice Number', invoiceNumber)
+    push('Project Name', e?.projectName)
+    push('Payment Amount', formatCents(paidCents), true)
+    push('Remaining Balance', formatCents(remainingCents), true)
+    push('Payment Date', e?.paymentDate)
+    push('Payment Method', methodLabel)
+    push('Payment Reference', e?.paymentReference)
+    push('Payment Status', statusLabel, true)
+    push('Processed By', e?.issuedByName || actorName)
+  } else {
+    push('Vendor Name', e?.vendorName)
+    push('Invoice Number', invoiceNumber)
+    push('Project Name', e?.projectName)
+    push('Invoice Total', formatCents(totalCents), true)
+    push('Status', statusLabel, true)
+  }
+
+  return { key, vars, details }
+}
+
 /**
  * Fan out a status-change notification. Recipient routing is fully delegated to
  * the configurable distribution framework (`resolveRecipients`), making it
@@ -432,10 +593,55 @@ async function dispatchStatusNotifications(input: DispatchInput): Promise<void> 
   if (recipients.length === 0) return
 
   const amount = formatCents(totalCents)
-  const enrichment = await buildPaymentEnrichment(newStatus, contractorId, projectId, payment)
+  const enrichment = await buildPaymentEnrichment(newStatus, contractorId, projectId, payment, input.invoiceId)
   const { title, body } = buildMessage(newStatus, invoiceNumber, amount, reason, enrichment)
   const type = statusToInAppType(newStatus)
   const link = `/invoices/${input.invoiceId}`
+
+  // Resolve the tenant-editable email template content + the system-controlled
+  // details table ONCE for this event (identical for every recipient). The
+  // email channel uses these; the in-app channel keeps the concise title/body.
+  let emailSubject: string | undefined
+  let emailContent: { opening?: string; closing?: string; help?: string; notes?: string } | undefined
+  let emailDetails: EmailDetailRow[] | undefined
+  let emailCtaLabel: string | undefined
+
+  const templateKey = statusToTemplateKey(newStatus)
+  if (templateKey) {
+    try {
+      const branding = await getEmailBranding(organizationId ?? null)
+      const vars: Record<string, string | undefined> = {
+        company_name: branding.companyName,
+        recipient_name: enrichment?.vendorName,
+        vendor_name: enrichment?.vendorName,
+        invoice_number: invoiceNumber,
+        project_name: enrichment?.projectName,
+        invoice_total: amount,
+        payment_amount:
+          typeof enrichment?.amountPaidCents === 'number' ? formatCents(enrichment.amountPaidCents) : amount,
+        remaining_balance:
+          typeof enrichment?.remainingCents === 'number' ? formatCents(enrichment.remainingCents) : undefined,
+        payment_date: enrichment?.paymentDate,
+        payment_method: enrichment?.paymentMethod?.toUpperCase(),
+        payment_reference: enrichment?.paymentReference,
+        payment_status: humanStatus(newStatus),
+        processed_by: enrichment?.issuedByName,
+      }
+      const rendered = await resolveRenderedTemplate(templateKey, vars, organizationId ?? null)
+      emailSubject = rendered.subject || undefined
+      emailContent = {
+        opening: rendered.opening || undefined,
+        closing: rendered.closing || undefined,
+        help: rendered.help || undefined,
+        notes: rendered.notes || undefined,
+      }
+      emailDetails = buildEmailDetails(newStatus, invoiceNumber, amount, reason, enrichment)
+      emailCtaLabel = getTemplateDefinition(templateKey).ctaLabel
+    } catch (e) {
+      // Template resolution must never block delivery — fall back to plain body.
+      console.error('[status-flow] template resolution failed, using plain body:', e)
+    }
+  }
 
   // Internal staff copied on this communication — recorded on each log row.
   const ccRecipients = recipients
@@ -461,6 +667,10 @@ async function dispatchStatusNotifications(input: DispatchInput): Promise<void> 
         body,
         link,
         invoiceId: input.invoiceId,
+        emailSubject,
+        emailContent,
+        emailDetails,
+        emailCtaLabel,
         context: {
           invoiceId: input.invoiceId,
           contractorId: contractorId ?? undefined,
@@ -473,3 +683,4 @@ async function dispatchStatusNotifications(input: DispatchInput): Promise<void> 
     )
   )
 }
+

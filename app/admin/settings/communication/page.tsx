@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { getCompanySettings, updateCompanySettings } from '@/app/admin/actions'
 import { renderBrandingPreview } from './actions'
+import { TemplateEditor } from '@/components/communication/template-editor'
 import { Palette, CheckCircle, Lock, AlertTriangle, Loader2, Mail, ExternalLink, Info } from 'lucide-react'
 
 interface BrandingForm {
@@ -66,6 +67,7 @@ function contrastWithWhite(hex: string): number | null {
 }
 
 export default function BrandingCenterPage() {
+  const [view, setView] = useState<'branding' | 'templates'>('branding')
   const [form, setForm] = useState<BrandingForm>(EMPTY_FORM)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -178,7 +180,33 @@ export default function BrandingCenterPage() {
           right and apply to every transactional email once saved.
         </p>
 
-        {loading ? (
+        {/* Section switcher: global branding vs. per-template copy */}
+        <div className="inline-flex items-center gap-1 p-1 mb-6 bg-gray-100 rounded-lg">
+          <button
+            type="button"
+            onClick={() => setView('branding')}
+            aria-current={view === 'branding'}
+            className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${
+              view === 'branding' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            Branding
+          </button>
+          <button
+            type="button"
+            onClick={() => setView('templates')}
+            aria-current={view === 'templates'}
+            className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${
+              view === 'templates' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            Email Templates
+          </button>
+        </div>
+
+        {view === 'templates' ? (
+          <TemplateEditor />
+        ) : loading ? (
           <div className="text-center py-12 text-gray-500">Loading branding…</div>
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
