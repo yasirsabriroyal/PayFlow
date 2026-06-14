@@ -377,8 +377,8 @@ export default function PaymentsPage() {
     
     if (!result.success) {
       toast({
-        title: 'EFT Generation Failed',
-        description: result.error || 'Failed to generate EFT batch.',
+        title: 'Payment Failed',
+        description: result.error || `Failed to process the ${methodLabel} payment batch.`,
         variant: 'destructive',
       })
       return
@@ -399,7 +399,7 @@ export default function PaymentsPage() {
         invoiceNumber: invoice.invoiceNumber,
         amount: invoice.netPayable,
         batchId,
-        paymentMethod: 'EFT' as const,
+        paymentMethod: methodLabel,
         expectedDate: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toLocaleDateString('en-CA'),
       },
     }))
@@ -408,7 +408,7 @@ export default function PaymentsPage() {
 
     // Show toast notification
     toast({
-      title: 'EFT Batch Generated Successfully',
+      title: `${methodLabel} Payment Batch Processed`,
       description: (
         <div className="flex items-center gap-2 mt-1">
           <Mail className="w-4 h-4 text-primary" />
@@ -437,6 +437,18 @@ export default function PaymentsPage() {
     if (Number.isNaN(d.getTime())) return '—'
     return d.toLocaleDateString('en-CA', { month: 'short', day: 'numeric', year: 'numeric' })
   }
+
+  // Human-readable label for the selected payment method, used consistently
+  // across the button, dialogs, toasts, and notifications so the UI always
+  // reflects the accountant's actual choice (not a hardcoded "EFT").
+  const methodLabels = {
+    eft: 'EFT',
+    cheque: 'Cheque',
+    wire: 'Wire Transfer',
+    etransfer: 'E-Transfer',
+  } as const
+  const methodLabel = methodLabels[paymentMethod]
+  const isEft = paymentMethod === 'eft'
 
   const totalPending = invoices.reduce((sum, inv) => sum + inv.netPayable, 0)
 
@@ -469,7 +481,7 @@ export default function PaymentsPage() {
     <div className="min-h-screen bg-background">
       <AppHeader
         pageTitle="Payment Run"
-        pageDescription="Generate EFT batches for approved invoices"
+          pageDescription="Pay approved invoices and certificates by EFT, cheque, wire, or e-transfer"
       />
       <RoleTabBar role="accountant" />
 
@@ -568,19 +580,19 @@ export default function PaymentsPage() {
               title={!canExecuteEFT ? 'You do not have permission to execute EFT payments' : undefined}
             >
               <FileSpreadsheet className="w-5 h-5 mr-2" />
-              {selectedIds.size > 0 ? `Pay Selected (EFT) · ${formatCurrency(totalSelected)}` : 'Pay Selected (EFT)'}
+              {selectedIds.size > 0 ? `Pay Selected · ${formatCurrency(totalSelected)}` : 'Pay Selected'}
             </Button>
           </div>
         </div>
 
-        {/* Invoice Payments (EFT batch) */}
+        {/* Invoice batch payments */}
         <div className="bg-card border border-border rounded-xl overflow-hidden">
           <div className="px-6 py-4 border-b border-border bg-muted/30">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <h2 className="text-base font-semibold">Invoice Payments — EFT Batch</h2>
+                <h2 className="text-base font-semibold">Invoice Batch Payments</h2>
                 <p className="text-sm text-muted-foreground">
-                  Select approved invoices and pay them together in one electronic funds transfer (EFT) batch.
+                  Select approved invoices and pay them together in one batch. You choose the payment method (EFT, cheque, wire, or e-transfer) at the review step.
                 </p>
               </div>
               {invoices.length > 0 && (
@@ -792,9 +804,9 @@ export default function PaymentsPage() {
                   className="bg-primary hover:bg-primary/90"
                   title={!canExecuteEFT ? 'You do not have permission to execute EFT payments' : undefined}
                 >
-                  <FileSpreadsheet className="w-4 h-4 mr-2" />
-                  Pay Selected (EFT)
-                </Button>
+              <FileSpreadsheet className="w-4 h-4 mr-2" />
+              Pay Selected
+            </Button>
               </div>
             </div>
           )}
@@ -1009,7 +1021,9 @@ export default function PaymentsPage() {
               Pay {selectedInvoices.length} invoice{selectedInvoices.length === 1 ? '' : 's'} · {formatCurrency(totalSelected)}
             </DialogTitle>
             <DialogDescription>
-              Review the recipients below, then confirm to generate the CPA-005 compliant EFT batch file.
+              {isEft
+                ? 'Review the recipients below, then confirm to generate the CPA-005 compliant EFT batch file.'
+                : `Review the recipients below, then confirm to record this ${methodLabel} payment batch.`}
             </DialogDescription>
           </DialogHeader>
 
@@ -1121,7 +1135,7 @@ export default function PaymentsPage() {
               disabled={!canExecuteEFT}
             >
               <FileSpreadsheet className="w-4 h-4 mr-2" />
-              Confirm & Generate EFT
+              {isEft ? 'Confirm & Generate EFT File' : `Confirm ${methodLabel} Payment`}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1134,9 +1148,13 @@ export default function PaymentsPage() {
             <div className="mx-auto w-16 h-16 bg-success/10 rounded-full flex items-center justify-center mb-4">
               <CheckCircle className="w-8 h-8 text-success" />
             </div>
-            <DialogTitle className="text-center text-xl">EFT File Generated</DialogTitle>
+            <DialogTitle className="text-center text-xl">
+              {isEft ? 'EFT File Generated' : `${methodLabel} Payment Recorded`}
+            </DialogTitle>
             <DialogDescription className="text-center">
-              Your CPA-005 compliant EFT batch file has been created successfully.
+              {isEft
+                ? 'Your CPA-005 compliant EFT batch file has been created successfully.'
+                : `Your ${methodLabel} payment batch has been recorded successfully.`}
             </DialogDescription>
           </DialogHeader>
           
@@ -1145,6 +1163,10 @@ export default function PaymentsPage() {
               <div className="flex items-center justify-between">
                 <span className="text-sm text-muted-foreground">Batch ID</span>
                 <span className="font-mono font-medium">{generatedBatchId}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-muted-foreground">Payment Method</span>
+                <span className="font-medium">{methodLabel}</span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-sm text-muted-foreground">Invoices Processed</span>
@@ -1177,10 +1199,12 @@ export default function PaymentsPage() {
           </div>
 
           <DialogFooter className="flex-col sm:flex-row gap-2">
-            <Button variant="outline" className="flex-1" onClick={() => setSuccessDialogOpen(false)}>
-              <Download className="w-4 h-4 mr-2" />
-              Download EFT File
-            </Button>
+            {isEft && (
+              <Button variant="outline" className="flex-1" onClick={() => setSuccessDialogOpen(false)}>
+                <Download className="w-4 h-4 mr-2" />
+                Download EFT File
+              </Button>
+            )}
             <Button className="flex-1" onClick={() => setSuccessDialogOpen(false)}>
               Done
             </Button>

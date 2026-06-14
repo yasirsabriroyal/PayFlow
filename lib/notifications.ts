@@ -97,7 +97,7 @@ export interface PaymentNotificationData {
   invoiceNumber: string
   amount: number
   batchId: string
-  paymentMethod: 'EFT' | 'Cheque' | 'E-Transfer'
+  paymentMethod: 'EFT' | 'Cheque' | 'E-Transfer' | 'Wire Transfer'
   expectedDate?: string
 }
 
