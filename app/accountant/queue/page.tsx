@@ -7,7 +7,7 @@ import { useRouter, useSearchParams, usePathname } from 'next/navigation'
 import { 
   Calculator, Building2, Search, Filter, FileText, Eye, 
   CheckCircle2, Clock, AlertTriangle, XCircle, ChevronDown,
-  Download, Send, Ban, Check, X, Loader2, Banknote, ChevronRight, Timer,
+  Send, Check, X, Loader2, Banknote, ChevronRight, Timer,
   DollarSign, MapPin, LogOut
 } from 'lucide-react'
 import { MobileNav } from '@/components/layout/mobile-nav'
@@ -32,8 +32,9 @@ import {
 } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
+import { Checkbox } from '@/components/ui/checkbox'
 import Link from 'next/link'
-import { approveInvoice, rejectInvoice, disputeInvoice, getInvoiceQueue } from '../actions'
+import { approveInvoice, approveInvoicesBatch, rejectInvoice, getInvoiceQueue } from '../actions'
 import { createClient } from '@/lib/supabase/client'
 import { usePermissions } from '@/hooks/use-permissions'
 import { useToast } from '@/hooks/use-toast'
@@ -93,7 +94,6 @@ function AccountantQueueContent() {
   }
   
   // Invoice state - fetched from server action
-  const [invoices, setInvoices] = useState<QueueInvoice[]>([])
   const [loading, setLoading] = useState(true)
   const [mounted, setMounted] = useState(false)
   
@@ -112,13 +112,13 @@ function AccountantQueueContent() {
   const [searchQuery, setSearchQuery] = useState(searchParams.get('q') || '')
   const [statusFilter, setStatusFilter] = useState<string>(searchParams.get('status') || 'all')
   const [selectedInvoice, setSelectedInvoice] = useState<QueueInvoice | null>(null)
-  const [isReviewOpen, setIsReviewOpen] = useState(false)
-  const [isDisputeOpen, setIsDisputeOpen] = useState(false)
-  const [disputeReason, setDisputeReason] = useState('')
   const [isRejectOpen, setIsRejectOpen] = useState(false)
   const [rejectReason, setRejectReason] = useState('')
-  const [shortPayAmount, setShortPayAmount] = useState('')
   const [isProcessing, setIsProcessing] = useState(false)
+  // Multi-select batch approval
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [isBatchConfirmOpen, setIsBatchConfirmOpen] = useState(false)
+  const [isBatchProcessing, setIsBatchProcessing] = useState(false)
   
   // Set mounted after hydration to prevent hydration mismatch
   useEffect(() => {
@@ -126,52 +126,42 @@ function AccountantQueueContent() {
   }, [])
   
   // Fetch ALL invoices on mount for stats calculation
-  const [allInvoices, setAllInvoices] = useState<typeof invoices>([])
-  
-  useEffect(() => {
-    const fetchAllInvoices = async () => {
-      // Always fetch all invoices for accurate stats
-      const result = await getInvoiceQueue({ status: 'all' })
-      
-      if (result.success && Array.isArray(result.invoices) && result.invoices.length > 0) {
-        const mapped = result.invoices.map((inv: Record<string, unknown>) => ({
-          id: inv.id as string,
-          dateSubmitted: inv.created_at as string,
-          contractor: (inv.contractor as Record<string, unknown>)?.company_name as string || 'Unknown',
-          contractorId: (inv.contractor as Record<string, unknown>)?.id as string || '',
-          project: (inv.project as Record<string, unknown>)?.name as string || 'Unknown',
-          projectId: (inv.project as Record<string, unknown>)?.id as string || '',
-          invoiceNumber: inv.invoice_number as string,
-          amount: ((inv.total_cents as number) || 0) / 100,
-          holdback: ((inv.holdback_cents as number) || 0) / 100,
-          netPayable: (((inv.total_cents as number) || 0) - ((inv.holdback_cents as number) || 0)) / 100,
-          status: inv.status as string,
-          documentUrl: inv.document_url as string || '',
-          invoiceDate: inv.invoice_date as string,
-          dueDate: inv.due_date as string,
-        }))
-        setAllInvoices(mapped)
-        // Also set filtered invoices initially
-        setInvoices(mapped)
-      } else {
-        setAllInvoices([])
-        setInvoices([])
-      }
-      setLoading(false)
-    }
-    
-    fetchAllInvoices()
-  }, [])
-  
-  // Filter invoices when status filter changes (client-side filtering)
-  useEffect(() => {
-    if (statusFilter === 'all' || !statusFilter) {
-      setInvoices(allInvoices)
-    } else {
-      setInvoices(allInvoices.filter(inv => inv.status === statusFilter))
-    }
-  }, [statusFilter, allInvoices])
+  const [allInvoices, setAllInvoices] = useState<QueueInvoice[]>([])
 
+  // Reusable loader so inline/batch actions can refresh the list after a mutation
+  const loadInvoices = useCallback(async () => {
+    // Always fetch all invoices for accurate stats
+    const result = await getInvoiceQueue({ status: 'all' })
+
+    if (result.success && Array.isArray(result.invoices) && result.invoices.length > 0) {
+      const mapped = result.invoices.map((inv: Record<string, unknown>) => ({
+        id: inv.id as string,
+        dateSubmitted: inv.created_at as string,
+        contractor: (inv.contractor as Record<string, unknown>)?.company_name as string || 'Unknown',
+        contractorId: (inv.contractor as Record<string, unknown>)?.id as string || '',
+        project: (inv.project as Record<string, unknown>)?.name as string || 'Unknown',
+        projectId: (inv.project as Record<string, unknown>)?.id as string || '',
+        invoiceNumber: inv.invoice_number as string,
+        amount: ((inv.total_cents as number) || 0) / 100,
+        holdback: ((inv.holdback_cents as number) || 0) / 100,
+        netPayable: (((inv.net_payable_cents as number) ??
+          (((inv.total_cents as number) || 0) - ((inv.holdback_cents as number) || 0))) || 0) / 100,
+        status: inv.status as string,
+        documentUrl: inv.document_url as string || '',
+        invoiceDate: inv.invoice_date as string,
+        dueDate: inv.due_date as string,
+      }))
+      setAllInvoices(mapped)
+    } else {
+      setAllInvoices([])
+    }
+    setLoading(false)
+  }, [])
+
+  useEffect(() => {
+    loadInvoices()
+  }, [loadInvoices])
+  
   // Sync state to URL params - debounced to prevent rapid updates
   useEffect(() => {
     const timeoutId = setTimeout(() => {
@@ -192,31 +182,70 @@ function AccountantQueueContent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [statusFilter, searchQuery])
 
-  // Filter invoices
-  const filteredInvoices = invoices.filter(invoice => {
+  // Filter invoices (search + status, with an "overdue" pseudo-status)
+  const filteredInvoices = allInvoices.filter(invoice => {
     const matchesSearch = 
       invoice.contractor.toLowerCase().includes(searchQuery.toLowerCase()) ||
       invoice.project.toLowerCase().includes(searchQuery.toLowerCase()) ||
       invoice.invoiceNumber.toLowerCase().includes(searchQuery.toLowerCase())
     
-    const matchesStatus = statusFilter === 'all' || invoice.status === statusFilter
+    const matchesStatus =
+      statusFilter === 'all'
+        ? true
+        : statusFilter === 'overdue'
+          ? isOverdue(invoice)
+          : invoice.status === statusFilter
     
     return matchesSearch && matchesStatus
   })
 
-  // Stats - using database enum values (from ALL invoices, not filtered)
+  // An invoice is overdue if it is still owing (not paid/rejected/draft) and past its due date
+  const isOverdue = useCallback((inv: QueueInvoice) => {
+    if (['paid', 'rejected', 'draft'].includes(inv.status)) return false
+    if (!inv.dueDate) return false
+    const due = new Date(inv.dueDate)
+    if (Number.isNaN(due.getTime())) return false
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    return due < today
+  }, [])
+
+  // Dashboard metrics (computed from ALL invoices, not the filtered view).
+  // Each card surfaces both a count and the dollars behind it so the accountant
+  // immediately sees what needs review, what's payable, what's overdue, and what's blocked.
+  const sumNet = (list: QueueInvoice[]) => list.reduce((s, i) => s + i.netPayable, 0)
+  const submittedList = allInvoices.filter(i => i.status === 'submitted')
+  const pendingList = allInvoices.filter(i => i.status === 'pending_approval')
+  const approvedList = allInvoices.filter(i => i.status === 'approved')
+  const overdueList = allInvoices.filter(isOverdue)
+  const outstandingList = allInvoices.filter(i => !['paid', 'rejected', 'draft'].includes(i.status))
+
   const stats = {
-    submitted: allInvoices.filter(i => i.status === 'submitted').length,
-    pendingApproval: allInvoices.filter(i => i.status === 'pending_approval').length,
-    approved: allInvoices.filter(i => i.status === 'approved').length,
-    disputed: allInvoices.filter(i => i.status === 'disputed').length,
-    paid: allInvoices.filter(i => i.status === 'paid').length,
+    submitted: submittedList.length,
+    submittedAmount: sumNet(submittedList),
+    pendingApproval: pendingList.length,
+    pendingAmount: sumNet(pendingList),
+    approved: approvedList.length,
+    approvedAmount: sumNet(approvedList),
+    overdue: overdueList.length,
+    overdueAmount: sumNet(overdueList),
+    outstandingAmount: sumNet(outstandingList),
   }
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-CA', {
       style: 'currency',
       currency: 'CAD',
+    }).format(amount)
+  }
+
+  // Compact currency for dashboard cards (e.g. $1.2M, $45.7K) to avoid overflow
+  const formatCompact = (amount: number) => {
+    return new Intl.NumberFormat('en-CA', {
+      style: 'currency',
+      currency: 'CAD',
+      notation: 'compact',
+      maximumFractionDigits: 1,
     }).format(amount)
   }
 
@@ -228,23 +257,22 @@ function AccountantQueueContent() {
     })
   }
 
-  const handleReview = (invoice: QueueInvoice) => {
-    setSelectedInvoice(invoice)
-    setIsReviewOpen(true)
-  }
+  // An invoice can be approved/rejected from the queue when the user has the
+  // permission and the invoice is in a reviewable state.
+  const isActionable = (inv: QueueInvoice) =>
+    inv.status === 'submitted' || inv.status === 'pending_approval'
 
-  const handleApprove = async () => {
-    if (!selectedInvoice) return
-    
+  // Inline single approve (no extra navigation)
+  const approveOne = async (invoice: QueueInvoice) => {
     setIsProcessing(true)
-    const result = await approveInvoice({ invoice_id: selectedInvoice.id })
-    
+    const result = await approveInvoice({ invoice_id: invoice.id })
+
     if (result.success) {
       toast({
         title: 'Invoice Approved',
-        description: `Invoice ${selectedInvoice.invoiceNumber} has been approved for payment.`,
+        description: `Invoice ${invoice.invoiceNumber} has been approved for payment.`,
       })
-      setIsReviewOpen(false)
+      await loadInvoices()
     } else {
       toast({
         title: 'Approval Failed',
@@ -253,6 +281,13 @@ function AccountantQueueContent() {
       })
     }
     setIsProcessing(false)
+  }
+
+  // Open the reject dialog for a specific invoice
+  const openReject = (invoice: QueueInvoice) => {
+    setSelectedInvoice(invoice)
+    setRejectReason('')
+    setIsRejectOpen(true)
   }
 
   const handleReject = async () => {
@@ -276,8 +311,8 @@ function AccountantQueueContent() {
         description: `Invoice ${selectedInvoice.invoiceNumber} has been rejected. The contractor has been notified.`,
       })
       setIsRejectOpen(false)
-      setIsReviewOpen(false)
       setRejectReason('')
+      await loadInvoices()
     } else {
       toast({
         title: 'Rejection Failed',
@@ -288,38 +323,59 @@ function AccountantQueueContent() {
     setIsProcessing(false)
   }
 
-  const handleDispute = async () => {
-    if (!selectedInvoice) return
+  // ---- Multi-select batch approval ----
+  // Only approvable invoices in the current filtered view are selectable.
+  const selectableInvoices = canApprove ? filteredInvoices.filter(isActionable) : []
+  const selectedInvoices = allInvoices.filter(inv => selectedIds.has(inv.id))
+  const selectedTotal = selectedInvoices.reduce((s, i) => s + i.netPayable, 0)
+  const allSelectableSelected =
+    selectableInvoices.length > 0 && selectableInvoices.every(inv => selectedIds.has(inv.id))
 
-    if (!disputeReason.trim()) {
-      toast({
-        title: 'Reason required',
-        description: 'Please describe the dispute before flagging this invoice.',
-        variant: 'destructive',
-      })
-      return
+  const toggleSelect = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const toggleSelectAll = () => {
+    if (allSelectableSelected) {
+      setSelectedIds(new Set())
+    } else {
+      setSelectedIds(new Set(selectableInvoices.map(inv => inv.id)))
     }
+  }
 
-    setIsProcessing(true)
-    const result = await disputeInvoice({ invoice_id: selectedInvoice.id, reason: disputeReason })
+  const handleBatchApprove = async () => {
+    if (selectedIds.size === 0) return
+
+    setIsBatchProcessing(true)
+    const result = await approveInvoicesBatch({ invoice_ids: Array.from(selectedIds) })
+    setIsBatchProcessing(false)
+    setIsBatchConfirmOpen(false)
 
     if (result.success) {
+      const approvedCount = result.data?.approvedCount ?? 0
+      const failedCount = result.data?.failedCount ?? 0
       toast({
-        title: 'Invoice Disputed',
-        description: `Invoice ${selectedInvoice.invoiceNumber} has been flagged as disputed. The team has been notified.`,
+        title: failedCount > 0 ? 'Approved with some errors' : 'Invoices Approved',
+        description:
+          failedCount > 0
+            ? `${approvedCount} approved, ${failedCount} could not be approved.`
+            : `${approvedCount} invoice(s) approved for payment.`,
+        variant: failedCount > 0 ? 'destructive' : undefined,
       })
-      setIsDisputeOpen(false)
-      setIsReviewOpen(false)
-      setDisputeReason('')
-      setShortPayAmount('')
+      setSelectedIds(new Set())
+      await loadInvoices()
     } else {
       toast({
-        title: 'Dispute Failed',
-        description: result.error || 'Failed to flag invoice as disputed.',
+        title: 'Batch Approval Failed',
+        description: result.error || 'Failed to approve the selected invoices.',
         variant: 'destructive',
       })
     }
-    setIsProcessing(false)
   }
 
 return (
@@ -352,9 +408,11 @@ return (
             </div>
           </div>
 
-          {/* Stats Overview Cards */}
+          {/* Dashboard band - answers "what needs review / payment / is overdue / is waiting"
+              with both a count and the dollars behind it. Each card filters the list below. */}
           <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 md:gap-4" suppressHydrationWarning>
-            <button 
+            {/* Needs Review (submitted) */}
+            <button
               onClick={() => setStatusFilter('submitted')}
               className={`bg-card border rounded-xl p-3 md:p-5 text-left transition-all hover:shadow-md hover:border-warning/50 ${mounted && statusFilter === 'submitted' ? 'border-warning ring-2 ring-warning/20' : 'border-border'}`}
               suppressHydrationWarning
@@ -364,12 +422,14 @@ return (
                   <Clock className="w-4 h-4 md:w-5 md:h-5 text-warning" />
                 </div>
                 <div className="min-w-0">
-                  <p className="text-xl md:text-2xl font-semibold" suppressHydrationWarning>{mounted ? stats.submitted : '-'}</p>
-                  <p className="text-xs md:text-sm text-muted-foreground truncate">Submitted</p>
+                  <p className="text-xl md:text-2xl font-semibold leading-tight" suppressHydrationWarning>{mounted ? stats.submitted : '-'}</p>
+                  <p className="text-xs md:text-sm text-muted-foreground truncate">Needs Review</p>
+                  <p className="text-xs font-medium text-foreground/80 truncate" suppressHydrationWarning>{mounted ? formatCompact(stats.submittedAmount) : ''}</p>
                 </div>
               </div>
             </button>
-            <button 
+            {/* Waiting on PM (pending_approval) */}
+            <button
               onClick={() => setStatusFilter('pending_approval')}
               className={`bg-card border rounded-xl p-3 md:p-5 text-left transition-all hover:shadow-md hover:border-primary/50 ${mounted && statusFilter === 'pending_approval' ? 'border-primary ring-2 ring-primary/20' : 'border-border'}`}
               suppressHydrationWarning
@@ -379,12 +439,14 @@ return (
                   <Send className="w-4 h-4 md:w-5 md:h-5 text-primary" />
                 </div>
                 <div className="min-w-0">
-                  <p className="text-xl md:text-2xl font-semibold" suppressHydrationWarning>{mounted ? stats.pendingApproval : '-'}</p>
-                  <p className="text-xs md:text-sm text-muted-foreground truncate">Pending Approval</p>
+                  <p className="text-xl md:text-2xl font-semibold leading-tight" suppressHydrationWarning>{mounted ? stats.pendingApproval : '-'}</p>
+                  <p className="text-xs md:text-sm text-muted-foreground truncate">Waiting on PM</p>
+                  <p className="text-xs font-medium text-foreground/80 truncate" suppressHydrationWarning>{mounted ? formatCompact(stats.pendingAmount) : ''}</p>
                 </div>
               </div>
             </button>
-            <button 
+            {/* Ready to Pay (approved) */}
+            <button
               onClick={() => setStatusFilter('approved')}
               className={`bg-card border rounded-xl p-3 md:p-5 text-left transition-all hover:shadow-md hover:border-success/50 ${mounted && statusFilter === 'approved' ? 'border-success ring-2 ring-success/20' : 'border-border'}`}
               suppressHydrationWarning
@@ -394,14 +456,16 @@ return (
                   <CheckCircle2 className="w-4 h-4 md:w-5 md:h-5 text-success" />
                 </div>
                 <div className="min-w-0">
-                  <p className="text-xl md:text-2xl font-semibold" suppressHydrationWarning>{mounted ? stats.approved : '-'}</p>
-                  <p className="text-xs md:text-sm text-muted-foreground truncate">Approved</p>
+                  <p className="text-xl md:text-2xl font-semibold leading-tight" suppressHydrationWarning>{mounted ? stats.approved : '-'}</p>
+                  <p className="text-xs md:text-sm text-muted-foreground truncate">Ready to Pay</p>
+                  <p className="text-xs font-medium text-success truncate" suppressHydrationWarning>{mounted ? formatCompact(stats.approvedAmount) : ''}</p>
                 </div>
               </div>
             </button>
-            <button 
-              onClick={() => setStatusFilter('disputed')}
-              className={`bg-card border rounded-xl p-3 md:p-5 text-left transition-all hover:shadow-md hover:border-destructive/50 ${mounted && statusFilter === 'disputed' ? 'border-destructive ring-2 ring-destructive/20' : 'border-border'}`}
+            {/* Overdue (owing + past due date) */}
+            <button
+              onClick={() => setStatusFilter('overdue')}
+              className={`bg-card border rounded-xl p-3 md:p-5 text-left transition-all hover:shadow-md hover:border-destructive/50 ${mounted && statusFilter === 'overdue' ? 'border-destructive ring-2 ring-destructive/20' : 'border-border'}`}
               suppressHydrationWarning
             >
               <div className="flex items-center gap-2 md:gap-3">
@@ -409,23 +473,26 @@ return (
                   <AlertTriangle className="w-4 h-4 md:w-5 md:h-5 text-destructive" />
                 </div>
                 <div className="min-w-0">
-                  <p className="text-xl md:text-2xl font-semibold" suppressHydrationWarning>{mounted ? stats.disputed : '-'}</p>
-                  <p className="text-xs md:text-sm text-muted-foreground truncate">Disputed</p>
+                  <p className="text-xl md:text-2xl font-semibold leading-tight" suppressHydrationWarning>{mounted ? stats.overdue : '-'}</p>
+                  <p className="text-xs md:text-sm text-muted-foreground truncate">Overdue</p>
+                  <p className="text-xs font-medium text-destructive truncate" suppressHydrationWarning>{mounted ? formatCompact(stats.overdueAmount) : ''}</p>
                 </div>
               </div>
             </button>
-            <button 
-              onClick={() => setStatusFilter('paid')}
-              className={`bg-card border rounded-xl p-3 md:p-5 text-left transition-all hover:shadow-md hover:border-blue-500/50 ${mounted && statusFilter === 'paid' ? 'border-blue-500 ring-2 ring-blue-500/20' : 'border-border'}`}
+            {/* Total Outstanding (all unpaid) */}
+            <button
+              onClick={() => setStatusFilter('all')}
+              className={`bg-card border rounded-xl p-3 md:p-5 text-left transition-all hover:shadow-md hover:border-foreground/30 ${mounted && statusFilter === 'all' ? 'border-foreground/40 ring-2 ring-foreground/10' : 'border-border'}`}
               suppressHydrationWarning
             >
               <div className="flex items-center gap-2 md:gap-3">
-                <div className="w-8 h-8 md:w-10 md:h-10 bg-blue-500/10 rounded-lg flex items-center justify-center flex-shrink-0">
-                  <Banknote className="w-4 h-4 md:w-5 md:h-5 text-blue-500" />
+                <div className="w-8 h-8 md:w-10 md:h-10 bg-muted rounded-lg flex items-center justify-center flex-shrink-0">
+                  <DollarSign className="w-4 h-4 md:w-5 md:h-5 text-foreground" />
                 </div>
                 <div className="min-w-0">
-                  <p className="text-xl md:text-2xl font-semibold" suppressHydrationWarning>{mounted ? stats.paid : '-'}</p>
-                  <p className="text-xs md:text-sm text-muted-foreground truncate">Paid</p>
+                  <p className="text-xl md:text-2xl font-semibold leading-tight truncate" suppressHydrationWarning>{mounted ? formatCompact(stats.outstandingAmount) : '-'}</p>
+                  <p className="text-xs md:text-sm text-muted-foreground truncate">Outstanding</p>
+                  <p className="text-xs font-medium text-foreground/80 truncate">All open invoices</p>
                 </div>
               </div>
             </button>
@@ -449,14 +516,44 @@ return (
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Statuses</SelectItem>
-                <SelectItem value="submitted">Submitted</SelectItem>
-                <SelectItem value="pending_approval">Pending Approval</SelectItem>
-                <SelectItem value="approved">Approved</SelectItem>
+                <SelectItem value="submitted">Needs Review</SelectItem>
+                <SelectItem value="pending_approval">Waiting on PM</SelectItem>
+                <SelectItem value="approved">Ready to Pay</SelectItem>
+                <SelectItem value="overdue">Overdue</SelectItem>
                 <SelectItem value="paid">Paid</SelectItem>
                 <SelectItem value="disputed">Disputed</SelectItem>
               </SelectContent>
             </Select>
           </div>
+
+          {/* Batch select toolbar - appears when there are approvable invoices in view */}
+          {canApprove && selectableInvoices.length > 0 && (
+            <div className="flex items-center justify-between gap-3 rounded-xl border border-border bg-muted/30 px-4 py-3">
+              <label className="flex items-center gap-3 cursor-pointer select-none">
+                <Checkbox
+                  checked={allSelectableSelected}
+                  onCheckedChange={toggleSelectAll}
+                  aria-label="Select all approvable invoices"
+                />
+                <span className="text-sm text-muted-foreground">
+                  {selectedIds.size > 0
+                    ? `${selectedIds.size} selected`
+                    : `Select all ${selectableInvoices.length} approvable`}
+                </span>
+              </label>
+              {selectedIds.size > 0 && (
+                <div className="flex items-center gap-3">
+                  <span className="hidden sm:inline text-sm font-medium">
+                    {formatCurrency(selectedTotal)}
+                  </span>
+                  <Button size="sm" className="gap-2" onClick={() => setIsBatchConfirmOpen(true)}>
+                    <Check className="w-4 h-4" />
+                    Approve {selectedIds.size}
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Mobile Card View */}
           <div className="md:hidden space-y-3">
@@ -510,6 +607,45 @@ return (
                         <p className="text-sm font-semibold">{formatCurrency(invoice.netPayable)}</p>
                       </div>
                     </div>
+
+                    {/* Inline actions for reviewable invoices */}
+                    {isActionable(invoice) && (canApprove || canReject) && (
+                      <div
+                        className="flex items-center gap-2 pt-3 border-t border-border"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {canApprove && (
+                          <>
+                            <Checkbox
+                              checked={selectedIds.has(invoice.id)}
+                              onCheckedChange={() => toggleSelect(invoice.id)}
+                              aria-label={`Select invoice ${invoice.invoiceNumber}`}
+                            />
+                            <Button
+                              size="sm"
+                              className="flex-1 h-10 touch-manipulation"
+                              onClick={() => approveOne(invoice)}
+                              disabled={isProcessing}
+                            >
+                              <Check className="w-4 h-4 mr-1" />
+                              Approve
+                            </Button>
+                          </>
+                        )}
+                        {canReject && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="flex-1 h-10 text-destructive hover:text-destructive touch-manipulation"
+                            onClick={() => openReject(invoice)}
+                            disabled={isProcessing}
+                          >
+                            <XCircle className="w-4 h-4 mr-1" />
+                            Reject
+                          </Button>
+                        )}
+                      </div>
+                    )}
                   </DataCard>
                 )
               })
@@ -522,6 +658,16 @@ return (
               <table className="w-full">
                 <thead>
                   <tr className="border-b border-border bg-muted/30">
+                    {canApprove && (
+                      <th className="px-6 py-4 w-10">
+                        <Checkbox
+                          checked={allSelectableSelected}
+                          onCheckedChange={toggleSelectAll}
+                          aria-label="Select all approvable invoices"
+                          disabled={selectableInvoices.length === 0}
+                        />
+                      </th>
+                    )}
                     <th className="text-left text-xs font-medium text-muted-foreground uppercase tracking-wider px-6 py-4">Date</th>
                     <th className="text-left text-xs font-medium text-muted-foreground uppercase tracking-wider px-6 py-4">Contractor</th>
                     <th className="text-left text-xs font-medium text-muted-foreground uppercase tracking-wider px-6 py-4">Project</th>
@@ -540,9 +686,20 @@ return (
                     return (
                       <tr 
                         key={invoice.id} 
-                        className="hover:bg-muted/20 transition-colors cursor-pointer"
+                        className={`hover:bg-muted/20 transition-colors cursor-pointer ${selectedIds.has(invoice.id) ? 'bg-primary/5' : ''}`}
                         onClick={() => goToInvoice(invoice)}
                       >
+                        {canApprove && (
+                          <td className="px-6 py-4 w-10" onClick={(e) => e.stopPropagation()}>
+                            {isActionable(invoice) && (
+                              <Checkbox
+                                checked={selectedIds.has(invoice.id)}
+                                onCheckedChange={() => toggleSelect(invoice.id)}
+                                aria-label={`Select invoice ${invoice.invoiceNumber}`}
+                              />
+                            )}
+                          </td>
+                        )}
                         <td className="px-6 py-4 whitespace-nowrap text-sm">
                           {formatDate(invoice.dateSubmitted)}
                         </td>
@@ -573,14 +730,40 @@ return (
                           </Badge>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-right" onClick={(e) => e.stopPropagation()}>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => goToInvoice(invoice)}
-                          >
-                            <Eye className="w-4 h-4 mr-2" />
-                            View
-                          </Button>
+                          <div className="flex items-center justify-end gap-1">
+                            {isActionable(invoice) && canApprove && (
+                              <Button
+                                size="sm"
+                                className="h-8 gap-1"
+                                onClick={() => approveOne(invoice)}
+                                disabled={isProcessing}
+                              >
+                                <Check className="w-4 h-4" />
+                                Approve
+                              </Button>
+                            )}
+                            {isActionable(invoice) && canReject && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-8 gap-1 text-destructive hover:text-destructive"
+                                onClick={() => openReject(invoice)}
+                                disabled={isProcessing}
+                              >
+                                <XCircle className="w-4 h-4" />
+                                Reject
+                              </Button>
+                            )}
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-8"
+                              onClick={() => goToInvoice(invoice)}
+                            >
+                              <Eye className="w-4 h-4 mr-1" />
+                              View
+                            </Button>
+                          </div>
                         </td>
                       </tr>
                     )
@@ -601,225 +784,6 @@ return (
           <div className="h-16 md:hidden" />
         </div>
       </main>
-
-      {/* Invoice Review Modal */}
-      <Dialog open={isReviewOpen} onOpenChange={setIsReviewOpen}>
-        <DialogContent className="max-w-6xl w-[95vw] max-h-[90vh] overflow-hidden p-0 md:p-6">
-          <div className="p-4 md:p-0">
-            <DialogHeader>
-              <DialogTitle>Invoice Review</DialogTitle>
-              <DialogDescription>
-                Review invoice details and take action
-              </DialogDescription>
-            </DialogHeader>
-          </div>
-
-          {selectedInvoice && (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6 max-h-[calc(90vh-140px)] overflow-y-auto px-4 pb-4 md:px-0 md:pb-0">
-              {/* Left Side - Document Preview (Hidden on mobile, shown as button) */}
-              <div className="hidden lg:block space-y-4">
-                <h3 className="font-medium flex items-center gap-2">
-                  <FileText className="w-4 h-4" />
-                  Invoice Document
-                </h3>
-                <div className="bg-muted/50 border border-border rounded-xl aspect-[8.5/11] flex items-center justify-center">
-                  <div className="text-center space-y-3">
-                    <div className="w-16 h-16 bg-muted rounded-lg flex items-center justify-center mx-auto">
-                      <FileText className="w-8 h-8 text-muted-foreground" />
-                    </div>
-                    <div>
-                      <p className="font-medium">Invoice PDF Preview</p>
-                      <p className="text-sm text-muted-foreground">
-                        OCR data extracted automatically
-                      </p>
-                    </div>
-                    <Button variant="outline" size="sm">
-                      <Download className="w-4 h-4 mr-2" />
-                      Download PDF
-                    </Button>
-                  </div>
-                </div>
-              </div>
-
-              {/* Mobile PDF Download Button */}
-              <div className="lg:hidden">
-                <Button variant="outline" className="w-full h-12 touch-manipulation">
-                  <FileText className="w-4 h-4 mr-2" />
-                  View Invoice PDF
-                  <Download className="w-4 h-4 ml-auto" />
-                </Button>
-              </div>
-
-              {/* Right Side - Invoice Details */}
-              <div className="space-y-6">
-                <div className="space-y-4">
-                  <h3 className="font-medium">Invoice Details</h3>
-                  
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-1">
-                      <Label className="text-muted-foreground text-xs uppercase">Invoice Number</Label>
-                      <p className="font-mono font-medium">{selectedInvoice.invoiceNumber}</p>
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-muted-foreground text-xs uppercase">Invoice Date</Label>
-                      <p className="font-medium">{formatDate(selectedInvoice.invoiceDate)}</p>
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-muted-foreground text-xs uppercase">Due Date</Label>
-                      <p className="font-medium">{formatDate(selectedInvoice.dueDate)}</p>
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-muted-foreground text-xs uppercase">Status</Label>
-                      <Badge variant="outline" className={statusConfig[selectedInvoice.status as InvoiceStatus].color}>
-                        {statusConfig[selectedInvoice.status as InvoiceStatus].label}
-                      </Badge>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="space-y-4">
-                  <h3 className="font-medium">Contractor & Project</h3>
-                  
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-1">
-                      <Label className="text-muted-foreground text-xs uppercase">Contractor</Label>
-                      <p className="font-medium">{selectedInvoice.contractor}</p>
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-muted-foreground text-xs uppercase">Project</Label>
-                      <p className="font-medium">{selectedInvoice.project}</p>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="space-y-4">
-                  <h3 className="font-medium">Payment Summary</h3>
-                  
-                  <div className="bg-muted/30 rounded-lg p-4 space-y-3">
-                    <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">Invoice Amount</span>
-                      <span className="font-medium">{formatCurrency(selectedInvoice.amount)}</span>
-                    </div>
-                    <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">10% Statutory Holdback</span>
-                      <span className="font-medium text-warning">-{formatCurrency(selectedInvoice.holdback)}</span>
-                    </div>
-                    <div className="pt-3 border-t border-border flex justify-between">
-                      <span className="font-medium">Net Payable</span>
-                      <span className="font-semibold text-lg">{formatCurrency(selectedInvoice.netPayable)}</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Action Buttons */}
-                <div className="space-y-3 pt-4 border-t border-border">
-                  {canApprove && (
-                    <Button 
-                      className="w-full h-12 touch-manipulation" 
-                      onClick={handleApprove}
-                      disabled={isProcessing}
-                    >
-                      {isProcessing ? (
-                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      ) : (
-                        <Check className="w-4 h-4 mr-2" />
-                      )}
-                      Approve for Payment
-                    </Button>
-                  )}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    {canReject && (
-                      <Button 
-                        variant="outline" 
-                        className="h-12 text-destructive hover:text-destructive touch-manipulation"
-                        onClick={() => setIsRejectOpen(true)}
-                        disabled={isProcessing}
-                      >
-                        <XCircle className="w-4 h-4 mr-2" />
-                        Reject
-                      </Button>
-                    )}
-                    <Button 
-                      variant="outline" 
-                      className="h-12 text-destructive hover:text-destructive touch-manipulation"
-                      onClick={() => setIsDisputeOpen(true)}
-                      disabled={isProcessing}
-                    >
-                      <Ban className="w-4 h-4 mr-2" />
-                      Dispute
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
-
-      {/* Dispute Modal */}
-      <Dialog open={isDisputeOpen} onOpenChange={setIsDisputeOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <AlertTriangle className="w-5 h-5 text-destructive" />
-              Dispute / Short-Pay Invoice
-            </DialogTitle>
-            <DialogDescription>
-              Document the reason for disputing or short-paying this invoice.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="shortPayAmount">Short-Pay Amount (Optional)</Label>
-              <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
-                <Input
-                  id="shortPayAmount"
-                  type="number"
-                  step="0.01"
-                  placeholder="Leave blank to reject entirely"
-                  className="pl-7"
-                  value={shortPayAmount}
-                  onChange={(e) => setShortPayAmount(e.target.value)}
-                />
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Enter the amount you will pay, or leave blank to reject the entire invoice.
-              </p>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="disputeReason">Reason for Dispute *</Label>
-              <Textarea
-                id="disputeReason"
-                placeholder="Describe the issue with this invoice..."
-                rows={4}
-                value={disputeReason}
-                onChange={(e) => setDisputeReason(e.target.value)}
-              />
-            </div>
-          </div>
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsDisputeOpen(false)}>
-              Cancel
-            </Button>
-            <Button 
-              variant="destructive" 
-              onClick={handleDispute}
-              disabled={!disputeReason || isProcessing}
-            >
-              {isProcessing ? (
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-              ) : (
-                <XCircle className="w-4 h-4 mr-2" />
-              )}
-              Submit Dispute
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       {/* Reject Modal */}
       <Dialog open={isRejectOpen} onOpenChange={setIsRejectOpen}>
@@ -860,6 +824,42 @@ return (
                 <XCircle className="w-4 h-4 mr-2" />
               )}
               Reject Invoice
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Batch Approval Confirmation */}
+      <Dialog open={isBatchConfirmOpen} onOpenChange={setIsBatchConfirmOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <CheckCircle2 className="w-5 h-5 text-success" />
+              Approve {selectedIds.size} {selectedIds.size === 1 ? 'Invoice' : 'Invoices'}
+            </DialogTitle>
+            <DialogDescription>
+              You are about to approve {selectedIds.size}{' '}
+              {selectedIds.size === 1 ? 'invoice' : 'invoices'} totaling{' '}
+              <span className="font-semibold text-foreground">{formatCurrency(selectedTotal)}</span>{' '}
+              (net payable) for payment. This action is recorded in the audit log.
+            </DialogDescription>
+          </DialogHeader>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setIsBatchConfirmOpen(false)}
+              disabled={isBatchProcessing}
+            >
+              Cancel
+            </Button>
+            <Button onClick={handleBatchApprove} disabled={isBatchProcessing}>
+              {isBatchProcessing ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <Check className="w-4 h-4 mr-2" />
+              )}
+              Approve {selectedIds.size}
             </Button>
           </DialogFooter>
         </DialogContent>

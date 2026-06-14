@@ -101,6 +101,98 @@ export const approveInvoice = secureAction(
   }
 )
 
+export interface ApproveInvoicesBatchInput {
+  invoice_ids: string[]
+  notes?: string
+}
+
+export interface BatchApproveResult {
+  invoice_id: string
+  success: boolean
+  error?: string
+}
+
+/**
+ * Approve multiple invoices in one action.
+ *
+ * Each invoice is processed through the SAME per-invoice transition
+ * (`applyInvoiceStatusChange`) used by `approveInvoice`, so every financial
+ * control is preserved: status-flow validation, audit + history writes, and
+ * notifications. Failures are isolated per-invoice — one bad invoice does not
+ * abort the rest — and a per-item result is returned so the UI can report
+ * partial success.
+ *
+ * Requires: approve_invoices permission (enforced once for the batch).
+ */
+export const approveInvoicesBatch = secureAction(
+  PERMISSIONS.INVOICES.APPROVE_INVOICES,
+  async (user, input: ApproveInvoicesBatchInput) => {
+    if (!Array.isArray(input.invoice_ids) || input.invoice_ids.length === 0) {
+      throw new Error('No invoices selected')
+    }
+
+    const supabase = getSupabaseAdmin()
+
+    const { data: userData } = await supabase
+      .from('users')
+      .select('id, first_name, last_name, role')
+      .eq('auth_user_id', user.id)
+      .single()
+
+    if (!userData) {
+      throw new Error('User not found')
+    }
+
+    const actor = {
+      userId: userData.id,
+      name: `${userData.first_name ?? ''} ${userData.last_name ?? ''}`.trim() || 'User',
+      role: userData.role,
+      authUserId: user.id,
+    }
+
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+    const results: BatchApproveResult[] = []
+
+    for (const invoiceId of input.invoice_ids) {
+      if (!invoiceId || !uuidRegex.test(invoiceId)) {
+        results.push({ invoice_id: invoiceId, success: false, error: 'Invalid invoice ID' })
+        continue
+      }
+
+      try {
+        await applyInvoiceStatusChange({
+          invoiceId,
+          newStatus: 'approved',
+          actor,
+          reason: input.notes,
+        })
+        results.push({ invoice_id: invoiceId, success: true })
+      } catch (err) {
+        results.push({
+          invoice_id: invoiceId,
+          success: false,
+          error: err instanceof Error ? err.message : 'Approval failed',
+        })
+      }
+    }
+
+    revalidatePath('/accountant/queue')
+    revalidatePath('/accountant/payments')
+
+    const approvedCount = results.filter((r) => r.success).length
+    return {
+      results,
+      approvedCount,
+      failedCount: results.length - approvedCount,
+    }
+  },
+  {
+    actionName: 'approveInvoicesBatch',
+    module: 'accountant',
+    isCritical: true,
+  }
+)
+
 /**
  * Reject an invoice with reason
  * Requires: reject_invoices permission
@@ -889,6 +981,7 @@ export async function getInvoiceQueue(options?: {
         due_date,
         total_cents,
         holdback_cents,
+        net_payable_cents,
         status,
         created_at,
         document_url,
