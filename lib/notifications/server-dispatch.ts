@@ -17,6 +17,15 @@
 import 'server-only'
 import { getSupabaseAdmin } from '@/lib/supabase/admin'
 import { getSiteUrl } from '@/lib/site-url'
+import { renderBrandedEmail } from '@/lib/email/render-email'
+
+/** Split a notification body into paragraphs for the branded renderer. */
+function splitParagraphs(body: string): string[] {
+  return body
+    .split(/\n{1,}/)
+    .map((p) => p.trim())
+    .filter(Boolean)
+}
 
 export type InAppNotificationType =
   | 'invoice_submitted'
@@ -209,21 +218,6 @@ async function sendWhatsApp(to: string, message: string) {
   }
 }
 
-function buildEmailHtml(title: string, body: string, link: string, ctaLabel = 'View Invoice'): string {
-  const url = `${getSiteUrl()}${link}`
-  return `
-    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-      <div style="background: #334155; color: white; padding: 20px; border-radius: 8px 8px 0 0;">
-        <h1 style="margin: 0; font-size: 20px;">${title}</h1>
-      </div>
-      <div style="background: #f8fafc; padding: 20px; border: 1px solid #e2e8f0; border-top: none;">
-        <p style="margin: 0 0 16px;">${body}</p>
-        <a href="${url}" style="display: inline-block; background: #334155; color: white; padding: 12px 24px; border-radius: 6px; text-decoration: none;">${ctaLabel}</a>
-      </div>
-      <div style="padding: 16px; text-align: center; color: #64748b; font-size: 12px;">PayFlow AP</div>
-    </div>`
-}
-
 export interface GenericAlertArgs {
   /** users.id for the in-app feed; null = external-only recipient */
   recipientUserId: string | null
@@ -266,12 +260,15 @@ export async function sendGenericAlert(args: GenericAlertArgs): Promise<Delivery
   }
 
   if (args.recipient.email && (args.recipient.emailEnabled ?? true)) {
-    const r = await sendEmail(
-      args.recipient.email,
-      args.title,
-      buildEmailHtml(args.title, args.body, args.link, 'View Details'),
-      `${args.title}\n\n${args.body}`
-    )
+    const { html, text } = await renderBrandedEmail({
+      title: args.title,
+      greeting: `Hi ${args.recipient.name},`,
+      paragraphs: splitParagraphs(args.body),
+      ctaLabel: 'View Details',
+      ctaUrl: `${getSiteUrl()}${args.link}`,
+      preview: args.title,
+    })
+    const r = await sendEmail(args.recipient.email, args.title, html, text)
     result.emailStatus = r.status
   }
 
@@ -319,12 +316,15 @@ export async function sendNotificationToRecipient(args: DispatchArgs): Promise<D
 
   // 2. Email
   if (args.recipient.email && (args.recipient.emailEnabled ?? true)) {
-    const r = await sendEmail(
-      args.recipient.email,
-      args.title,
-      buildEmailHtml(args.title, args.body, link),
-      `${args.title}\n\n${args.body}`
-    )
+    const { html, text } = await renderBrandedEmail({
+      title: args.title,
+      greeting: `Hi ${args.recipient.name},`,
+      paragraphs: splitParagraphs(args.body),
+      ctaLabel: 'View Invoice',
+      ctaUrl: `${getSiteUrl()}${link}`,
+      preview: args.title,
+    })
+    const r = await sendEmail(args.recipient.email, args.title, html, text)
     result.emailStatus = r.status
     await logDelivery(supabase, args, 'email', r.status, args.recipient.email)
   } else if (!args.recipient.email) {

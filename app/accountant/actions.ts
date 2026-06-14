@@ -11,7 +11,7 @@ import {
 } from '@/lib/security/secureAction'
 import { getSupabaseAdmin } from '@/lib/supabase/admin'
 import { resolveInternalUserId } from '@/lib/utils/resolve-user'
-import { applyInvoiceStatusChange } from '@/lib/invoices/status-flow'
+import { applyInvoiceStatusChange, dispatchPaymentConfirmation } from '@/lib/invoices/status-flow'
 
 // =====================================================
 // INVOICE APPROVAL / REJECTION ACTIONS
@@ -466,18 +466,21 @@ export const executeEFTPayment = secureAction(
     // Get user record
     const { data: userData } = await supabase
       .from('users')
-      .select('id')
+      .select('id, first_name, last_name')
       .eq('auth_user_id', user.id)
       .single()
     
     if (!userData) {
       throw new Error('User not found')
     }
+
+    const processedByName =
+      [userData.first_name, userData.last_name].filter(Boolean).join(' ').trim() || 'Accounts Payable'
     
     // Verify all invoices are in approved/payment_processing status
     const { data: invoices, error: fetchError } = await supabase
       .from('invoices')
-      .select('id, status, net_payable_cents, contractor_id')
+      .select('id, status, net_payable_cents, contractor_id, invoice_number, project_id')
       .in('id', input.invoice_ids)
     
     if (fetchError) {
@@ -688,6 +691,31 @@ export const executeEFTPayment = secureAction(
       },
     })
     
+    // Send branded payment-confirmation emails to the REAL vendor (plus internal
+    // CC) via the unified server dispatcher. Additive + non-fatal: the payment is
+    // already committed above, so a notification failure must never abort it.
+    const paymentDate = new Date().toISOString().split('T')[0]
+    await Promise.all(
+      (invoices || []).map((inv) =>
+        dispatchPaymentConfirmation({
+          invoiceId: inv.id,
+          invoiceNumber: inv.invoice_number || inv.id,
+          totalCents: inv.net_payable_cents || 0,
+          contractorId: inv.contractor_id ?? null,
+          projectId: inv.project_id ?? null,
+          status: 'paid',
+          actor: { userId: userData.id, name: processedByName, role: 'accountant', authUserId: user.id },
+          payment: {
+            paymentDate,
+            paymentReference: batchReference,
+            paymentMethod: input.payment_method,
+            issuedByName: processedByName,
+            amountPaidCents: inv.net_payable_cents || 0,
+          },
+        })
+      )
+    )
+
     revalidatePath('/accountant/payments')
     revalidatePath('/accountant/queue')
     

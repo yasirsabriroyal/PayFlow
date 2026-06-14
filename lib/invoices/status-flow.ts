@@ -352,6 +352,45 @@ async function buildPaymentEnrichment(
 }
 
 /**
+ * Send a branded payment-confirmation notification WITHOUT running a status
+ * transition. Used by payment server actions (e.g. EFT batch execution) that
+ * update invoice status directly — including via the `payment_processing`
+ * intermediate state that is outside the strict status state machine — but
+ * still need the same branded, real-recipient confirmation (vendor + internal
+ * CC) and audit logging that `applyInvoiceStatusChange` produces for `paid`.
+ *
+ * Never throws: a notification failure must never roll back a completed payment.
+ */
+export async function dispatchPaymentConfirmation(input: {
+  invoiceId: string
+  invoiceNumber: string
+  totalCents: number
+  contractorId: string | null
+  projectId: string | null
+  /** 'paid' for a full settlement, 'partially_paid' otherwise. */
+  status: Extract<InvoiceStatus, 'paid' | 'partially_paid'>
+  actor: StatusChangeActor
+  organizationId?: string | null
+  payment?: PaymentNotificationContext
+}): Promise<void> {
+  try {
+    await dispatchStatusNotifications({
+      invoiceId: input.invoiceId,
+      invoiceNumber: input.invoiceNumber,
+      totalCents: input.totalCents,
+      contractorId: input.contractorId,
+      projectId: input.projectId,
+      newStatus: input.status,
+      actor: input.actor,
+      organizationId: input.organizationId ?? null,
+      payment: input.payment,
+    })
+  } catch (e) {
+    console.error('[status-flow] dispatchPaymentConfirmation failed (non-fatal):', e)
+  }
+}
+
+/**
  * Fan out a status-change notification. Recipient routing is fully delegated to
  * the configurable distribution framework (`resolveRecipients`), making it
  * tenant-ready and free of hardcoded recipient lists.
