@@ -763,7 +763,7 @@ export default function PaymentsPage() {
                   <th className="px-6 py-4 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                     Bank
                   </th>
-                  <th className="px-6 py-4 text-right text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                  <th className="sticky right-0 z-10 bg-muted/30 px-6 py-4 text-right text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                     Action
                   </th>
                 </tr>
@@ -903,7 +903,10 @@ export default function PaymentsPage() {
                             <span className={`text-sm font-mono ${isBlocked ? 'text-muted-foreground' : ''}`}>{invoice.bankInfo}</span>
                           </div>
                         </td>
-                        <td className="px-6 py-4 text-right">
+                        <td
+                          className="sticky right-0 z-10 bg-card px-6 py-4 text-right shadow-[-8px_0_8px_-8px_rgba(0,0,0,0.1)]"
+                          onClick={(e) => e.stopPropagation()}
+                        >
                           {isBlocked ? (
                             <TooltipProvider>
                               <Tooltip>
