@@ -30,11 +30,18 @@ export async function GET(
       return NextResponse.json({ error: 'Document not found' }, { status: 404 })
     }
 
-    // Verify ownership or admin/PM/accountant role to prevent IDOR
-    const { data: userData } = await supabase.from('users').select('role').eq('id', user.id).single()
+    // Verify ownership or admin/PM/accountant role to prevent IDOR.
+    // NOTE: user.id is the Supabase auth id; the users table keys role on
+    // auth_user_id (its own id is a separate internal uuid).
+    const { data: userData } = await supabase
+      .from('users')
+      .select('id, role')
+      .eq('auth_user_id', user.id)
+      .single()
     const isInternalStaff = userData?.role === 'admin' || userData?.role === 'project_manager' || userData?.role === 'accountant'
+    const isUploader = !!userData?.id && document.uploaded_by === userData.id
 
-    if (!isInternalStaff && document.uploaded_by !== user.id) {
+    if (!isInternalStaff && !isUploader) {
        return NextResponse.json({ error: 'Unauthorized to access this document' }, { status: 403 })
     }
 
