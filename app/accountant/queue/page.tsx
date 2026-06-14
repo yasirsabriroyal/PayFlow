@@ -61,8 +61,8 @@ type QueueInvoice = {
   dueDate: string
 }
 
-// Database invoice_status enum: 'draft', 'submitted', 'pending_approval', 'approved', 'rejected', 'paid', 'partially_paid', 'disputed'
-type InvoiceStatus = 'draft' | 'submitted' | 'pending_approval' | 'approved' | 'rejected' | 'paid' | 'partially_paid' | 'disputed'
+// Database invoice_status enum: 'draft', 'submitted', 'pending_approval', 'approved', 'rejected', 'paid', 'partially_paid', 'disputed', 'revision_requested'
+type InvoiceStatus = 'draft' | 'submitted' | 'pending_approval' | 'approved' | 'rejected' | 'paid' | 'partially_paid' | 'disputed' | 'revision_requested'
 
 const statusConfig: Record<InvoiceStatus, { label: string; color: string; icon: React.ElementType }> = {
   draft: { label: 'Draft', color: 'bg-muted/50 text-muted-foreground border-muted', icon: FileText },
@@ -73,7 +73,13 @@ const statusConfig: Record<InvoiceStatus, { label: string; color: string; icon: 
   paid: { label: 'Paid', color: 'bg-success/10 text-success border-success/20', icon: CheckCircle2 },
   partially_paid: { label: 'Partially Paid', color: 'bg-primary/10 text-primary border-primary/20', icon: Clock },
   disputed: { label: 'Disputed', color: 'bg-destructive/10 text-destructive border-destructive/20', icon: AlertTriangle },
+  revision_requested: { label: 'Revision Requested', color: 'bg-warning/10 text-warning border-warning/20', icon: AlertTriangle },
 }
+
+// Fallback for any status not present in statusConfig (e.g. a new enum value added in the
+// database) so an unknown status can never crash a row render with "reading 'icon' of undefined".
+const fallbackStatus = { label: 'Unknown', color: 'bg-muted/50 text-muted-foreground border-muted', icon: AlertTriangle }
+const getStatusConfig = (status: string) => statusConfig[status as InvoiceStatus] ?? fallbackStatus
 
 function AccountantQueueContent() {
   const router = useRouter()
@@ -189,6 +195,20 @@ function AccountantQueueContent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [statusFilter, searchQuery])
 
+  // An invoice is overdue if it is still owing (not paid/rejected/draft) and past its due date.
+  // Declared BEFORE filteredInvoices below — it is referenced in that filter, and a const/
+  // useCallback is in the temporal dead zone until its declaration runs, so defining it first
+  // prevents "Cannot access 'isOverdue' before initialization" when the overdue filter is active.
+  const isOverdue = useCallback((inv: QueueInvoice) => {
+    if (['paid', 'rejected', 'draft'].includes(inv.status)) return false
+    if (!inv.dueDate) return false
+    const due = new Date(inv.dueDate)
+    if (Number.isNaN(due.getTime())) return false
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    return due < today
+  }, [])
+
   // Filter invoices (search + status, with an "overdue" pseudo-status)
   const filteredInvoices = allInvoices.filter(invoice => {
     const matchesSearch = 
@@ -205,17 +225,6 @@ function AccountantQueueContent() {
     
     return matchesSearch && matchesStatus
   })
-
-  // An invoice is overdue if it is still owing (not paid/rejected/draft) and past its due date
-  const isOverdue = useCallback((inv: QueueInvoice) => {
-    if (['paid', 'rejected', 'draft'].includes(inv.status)) return false
-    if (!inv.dueDate) return false
-    const due = new Date(inv.dueDate)
-    if (Number.isNaN(due.getTime())) return false
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
-    return due < today
-  }, [])
 
   // Dashboard metrics (computed from ALL invoices, not the filtered view).
   // Each card surfaces both a count and the dollars behind it so the accountant
@@ -571,7 +580,7 @@ return (
               </div>
             ) : (
               filteredInvoices.map((invoice) => {
-                const status = statusConfig[invoice.status as InvoiceStatus]
+                const status = getStatusConfig(invoice.status)
                 const StatusIcon = status.icon
                 return (
                   <DataCard 
@@ -704,11 +713,11 @@ return (
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
-                  {filteredInvoices.map((invoice) => {
-                    const status = statusConfig[invoice.status as InvoiceStatus]
-                    const StatusIcon = status.icon
-                    return (
-                      <tr 
+              {filteredInvoices.map((invoice) => {
+                const status = getStatusConfig(invoice.status)
+                const StatusIcon = status.icon
+                return (
+                  <tr
                         key={invoice.id} 
                         className={`hover:bg-muted/20 transition-colors cursor-pointer ${selectedIds.has(invoice.id) ? 'bg-primary/5' : ''}`}
                         onClick={() => goToInvoice(invoice)}
