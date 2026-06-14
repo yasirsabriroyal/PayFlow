@@ -605,7 +605,7 @@ export default function PaymentsPage() {
       <RoleTabBar role="accountant" />
 
       {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-6 py-8 space-y-6">
+      <main className="max-w-7xl mx-auto px-6 py-8 flex flex-col gap-6">
         {/* Money-first summary band - answers "what must go out now" at a glance.
             The first three cards are quick-filters: one click narrows the list. */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -760,8 +760,9 @@ export default function PaymentsPage() {
           </div>
         </div>
 
-        {/* Invoice batch payments */}
-        <div className="bg-card border border-border rounded-xl overflow-hidden">
+        {/* Invoice batch payments — ordered AFTER the certificate section so the
+            ready-to-pay certificates (which unblock these invoices) appear first. */}
+        <div className="order-2 bg-card border border-border rounded-xl overflow-hidden">
           <div className="px-6 py-4 border-b border-border bg-muted/30">
             <div className="flex items-center justify-between gap-3">
               <div>
@@ -1133,14 +1134,15 @@ export default function PaymentsPage() {
           )}
         </div>
 
-        {/* Approved Payment Certificates */}
-        <div className="bg-card border border-border rounded-xl overflow-hidden">
+        {/* Approved Payment Certificates — surfaced FIRST (order-1) because these
+            are the ready-to-pay action items; paying one unblocks its invoice below. */}
+        <div className="order-1 bg-card border border-border rounded-xl overflow-hidden">
         <div className="px-6 py-4 border-b border-border bg-muted/30">
           <div className="flex items-center justify-between">
             <div>
               <h2 className="text-base font-semibold">Certificate Payments</h2>
               <p className="text-sm text-muted-foreground">
-                PM-approved certificates paid individually. An invoice with an unpaid certificate stays blocked in the EFT batch above until its certificate is paid here.
+                PM-approved certificates paid individually. An invoice with an unpaid certificate stays blocked in the EFT batch below until its certificate is paid here.
               </p>
             </div>
             {approvedCerts.length > 0 && (
@@ -1315,7 +1317,7 @@ export default function PaymentsPage() {
       </div>
 
       {/* Recently Paid — collapsed by default so it never competes with action items */}
-      <div className="bg-card border border-border rounded-xl overflow-hidden">
+      <div className="order-3 bg-card border border-border rounded-xl overflow-hidden">
         <button
           type="button"
           onClick={() => setRecentOpen(o => !o)}
