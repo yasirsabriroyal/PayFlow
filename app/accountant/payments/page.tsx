@@ -53,6 +53,7 @@ import { usePermissions } from '@/hooks/use-permissions'
 import { AppHeader } from '@/components/app-header'
 import { RoleTabBar } from '@/components/role-tab-bar'
 import { useListStatePreservation } from '@/lib/workflow-navigation'
+import { DataCard } from '@/components/ui/responsive-table'
 import { WorkflowLink } from '@/components/workflow-link'
 
 // Compliance status types
@@ -618,7 +619,110 @@ export default function PaymentsPage() {
               )}
             </div>
           </div>
-          <div className="overflow-x-auto">
+
+          {/* Mobile card view */}
+          <div className="md:hidden p-4 space-y-3">
+            {filteredInvoices.length === 0 ? (
+              <div className="text-center py-12">
+                <FileText className="w-12 h-12 mx-auto mb-3 opacity-20" />
+                <p className="text-muted-foreground">No invoices ready for payment</p>
+              </div>
+            ) : (
+              filteredInvoices.map((invoice) => {
+                const compliance = invoiceCompliance[invoice.id]
+                const isBlocked = compliance?.isBlocked
+                const isSelected = selectedIds.has(invoice.id)
+                return (
+                  <DataCard
+                    key={invoice.id}
+                    className={
+                      isBlocked
+                        ? 'border-destructive/30 bg-destructive/5'
+                        : isSelected
+                          ? 'border-primary/40 bg-primary/5'
+                          : ''
+                    }
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-start gap-3 min-w-0">
+                        {!isBlocked && (
+                          <Checkbox
+                            checked={isSelected}
+                            onCheckedChange={() => toggleSelect(invoice.id)}
+                            aria-label={`Select invoice ${invoice.invoiceNumber}`}
+                            className="mt-1"
+                          />
+                        )}
+                        <div className="min-w-0">
+                          <h3 className="font-medium truncate">{invoice.contractor}</h3>
+                          <p className="text-sm text-muted-foreground truncate">{invoice.project}</p>
+                        </div>
+                      </div>
+                      <code className="font-mono bg-muted px-2 py-0.5 rounded text-xs whitespace-nowrap">
+                        {invoice.invoiceNumber}
+                      </code>
+                    </div>
+
+                    <div className="flex items-center justify-between text-sm pt-1">
+                      <span className="text-muted-foreground">Due</span>
+                      <span className={invoice.dueDate && isOverdueToPay(invoice) ? 'font-medium text-destructive' : ''}>
+                        {formatDate(invoice.dueDate)}
+                        {invoice.dueDate && isOverdueToPay(invoice) && <span className="ml-1 text-xs">(overdue)</span>}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-2 pt-2 border-t border-border">
+                      <div className="text-center">
+                        <p className="text-xs text-muted-foreground">Amount</p>
+                        <p className="text-sm font-medium">{formatCurrency(invoice.amount)}</p>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-xs text-muted-foreground">Holdback</p>
+                        <p className="text-sm font-medium text-warning">-{formatCurrency(invoice.holdback)}</p>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-xs text-muted-foreground">Net</p>
+                        <p className="text-sm font-semibold">{formatCurrency(invoice.netPayable)}</p>
+                      </div>
+                    </div>
+
+                    {invoice.hasUnpaidCerts && (
+                      <p className="text-xs font-medium text-destructive">Pay certificate first</p>
+                    )}
+
+                    <div className="pt-3 border-t border-border">
+                      {isBlocked ? (
+                        <div className="space-y-2">
+                          <Button size="sm" variant="outline" disabled className="w-full gap-1 h-10">
+                            <Ban className="w-4 h-4" />
+                            Blocked
+                          </Button>
+                          <ul className="text-xs text-destructive space-y-1">
+                            {compliance.issues.map((issue, i) => (
+                              <li key={i}>• {issue.message}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      ) : (
+                        <Button
+                          size="sm"
+                          onClick={() => payOne(invoice)}
+                          disabled={!canExecuteEFT}
+                          title={!canExecuteEFT ? 'You do not have permission to execute payments' : undefined}
+                          className="w-full gap-1 h-10 touch-manipulation"
+                        >
+                          <Banknote className="w-4 h-4" />
+                          Pay {formatCurrency(invoice.netPayable)}
+                        </Button>
+                      )}
+                    </div>
+                  </DataCard>
+                )
+              })
+            )}
+          </div>
+
+          <div className="overflow-x-auto hidden md:block">
             <table className="w-full">
               <thead>
                 <tr className="border-b border-border bg-muted/30">
