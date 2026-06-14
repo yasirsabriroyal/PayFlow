@@ -13,6 +13,8 @@ export interface RenderEmailInput {
   preview?: string
   /** Provide pre-resolved branding to avoid a second DB read; falls back to getEmailBranding(). */
   branding?: EmailBranding
+  /** Tenancy seam: resolves which org's branding to use (single-tenant default today). */
+  orgId?: string | null
 }
 
 export interface RenderedEmail {
@@ -26,7 +28,7 @@ export interface RenderedEmail {
  * the legacy inline-HTML builders are being retired in favor of this renderer.
  */
 export async function renderBrandedEmail(input: RenderEmailInput): Promise<RenderedEmail> {
-  const branding = input.branding ?? (await getEmailBranding())
+  const branding = input.branding ?? (await getEmailBranding(input.orgId))
 
   const element = (
     <NotificationEmail

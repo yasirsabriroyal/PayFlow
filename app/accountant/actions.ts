@@ -2188,6 +2188,9 @@ export async function executeCertificateEFTBatch(input: {
 
     const processedPaymentIds: string[] = []
     const processedCertIds: string[] = []
+    // Track invoices that become fully paid in this batch so we can send one
+    // branded payment confirmation per invoice (to the real vendor + internal CC).
+    const fullyPaidInvoices = new Map<string, { contractorId: string | null; amountPaidCents: number }>()
 
     // Process each certificate
     for (const cert of certificates || []) {
@@ -2255,6 +2258,13 @@ export async function executeCertificateEFTBatch(input: {
             updated_at: new Date().toISOString(),
           })
           .eq('id', cert.invoice_id)
+
+        if (invoiceFullyPaid) {
+          fullyPaidInvoices.set(cert.invoice_id, {
+            contractorId: cert.contractor_id ?? null,
+            amountPaidCents: newTotalPaid,
+          })
+        }
       }
     }
     
@@ -2282,6 +2292,48 @@ export async function executeCertificateEFTBatch(input: {
         certificate_ids: input.certificate_ids,
       },
     })
+
+    // Send branded payment-confirmation emails for invoices fully settled by this
+    // batch (real vendor + internal CC). Additive + non-fatal: payments are already
+    // committed, so a notification failure must never affect the result.
+    if (fullyPaidInvoices.size > 0) {
+      // userData here is the auth-scoped CurrentUser (no name fields), so resolve
+      // the processed-by display name from the internal users row.
+      const { data: processor } = await supabase
+        .from('users')
+        .select('first_name, last_name')
+        .eq('id', internalUserId)
+        .single()
+      const processedByName =
+        [processor?.first_name, processor?.last_name].filter(Boolean).join(' ').trim() || 'Accounts Payable'
+      const paymentDate = new Date().toISOString().split('T')[0]
+      const { data: paidInvoiceRows } = await supabase
+        .from('invoices')
+        .select('id, invoice_number, project_id')
+        .in('id', [...fullyPaidInvoices.keys()])
+      const invoiceMeta = new Map((paidInvoiceRows || []).map((r) => [r.id, r]))
+
+      await Promise.all(
+        [...fullyPaidInvoices.entries()].map(([invoiceId, info]) =>
+          dispatchPaymentConfirmation({
+            invoiceId,
+            invoiceNumber: invoiceMeta.get(invoiceId)?.invoice_number || invoiceId,
+            totalCents: info.amountPaidCents,
+            contractorId: info.contractorId,
+            projectId: invoiceMeta.get(invoiceId)?.project_id ?? null,
+            status: 'paid',
+            actor: { userId: internalUserId, name: processedByName, role: 'accountant', authUserId: userData.id },
+            payment: {
+              paymentDate,
+              paymentReference: batchReference,
+              paymentMethod: input.payment_method,
+              issuedByName: processedByName,
+              amountPaidCents: info.amountPaidCents,
+            },
+          })
+        )
+      )
+    }
     
     revalidatePath('/accountant/payments')
     revalidatePath('/accountant/queue')

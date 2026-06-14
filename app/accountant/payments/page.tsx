@@ -13,7 +13,6 @@ import {
   Square,
   FileSpreadsheet,
   Mail,
-  MessageSquare,
   AlertTriangle,
   ShieldAlert,
   Ban,
@@ -50,7 +49,6 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { useToast } from '@/hooks/use-toast'
-import { sendBatchPaymentNotifications } from '@/lib/notifications'
 import { createClient } from '@/lib/supabase/client'
 import { executeEFTPayment, processPayments, getApprovedInvoices, getApprovedCertificatesForPayment, recordCertificatePayment, executeCertificateEFTBatch, getRecentPayments, getRecentPaymentTotals } from '../actions'
 import { usePermissions } from '@/hooks/use-permissions'
@@ -587,33 +585,15 @@ export default function PaymentsPage() {
     const batchId = result.data?.batch_reference || `EFT-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${String(Math.floor(Math.random() * 1000)).padStart(3, '0')}`
     setGeneratedBatchId(batchId)
     setPaidInvoices([...selectedInvoices])
-    
-    // Send payment notifications to all vendors
-    const paymentNotifications = selectedInvoices.map(invoice => ({
-      recipient: {
-        name: invoice.contractor,
-        email: `${invoice.contractorId.toLowerCase()}@vendor.com`, // Mock email
-        phone: '+14165559999', // Mock phone
-      },
-      data: {
-        invoiceNumber: invoice.invoiceNumber,
-        amount: invoice.netPayable,
-        batchId,
-        paymentMethod: methodLabel,
-        expectedDate: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toLocaleDateString('en-CA'),
-      },
-    }))
 
-    await sendBatchPaymentNotifications(paymentNotifications)
-
-    // Show toast notification
+    // Branded payment-confirmation emails (to real vendors + internal CC) are sent
+    // server-side by executeEFTPayment via the unified notification dispatcher.
     toast({
       title: `${methodLabel} Payment Batch Processed`,
       description: (
         <div className="flex items-center gap-2 mt-1">
           <Mail className="w-4 h-4 text-primary" />
-          <MessageSquare className="w-4 h-4 text-green-500" />
-          <span className="text-sm">{selectedInvoices.length} vendors notified via Email & WhatsApp</span>
+          <span className="text-sm">{selectedInvoices.length} vendors notified by email</span>
         </div>
       ),
     })

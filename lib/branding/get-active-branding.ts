@@ -1,6 +1,7 @@
 import 'server-only'
 import { cache } from 'react'
 import { getSupabaseAdmin } from '@/lib/supabase/admin'
+import { resolveActiveOrgId, type OrganizationId } from '@/lib/tenancy'
 
 /**
  * Minimal branding shape used by app UI / PDF (kept for backwards compatibility).
@@ -80,7 +81,11 @@ export const getActiveBranding = cache(async (): Promise<BrandingConfig> => {
  *
  * NOTE: server-only and React-cached so multiple emails in one request share one read.
  */
-export const getEmailBranding = cache(async (): Promise<EmailBranding> => {
+export const getEmailBranding = cache(async (orgId?: OrganizationId | null): Promise<EmailBranding> => {
+  // Resolve through the tenancy seam. Single-tenant today (one global
+  // company_settings row); when multi-tenant lands this becomes a
+  // `.eq('organization_id', activeOrgId)` lookup and nothing else changes.
+  await resolveActiveOrgId(orgId)
   const supabaseAdmin = getSupabaseAdmin()
 
   const { data, error } = await supabaseAdmin
