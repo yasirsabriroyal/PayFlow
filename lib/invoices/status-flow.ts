@@ -239,6 +239,10 @@ interface PaidEnrichment {
   paymentMethod?: string
   issuedByName?: string
   receiptUrl?: string
+  /** Amount settled in this transaction (cents). */
+  amountPaidCents?: number
+  /** Outstanding balance on the invoice after this payment (cents). */
+  remainingCents?: number
 }
 
 function statusToInAppType(status: InvoiceStatus): InAppNotificationType {
@@ -323,7 +327,8 @@ async function buildPaymentEnrichment(
   status: InvoiceStatus,
   contractorId: string | null,
   projectId: string | null,
-  payment?: PaymentNotificationContext
+  payment?: PaymentNotificationContext,
+  invoiceId?: string
 ): Promise<PaidEnrichment | undefined> {
   if ((status !== 'paid' && status !== 'partially_paid') || !payment) return undefined
   const supabase = getSupabaseAdmin()
@@ -343,6 +348,19 @@ async function buildPaymentEnrichment(
     projectName = data?.name || undefined
   }
 
+  // Outstanding balance after this payment (best-effort; never blocks the email).
+  let remainingCents: number | undefined
+  if (invoiceId) {
+    const { data: inv } = await supabase
+      .from('invoices')
+      .select('amount_remaining_cents')
+      .eq('id', invoiceId)
+      .maybeSingle()
+    if (inv && typeof inv.amount_remaining_cents === 'number') {
+      remainingCents = inv.amount_remaining_cents
+    }
+  }
+
   return {
     vendorName,
     projectName,
@@ -351,6 +369,8 @@ async function buildPaymentEnrichment(
     paymentMethod: payment.paymentMethod,
     issuedByName: payment.issuedByName,
     receiptUrl: payment.receiptUrl,
+    amountPaidCents: payment.amountPaidCents,
+    remainingCents,
   }
 }
 
