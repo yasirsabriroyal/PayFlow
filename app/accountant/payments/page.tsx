@@ -363,6 +363,24 @@ export default function PaymentsPage() {
     setEftReviewOpen(true)
   }
 
+  // Inline single-invoice pay: scope the selection to just this invoice and
+  // open the same review dialog used by the batch flow. This keeps every
+  // guardrail intact (blocked invoices can't be paid, method must be chosen,
+  // and the confirm step still runs) while removing the need to manually
+  // check the box for a one-off payment.
+  const payOne = (invoice: ApprovedInvoice) => {
+    if (invoiceCompliance[invoice.id]?.isBlocked) {
+      toast({
+        title: 'Cannot Pay Invoice',
+        description: 'This invoice has compliance issues that must be resolved first.',
+        variant: 'destructive',
+      })
+      return
+    }
+    setSelectedIds(new Set([invoice.id]))
+    setEftReviewOpen(true)
+  }
+
   const handleGenerateEFT = async () => {
     setEftReviewOpen(false)
     // Call server action with permission enforcement
@@ -641,12 +659,15 @@ export default function PaymentsPage() {
                   <th className="px-6 py-4 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                     Bank
                   </th>
+                  <th className="px-6 py-4 text-right text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                    Action
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
                 {filteredInvoices.length === 0 ? (
                   <tr>
-                    <td colSpan={9} className="px-6 py-12 text-center text-muted-foreground">
+                    <td colSpan={10} className="px-6 py-12 text-center text-muted-foreground">
                       <FileText className="w-12 h-12 mx-auto mb-3 opacity-20" />
                       <p>No invoices ready for payment</p>
                     </td>
@@ -777,6 +798,41 @@ export default function PaymentsPage() {
                             <CreditCard className={`w-4 h-4 ${isBlocked ? 'text-muted-foreground/50' : 'text-muted-foreground'}`} />
                             <span className={`text-sm font-mono ${isBlocked ? 'text-muted-foreground' : ''}`}>{invoice.bankInfo}</span>
                           </div>
+                        </td>
+                        <td className="px-6 py-4 text-right">
+                          {isBlocked ? (
+                            <TooltipProvider>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <span className="inline-block">
+                                    <Button size="sm" variant="outline" disabled className="gap-1">
+                                      <Ban className="w-3 h-3" />
+                                      Blocked
+                                    </Button>
+                                  </span>
+                                </TooltipTrigger>
+                                <TooltipContent className="max-w-xs">
+                                  <p className="font-medium mb-1">Resolve before paying:</p>
+                                  <ul className="text-xs space-y-1">
+                                    {compliance.issues.map((issue, i) => (
+                                      <li key={i}>• {issue.message}</li>
+                                    ))}
+                                  </ul>
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                          ) : (
+                            <Button
+                              size="sm"
+                              onClick={() => payOne(invoice)}
+                              disabled={!canExecuteEFT}
+                              title={!canExecuteEFT ? 'You do not have permission to execute payments' : undefined}
+                              className="gap-1"
+                            >
+                              <Banknote className="w-3 h-3" />
+                              Pay
+                            </Button>
+                          )}
                         </td>
                       </tr>
                     )
