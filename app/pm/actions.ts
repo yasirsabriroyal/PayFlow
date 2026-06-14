@@ -16,6 +16,7 @@ import { getSupabaseAdmin } from '@/lib/supabase/admin'
 import { PAID_PAYMENT_STATUSES } from '@/lib/payments/status'
 import { resolveInternalUserId } from '@/lib/utils/resolve-user'
 import { applyInvoiceStatusChange } from '@/lib/invoices/status-flow'
+import { resolvePmScope } from '@/lib/permissions/pm-scope'
 
 /**
  * Build a status-engine actor from the authenticated user. Resolves the
@@ -137,14 +138,26 @@ export async function getCertificatesForInvoice(invoiceId: string) {
 }
 
 export async function getPMProjects() {
-  return withPermission(PERMISSIONS.PROJECTS.VIEW_PROJECTS, async () => {
+  return withPermission(PERMISSIONS.PROJECTS.VIEW_PROJECTS, async (user) => {
     const supabase = getSupabaseAdmin()
-    
-    const { data: projects, error } = await supabase
+
+    // Restrict project managers to their assigned projects.
+    const scope = await resolvePmScope(user)
+    if (scope.scoped && scope.projectIds.length === 0) {
+      return { success: true, projects: [] }
+    }
+
+    let query = supabase
       .from('projects')
       .select('*')
       .eq('is_active', true)
       .order('created_at', { ascending: false })
+
+    if (scope.scoped) {
+      query = query.in('id', scope.projectIds)
+    }
+
+    const { data: projects, error } = await query
 
     if (error) {
       console.error('Get PM projects error:', error)
@@ -157,16 +170,47 @@ export async function getPMProjects() {
 
 // Fetches contractors for PM views
 export async function getPMContractors() {
-  return withPermission(PERMISSIONS.VENDORS.VIEW_VENDORS, async () => {
+  return withPermission(PERMISSIONS.VENDORS.VIEW_VENDORS, async (user) => {
     const supabase = getSupabaseAdmin()
-    
+
+    // Project managers only see contractors linked to their assigned projects
+    // (via project_contractors). Other roles see all active contractors.
+    const scope = await resolvePmScope(user)
+    let contractorIds: string[] | null = null
+    if (scope.scoped) {
+      if (scope.projectIds.length === 0) {
+        return { success: true, contractors: [] }
+      }
+      const { data: links, error: linksError } = await supabase
+        .from('project_contractors')
+        .select('contractor_id')
+        .in('project_id', scope.projectIds)
+
+      if (linksError) {
+        console.error('Get PM contractor links error:', linksError)
+        return { success: false, contractors: [] }
+      }
+      contractorIds = Array.from(
+        new Set((links || []).map((l) => l.contractor_id).filter((id): id is string => Boolean(id)))
+      )
+      if (contractorIds.length === 0) {
+        return { success: true, contractors: [] }
+      }
+    }
+
     // CRITICAL: Use only valid contractor_status enum values
     // Valid: active, inactive, pending_kyc, suspended
     // INVALID: "pending" (does not exist in enum)
-    const { data: contractors, error } = await supabase
+    let query = supabase
       .from('contractors')
       .select('id, company_name, contact_name, status')
       .in('status', ['active', 'pending_kyc'])
+
+    if (contractorIds) {
+      query = query.in('id', contractorIds)
+    }
+
+    const { data: contractors, error } = await query
 
     if (error) {
       console.error('Get contractors error:', error)
@@ -178,10 +222,16 @@ export async function getPMContractors() {
 }
 
 export async function getPMInvoices() {
-  return withPermission(PERMISSIONS.INVOICES.VIEW_AP_QUEUE, async () => {
+  return withPermission(PERMISSIONS.INVOICES.VIEW_AP_QUEUE, async (user) => {
     const supabase = getSupabaseAdmin()
-    
-    const { data: invoices, error } = await supabase
+
+    // Restrict project managers to invoices on their assigned projects.
+    const scope = await resolvePmScope(user)
+    if (scope.scoped && scope.projectIds.length === 0) {
+      return { success: true, invoices: [] }
+    }
+
+    let query = supabase
       .from('invoices')
       .select(`
         id,
@@ -195,6 +245,12 @@ export async function getPMInvoices() {
         project:projects(id, name, project_number)
       `)
       .order('created_at', { ascending: false })
+
+    if (scope.scoped) {
+      query = query.in('project_id', scope.projectIds)
+    }
+
+    const { data: invoices, error } = await query
 
     if (error) {
       console.error('Get PM invoices error:', error)
@@ -717,11 +773,17 @@ export async function rejectPaymentCertificate(input: {
 
 // Get pending approvals (invoices and payment requests awaiting PM approval)
 export async function getPendingApprovals() {
-  return withPermission(PERMISSIONS.INVOICES.VIEW_AP_QUEUE, async () => {
+  return withPermission(PERMISSIONS.INVOICES.VIEW_AP_QUEUE, async (user) => {
     const supabase = getSupabaseAdmin()
-    
+
+    // Restrict project managers to their assigned projects.
+    const scope = await resolvePmScope(user)
+    if (scope.scoped && scope.projectIds.length === 0) {
+      return { success: true, approvals: [] }
+    }
+
     // Fetch invoices with submitted or pending_approval status
-    const { data: invoices, error: invoicesError } = await supabase
+    let invoicesQuery = supabase
       .from('invoices')
       .select(`
         id,
@@ -739,6 +801,12 @@ export async function getPendingApprovals() {
       `)
       .in('status', ['submitted', 'pending_approval'])
       .order('created_at', { ascending: false })
+
+    if (scope.scoped) {
+      invoicesQuery = invoicesQuery.in('project_id', scope.projectIds)
+    }
+
+    const { data: invoices, error: invoicesError } = await invoicesQuery
 
     if (invoicesError) {
       console.error('Get pending invoices error:', invoicesError)
@@ -776,11 +844,17 @@ export async function getPendingApprovals() {
 
 // Get approved/paid invoices for PM to view their history
 export async function getPMApprovedInvoices() {
-  return withPermission(PERMISSIONS.INVOICES.VIEW_AP_QUEUE, async () => {
+  return withPermission(PERMISSIONS.INVOICES.VIEW_AP_QUEUE, async (user) => {
     const supabase = getSupabaseAdmin()
-    
+
+    // Restrict project managers to their assigned projects.
+    const scope = await resolvePmScope(user)
+    if (scope.scoped && scope.projectIds.length === 0) {
+      return { success: true, invoices: [] }
+    }
+
     // Fetch invoices with approved or paid status
-    const { data: invoices, error: invoicesError } = await supabase
+    let invoicesQuery = supabase
       .from('invoices')
       .select(`
         id,
@@ -800,6 +874,12 @@ export async function getPMApprovedInvoices() {
       `)
       .in('status', ['approved', 'paid'])
       .order('updated_at', { ascending: false })
+
+    if (scope.scoped) {
+      invoicesQuery = invoicesQuery.in('project_id', scope.projectIds)
+    }
+
+    const { data: invoices, error: invoicesError } = await invoicesQuery
 
     if (invoicesError) {
       console.error('Get approved invoices error:', invoicesError)
@@ -996,9 +1076,28 @@ export async function createPMInvoice(input: {
  * Includes financial summary, projects, invoices, and payments
  */
 export async function getPMContractorById(contractorId: string) {
-  return withPermission(PERMISSIONS.VENDORS.VIEW_VENDORS, async () => {
+  return withPermission(PERMISSIONS.VENDORS.VIEW_VENDORS, async (user) => {
     const supabase = getSupabaseAdmin()
-    
+
+    // Project managers may only open contractors linked to one of their
+    // assigned projects (via project_contractors). Admin/accountant unscoped.
+    const scope = await resolvePmScope(user)
+    if (scope.scoped) {
+      if (scope.projectIds.length === 0) {
+        return { success: false, error: 'Contractor not found' }
+      }
+      const { data: link } = await supabase
+        .from('project_contractors')
+        .select('contractor_id')
+        .eq('contractor_id', contractorId)
+        .in('project_id', scope.projectIds)
+        .limit(1)
+        .maybeSingle()
+      if (!link) {
+        return { success: false, error: 'Contractor not found' }
+      }
+    }
+
     // Fetch contractor details
     const { data: contractor, error: contractorError } = await supabase
       .from('contractors')
@@ -1028,8 +1127,8 @@ export async function getPMContractorById(contractorId: string) {
       return { success: false, error: 'Contractor not found' }
     }
     
-    // Fetch invoices for this contractor
-    const { data: invoices, error: invoicesError } = await supabase
+    // Fetch invoices for this contractor (scoped to assigned projects for PMs)
+    let invoicesQuery = supabase
       .from('invoices')
       .select(`
         id,
@@ -1046,7 +1145,13 @@ export async function getPMContractorById(contractorId: string) {
       `)
       .eq('contractor_id', contractorId)
       .order('created_at', { ascending: false })
-    
+
+    if (scope.scoped) {
+      invoicesQuery = invoicesQuery.in('project_id', scope.projectIds)
+    }
+
+    const { data: invoices, error: invoicesError } = await invoicesQuery
+
     if (invoicesError) {
       console.error('Get contractor invoices error:', invoicesError)
     }
@@ -1073,27 +1178,56 @@ export async function getPMContractorById(contractorId: string) {
       console.error('Get contractor projects error:', projectsError)
     }
     
-    // Fetch payments to this contractor
-    const { data: payments, error: paymentsError } = await supabase
-      .from('payments')
-      .select(`
-        id,
-        amount_cents,
-        payment_method,
-        payment_date,
-        status,
-        created_at
-      `)
-      .eq('contractor_id', contractorId)
-      .order('created_at', { ascending: false })
-      .limit(20)
-    
-    if (paymentsError) {
-      console.error('Get contractor payments error:', paymentsError)
+    // Fetch payments to this contractor. For scoped PMs, restrict to payments
+    // tied to payment certificates on their assigned projects.
+    let payments:
+      | {
+          id: string
+          amount_cents: number
+          payment_method: string
+          payment_date: string | null
+          status: string
+          created_at: string
+        }[]
+      | null = []
+
+    if (scope.scoped) {
+      // Collect all certificate ids for this contractor on assigned projects.
+      const { data: scopedCerts } = await supabase
+        .from('payment_certificates')
+        .select('id')
+        .eq('contractor_id', contractorId)
+        .in('project_id', scope.projectIds)
+      const scopedCertIds = (scopedCerts || []).map((c) => c.id)
+
+      if (scopedCertIds.length > 0) {
+        const { data: scopedPayments, error: paymentsError } = await supabase
+          .from('payments')
+          .select(`id, amount_cents, payment_method, payment_date, status, created_at`)
+          .eq('contractor_id', contractorId)
+          .in('payment_certificate_id', scopedCertIds)
+          .order('created_at', { ascending: false })
+          .limit(20)
+        if (paymentsError) {
+          console.error('Get contractor payments error:', paymentsError)
+        }
+        payments = scopedPayments || []
+      }
+    } else {
+      const { data: allPayments, error: paymentsError } = await supabase
+        .from('payments')
+        .select(`id, amount_cents, payment_method, payment_date, status, created_at`)
+        .eq('contractor_id', contractorId)
+        .order('created_at', { ascending: false })
+        .limit(20)
+      if (paymentsError) {
+        console.error('Get contractor payments error:', paymentsError)
+      }
+      payments = allPayments || []
     }
-    
-    // Fetch payment certificates
-    const { data: certificates, error: certsError } = await supabase
+
+    // Fetch payment certificates (scoped to assigned projects for PMs)
+    let certsQuery = supabase
       .from('payment_certificates')
       .select(`
         id,
@@ -1108,7 +1242,13 @@ export async function getPMContractorById(contractorId: string) {
       .eq('contractor_id', contractorId)
       .order('created_at', { ascending: false })
       .limit(20)
-    
+
+    if (scope.scoped) {
+      certsQuery = certsQuery.in('project_id', scope.projectIds)
+    }
+
+    const { data: certificates, error: certsError } = await certsQuery
+
     if (certsError) {
       console.error('Get contractor certificates error:', certsError)
     }
@@ -1158,5 +1298,72 @@ export async function getPMContractorById(contractorId: string) {
       documents: documents || [],
       financialSummary,
     }
+  })
+}
+
+/**
+ * Fetch a single invoice for the PM invoice-detail page, enforcing
+ * assignment-based access for project managers. Replaces the previous
+ * client-side query so an out-of-scope invoice cannot be opened by URL.
+ *
+ * Also returns `document_url` so the detail page can show the attachment.
+ */
+export async function getPMInvoiceById(invoiceId: string) {
+  return withPermission(PERMISSIONS.INVOICES.VIEW_AP_QUEUE, async (user) => {
+    const supabase = getSupabaseAdmin()
+
+    const { data: invoice, error } = await supabase
+      .from('invoices')
+      .select(`
+        id,
+        invoice_number,
+        invoice_date,
+        due_date,
+        total_cents,
+        holdback_cents,
+        net_payable_cents,
+        status,
+        document_url,
+        project_id,
+        contractor:contractors(
+          id,
+          company_name,
+          contact_name,
+          email,
+          phone,
+          address_line1,
+          city,
+          province,
+          wcb_clearance_expiry,
+          status
+        ),
+        project:projects(
+          id,
+          name,
+          project_number,
+          address_line1,
+          city,
+          province,
+          start_date,
+          estimated_completion_date,
+          current_budget_cents,
+          spent_cents,
+          is_active
+        )
+      `)
+      .eq('id', invoiceId)
+      .single()
+
+    if (error || !invoice) {
+      return { success: false as const, error: 'Invoice not found' }
+    }
+
+    // Enforce assignment scope for project managers.
+    const scope = await resolvePmScope(user)
+    if (scope.scoped && !scope.projectIds.includes(invoice.project_id)) {
+      return { success: false as const, error: 'Invoice not found' }
+    }
+
+    return { success: true as const, invoice }
   })
 }

@@ -34,6 +34,7 @@ import {
   pmApproveInvoice,
   pmRejectInvoice,
   pmDisputeInvoice,
+  getPMInvoiceById,
 } from '../../actions'
 
 type Invoice = {
@@ -143,53 +144,14 @@ export default function PMInvoiceDetailPage() {
 
   useEffect(() => {
     async function fetchInvoice() {
-      const supabase = createClient()
+      // Scoped server action enforces PM assignment access; an out-of-scope
+      // invoice returns "not found" rather than leaking data.
+      const result = await getPMInvoiceById(invoiceId)
 
-      const { data, error } = await supabase
-        .from('invoices')
-        .select(`
-          id,
-          invoice_number,
-          invoice_date,
-          due_date,
-          total_cents,
-          holdback_cents,
-          net_payable_cents,
-          status,
-          contractor:contractors(
-            id,
-            company_name,
-            contact_name,
-            email,
-            phone,
-            address_line1,
-            city,
-            province,
-            wcb_clearance_expiry,
-            status
-          ),
-          project:projects(
-            id,
-            name,
-            project_number,
-            address_line1,
-            city,
-            province,
-            start_date,
-            estimated_completion_date,
-            current_budget_cents,
-            spent_cents,
-            is_active
-          )
-        `)
-        .eq('id', invoiceId)
-        .single()
-
-      if (error) {
-        console.error('Error fetching invoice:', error)
+      if (!result.success || !result.invoice) {
         setError('Invoice not found')
       } else {
-        setInvoice(data as unknown as Invoice)
+        setInvoice(result.invoice as unknown as Invoice)
       }
       setLoading(false)
     }
