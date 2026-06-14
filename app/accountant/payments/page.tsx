@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { 
   CheckCircle,
   Download,
@@ -381,6 +381,30 @@ export default function PaymentsPage() {
     setSelectedIds(new Set([invoice.id]))
     setEftReviewOpen(true)
   }
+
+  // Deep link from the Review Queue: /accountant/payments?pay=<invoiceId>
+  // Once invoices have loaded, pre-select the requested invoice and open the
+  // review dialog (unless it is blocked, in which case we just highlight it).
+  const payParamHandled = useRef(false)
+  useEffect(() => {
+    if (invoicesLoading || payParamHandled.current) return
+    const payId = new URLSearchParams(window.location.search).get('pay')
+    if (!payId) return
+    payParamHandled.current = true
+    const target = invoices.find((inv) => inv.id === payId)
+    if (!target) return
+    if (invoiceCompliance[target.id]?.isBlocked) {
+      setSelectedIds(new Set([target.id]))
+      toast({
+        title: 'Cannot Pay Invoice',
+        description: 'This invoice has compliance issues that must be resolved first.',
+        variant: 'destructive',
+      })
+      return
+    }
+    setSelectedIds(new Set([target.id]))
+    setEftReviewOpen(true)
+  }, [invoicesLoading, invoices, invoiceCompliance, toast])
 
   const handleGenerateEFT = async () => {
     setEftReviewOpen(false)

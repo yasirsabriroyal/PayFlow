@@ -85,6 +85,7 @@ function AccountantQueueContent() {
   // Permission-aware UI state
   const canApprove = hasPermission('approve_invoices')
   const canReject = hasPermission('reject_invoices')
+  const canPay = hasPermission('process_payments')
   
   // Logout handler
   const handleLogout = async () => {
@@ -106,6 +107,12 @@ function AccountantQueueContent() {
   // Navigate to invoice with context
   const goToInvoice = useCallback((invoice: QueueInvoice) => {
     navigateTo(`/accountant/invoices/${invoice.id}`, { title: invoice.invoiceNumber })
+  }, [navigateTo])
+
+  // Approved invoices move to the payment stage. Jump to the Payments page
+  // with this invoice pre-selected so the accountant can pay it immediately.
+  const goToPay = useCallback((invoice: QueueInvoice) => {
+    navigateTo(`/accountant/payments?pay=${invoice.id}`, { title: invoice.invoiceNumber })
   }, [navigateTo])
   
   // Initialize state from URL params
@@ -646,6 +653,23 @@ return (
                         )}
                       </div>
                     )}
+
+                    {/* Approved invoices: shortcut to pay */}
+                    {invoice.status === 'approved' && canPay && (
+                      <div
+                        className="pt-3 border-t border-border"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <Button
+                          size="sm"
+                          className="w-full h-10 touch-manipulation"
+                          onClick={() => goToPay(invoice)}
+                        >
+                          <Banknote className="w-4 h-4 mr-1" />
+                          Pay {formatCurrency(invoice.netPayable)}
+                        </Button>
+                      </div>
+                    )}
                   </DataCard>
                 )
               })
@@ -752,6 +776,16 @@ return (
                               >
                                 <XCircle className="w-4 h-4" />
                                 Reject
+                              </Button>
+                            )}
+                            {invoice.status === 'approved' && canPay && (
+                              <Button
+                                size="sm"
+                                className="h-8 gap-1"
+                                onClick={() => goToPay(invoice)}
+                              >
+                                <Banknote className="w-4 h-4" />
+                                Pay
                               </Button>
                             )}
                             <Button
