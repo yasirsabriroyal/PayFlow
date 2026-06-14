@@ -88,6 +88,10 @@ export interface DispatchArgs {
   emailDetails?: EmailDetailRow[]
   /** CTA label override for the email channel. */
   emailCtaLabel?: string
+  /** Template key used to render this communication (audit pinning). */
+  templateKey?: string | null
+  /** Template version used, so historical logs reflect the copy at send time. */
+  templateVersion?: number | null
   }
 
 type ChannelStatus = 'sent' | 'simulated' | 'failed' | 'skipped'
@@ -116,14 +120,25 @@ function resolveLink(role: Role | undefined, invoiceId: string): string {
   return `/invoices/${invoiceId}`
 }
 
+interface LogExtras {
+  /** Provider message id (e.g. Resend) for webhook correlation. */
+  externalMessageId?: string
+  /** Provider/SDK error string when status is 'failed'. */
+  errorMessage?: string
+  /** Why a channel was skipped (preference off, missing contact, etc.). */
+  skippedReason?: string
+}
+
 async function logDelivery(
   supabase: ReturnType<typeof getSupabaseAdmin>,
   args: DispatchArgs,
   channel: 'email' | 'sms' | 'whatsapp' | 'in_app',
   status: string,
-  to?: string
+  to?: string,
+  extras?: LogExtras
 ) {
   try {
+    const now = new Date().toISOString()
     await supabase.from('notification_logs').insert({
       organization_id: await resolveActiveOrgId(args.context.organizationId),
       event_type: mapEventType(args.type),
@@ -135,7 +150,7 @@ async function logDelivery(
       recipient_contractor_id:
         args.recipient.role === 'contractor' ? args.context.contractorId ?? args.recipient.id : null,
       recipient_role: args.recipient.role,
-      subject: args.title,
+      subject: args.emailSubject || args.title,
       message_preview: args.body?.substring(0, 500),
       email_body: channel === 'email' ? args.body : null,
       cc_recipients: args.context.ccRecipients ? args.context.ccRecipients : null,
@@ -143,6 +158,15 @@ async function logDelivery(
       project_id: args.context.projectId,
       contractor_id: args.context.contractorId,
       payment_id: args.context.paymentId ?? null,
+      template_key: args.templateKey ?? null,
+      template_version: args.templateVersion ?? null,
+      external_message_id: extras?.externalMessageId ?? null,
+      error_message: extras?.errorMessage ?? null,
+      skipped_reason: extras?.skippedReason ?? null,
+      // Truthful lifecycle timestamps: a real send is timestamped now; delivery
+      // confirmation arrives later via provider webhook.
+      sent_at: status === 'sent' ? now : null,
+      failed_at: status === 'failed' ? now : null,
       status,
       triggered_by: args.context.triggeredBy,
     })
@@ -173,7 +197,7 @@ function mapEventType(type: InAppNotificationType): string {
 async function sendEmail(to: string, subject: string, html: string, text: string) {
   if (!RESEND_API_KEY) {
     console.log('[RESEND EMAIL - SIMULATED]', JSON.stringify({ to, subject }))
-    return { status: 'simulated' as const }
+    return { status: 'simulated' as const, id: undefined, error: undefined }
   }
   try {
     const res = await fetch('https://api.resend.com/emails', {
@@ -181,10 +205,16 @@ async function sendEmail(to: string, subject: string, html: string, text: string
       headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ from: RESEND_FROM, to, subject, html, text }),
     })
-    return { status: res.ok ? ('sent' as const) : ('failed' as const) }
+    const payload = (await res.json().catch(() => null)) as { id?: string; message?: string } | null
+    if (res.ok) {
+      // Resend returns the provider message id; persist it so delivery webhooks
+      // can correlate bounce/delivery/complaint events back to this log row.
+      return { status: 'sent' as const, id: payload?.id, error: undefined }
+    }
+    return { status: 'failed' as const, id: undefined, error: payload?.message || `HTTP ${res.status}` }
   } catch (e) {
     console.error('[notify-dispatch] email error:', e)
-    return { status: 'failed' as const }
+    return { status: 'failed' as const, id: undefined, error: e instanceof Error ? e.message : 'send error' }
   }
 }
 
@@ -353,9 +383,18 @@ export async function sendNotificationToRecipient(args: DispatchArgs): Promise<D
     })
     const r = await sendEmail(args.recipient.email, subject, html, text)
     result.emailStatus = r.status
-    await logDelivery(supabase, args, 'email', r.status, args.recipient.email)
+    await logDelivery(supabase, args, 'email', r.status, args.recipient.email, {
+      externalMessageId: r.id,
+      errorMessage: r.error,
+    })
   } else if (!args.recipient.email) {
-    await logDelivery(supabase, args, 'email', 'skipped')
+    await logDelivery(supabase, args, 'email', 'skipped', undefined, {
+      skippedReason: 'No email address on file for recipient',
+    })
+  } else {
+    await logDelivery(supabase, args, 'email', 'skipped', args.recipient.email, {
+      skippedReason: 'Email channel disabled by recipient preference',
+    })
   }
 
   // 3. SMS (default text channel — enabled unless explicitly turned off)

@@ -90,7 +90,28 @@ export async function resolveTemplateSlots(
   }
 }
 
-export interface RenderedTemplate extends TemplateSlots {}
+export interface RenderedTemplate extends TemplateSlots {
+  /** Version of the org override used (0 = system catalog default, no override). */
+  version: number
+}
+
+/** Look up the active override version for a template (0 when none exists). */
+export async function getTemplateVersion(key: TemplateKey, orgId?: OrganizationId | null): Promise<number> {
+  try {
+    const supabase = getSupabaseAdmin()
+    const activeOrg = await resolveActiveOrgId(orgId)
+    const { data } = await supabase
+      .from('email_templates')
+      .select('version')
+      .eq('organization_id', activeOrg)
+      .eq('template_key', key)
+      .eq('is_active', true)
+      .maybeSingle()
+    return typeof data?.version === 'number' ? data.version : 0
+  } catch {
+    return 0
+  }
+}
 
 /**
  * Fully resolve a template for sending/preview: merge slots, substitute merge
@@ -103,11 +124,13 @@ export async function resolveRenderedTemplate(
   overrides?: Partial<TemplateSlots>
 ): Promise<RenderedTemplate> {
   const slots = await resolveTemplateSlots(key, orgId, overrides)
+  const version = await getTemplateVersion(key, orgId)
   return {
     subject: applyMergeFields(sanitizeSlotText(slots.subject), vars),
     opening: applyMergeFields(sanitizeSlotText(slots.opening), vars),
     closing: applyMergeFields(sanitizeSlotText(slots.closing), vars),
     help: applyMergeFields(sanitizeSlotText(slots.help), vars),
     notes: applyMergeFields(sanitizeSlotText(slots.notes), vars),
+    version,
   }
 }

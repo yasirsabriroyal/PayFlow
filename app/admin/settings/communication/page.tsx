@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
+import Link from 'next/link'
 import { AppHeader } from '@/components/app-header'
 import { RoleTabBar } from '@/components/role-tab-bar'
 import { Button } from '@/components/ui/button'
@@ -9,7 +10,7 @@ import { Label } from '@/components/ui/label'
 import { getCompanySettings, updateCompanySettings } from '@/app/admin/actions'
 import { renderBrandingPreview } from './actions'
 import { TemplateEditor } from '@/components/communication/template-editor'
-import { Palette, CheckCircle, Lock, AlertTriangle, Loader2, Mail, ExternalLink, Info } from 'lucide-react'
+import { Palette, CheckCircle, Lock, AlertTriangle, Loader2, Mail, ExternalLink, Info, History } from 'lucide-react'
 
 interface BrandingForm {
   company_name: string
@@ -171,9 +172,17 @@ export default function BrandingCenterPage() {
       <RoleTabBar role="admin" />
 
       <div className="max-w-6xl mx-auto px-6 py-8">
-        <div className="flex items-center gap-3 mb-2">
-          <Palette className="w-6 h-6 text-blue-600" />
-          <h1 className="text-2xl font-bold text-gray-900">Communication &amp; Branding</h1>
+        <div className="flex items-center justify-between gap-3 mb-2">
+          <div className="flex items-center gap-3">
+            <Palette className="w-6 h-6 text-blue-600" />
+            <h1 className="text-2xl font-bold text-gray-900">Communication &amp; Branding</h1>
+          </div>
+          <Button asChild variant="outline" size="sm">
+            <Link href="/admin/settings/communication/history">
+              <History className="w-4 h-4 mr-2" />
+              View History
+            </Link>
+          </Button>
         </div>
         <p className="text-sm text-gray-500 mb-6 max-w-2xl">
           Control how outbound emails to vendors look and who they appear to come from. Changes preview live on the

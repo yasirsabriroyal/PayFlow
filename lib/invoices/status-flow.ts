@@ -605,6 +605,7 @@ async function dispatchStatusNotifications(input: DispatchInput): Promise<void> 
   let emailContent: { opening?: string; closing?: string; help?: string; notes?: string } | undefined
   let emailDetails: EmailDetailRow[] | undefined
   let emailCtaLabel: string | undefined
+  let templateVersion: number | null = null
 
   const templateKey = statusToTemplateKey(newStatus)
   if (templateKey) {
@@ -637,6 +638,7 @@ async function dispatchStatusNotifications(input: DispatchInput): Promise<void> 
       }
       emailDetails = buildEmailDetails(newStatus, invoiceNumber, amount, reason, enrichment)
       emailCtaLabel = getTemplateDefinition(templateKey).ctaLabel
+      templateVersion = rendered.version
     } catch (e) {
       // Template resolution must never block delivery — fall back to plain body.
       console.error('[status-flow] template resolution failed, using plain body:', e)
@@ -671,6 +673,8 @@ async function dispatchStatusNotifications(input: DispatchInput): Promise<void> 
         emailContent,
         emailDetails,
         emailCtaLabel,
+        templateKey: templateKey ?? null,
+        templateVersion,
         context: {
           invoiceId: input.invoiceId,
           contractorId: contractorId ?? undefined,
