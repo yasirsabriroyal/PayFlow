@@ -29,22 +29,74 @@ export type OrganizationId = string
  */
 export const DEFAULT_ORG_ID = 'default' as const
 
-/** Cached lookup of the single default organization's UUID. */
-const getDefaultOrgId = cache(async (): Promise<OrganizationId> => {
+/** Plan/entitlement-bearing organization record used across the comms system. */
+export interface ActiveOrganization {
+  id: OrganizationId
+  name: string
+  legalName: string | null
+  plan: string
+  /** Plan entitlement: when true, the "Powered by PayFlow" footer is hidden. */
+  whiteLabelEnabled: boolean
+}
+
+/** Cached lookup of the single default organization. */
+const getDefaultOrg = cache(async (): Promise<ActiveOrganization | null> => {
   try {
     const supabaseAdmin = getSupabaseAdmin()
     const { data, error } = await supabaseAdmin
       .from('organizations')
-      .select('id')
+      .select('id, name, legal_name, plan, white_label_enabled')
       .eq('is_default', true)
       .limit(1)
       .single()
-    if (error || !data?.id) return DEFAULT_ORG_ID
-    return data.id
+    if (error || !data?.id) return null
+    return {
+      id: data.id,
+      name: data.name,
+      legalName: data.legal_name ?? null,
+      plan: data.plan ?? 'standard',
+      whiteLabelEnabled: data.white_label_enabled === true,
+    }
   } catch {
-    return DEFAULT_ORG_ID
+    return null
   }
 })
+
+/** Cached lookup of the single default organization's UUID. */
+const getDefaultOrgId = cache(async (): Promise<OrganizationId> => {
+  const org = await getDefaultOrg()
+  return org?.id ?? DEFAULT_ORG_ID
+})
+
+/**
+ * Resolve the full active organization record (plan + entitlements).
+ * Returns null only if the organizations table cannot be read.
+ */
+export async function resolveActiveOrg(hint?: string | null): Promise<ActiveOrganization | null> {
+  if (hint && hint.trim()) {
+    try {
+      const supabaseAdmin = getSupabaseAdmin()
+      const { data } = await supabaseAdmin
+        .from('organizations')
+        .select('id, name, legal_name, plan, white_label_enabled')
+        .eq('id', hint)
+        .limit(1)
+        .single()
+      if (data?.id) {
+        return {
+          id: data.id,
+          name: data.name,
+          legalName: data.legal_name ?? null,
+          plan: data.plan ?? 'standard',
+          whiteLabelEnabled: data.white_label_enabled === true,
+        }
+      }
+    } catch {
+      // fall through to default org
+    }
+  }
+  return getDefaultOrg()
+}
 
 /**
  * Resolve the organization id for the current request/context.

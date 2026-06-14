@@ -1,7 +1,7 @@
 import 'server-only'
 import { cache } from 'react'
 import { getSupabaseAdmin } from '@/lib/supabase/admin'
-import { resolveActiveOrgId, type OrganizationId } from '@/lib/tenancy'
+import { resolveActiveOrg, type OrganizationId } from '@/lib/tenancy'
 
 /**
  * Minimal branding shape used by app UI / PDF (kept for backwards compatibility).
@@ -88,8 +88,10 @@ export const getActiveBranding = cache(async (): Promise<BrandingConfig> => {
 export const getEmailBranding = cache(async (orgId?: OrganizationId | null): Promise<EmailBranding> => {
   // Resolve through the tenancy seam. Single-tenant today (one global
   // company_settings row); when multi-tenant lands this becomes a
-  // `.eq('organization_id', activeOrgId)` lookup and nothing else changes.
-  await resolveActiveOrgId(orgId)
+  // `.eq('organization_id', activeOrg.id)` lookup and nothing else changes.
+  // White-label removal is a plan entitlement, so it is sourced from the
+  // organization record (Phase 5 home) rather than company_settings.
+  const activeOrg = await resolveActiveOrg(orgId)
   const supabaseAdmin = getSupabaseAdmin()
 
   const { data, error } = await supabaseAdmin
@@ -113,7 +115,7 @@ export const getEmailBranding = cache(async (orgId?: OrganizationId | null): Pro
       address: null,
       primaryColor: DEFAULT_PRIMARY,
       accentColor: DEFAULT_ACCENT,
-      whiteLabelEnabled: false,
+      whiteLabelEnabled: activeOrg?.whiteLabelEnabled ?? false,
     }
   }
 
@@ -131,7 +133,9 @@ export const getEmailBranding = cache(async (orgId?: OrganizationId | null): Pro
     address: addressParts.length ? addressParts.join(', ') : null,
     primaryColor: isValidHex(data.primary_color) ? data.primary_color! : DEFAULT_PRIMARY,
     accentColor: isValidHex(data.accent_color) ? data.accent_color! : DEFAULT_ACCENT,
-    whiteLabelEnabled: data.white_label_enabled === true,
+    // Plan entitlement is org-level and authoritative; the company_settings flag
+    // is a fallback only when the organizations table can't be read.
+    whiteLabelEnabled: activeOrg?.whiteLabelEnabled ?? data.white_label_enabled === true,
   }
 })
 
