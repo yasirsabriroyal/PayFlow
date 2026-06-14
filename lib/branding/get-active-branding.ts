@@ -95,8 +95,7 @@ export const getEmailBranding = cache(async (orgId?: OrganizationId | null): Pro
   const { data, error } = await supabaseAdmin
     .from('company_settings')
     .select(
-      'company_name, legal_name, logo_url, email, phone, website, address, city, province, postal_code, ' +
-        'primary_color, accent_color, support_contact, sender_display_name, white_label_enabled'
+      'company_name, legal_name, logo_url, email, phone, website, address, city, province, postal_code, primary_color, accent_color, support_contact, sender_display_name, white_label_enabled'
     )
     .limit(1)
     .single()
