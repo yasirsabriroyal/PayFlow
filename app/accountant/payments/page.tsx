@@ -389,8 +389,10 @@ export default function PaymentsPage() {
     return parseDue(inv) ? 2 : 3
   }
 
-  // Search + quick-filter, then sort so the most urgent payable invoices are
-  // always at the top — the accountant sees "pay these now" without scrolling.
+  // Search + quick-filter, then sort action-first. Payable (non-blocked)
+  // invoices always rank above compliance-blocked ones, so the accountant sees
+  // what they can pay *right now* at the top — blocked/red invoices sink to the
+  // bottom instead of pinning the list. Within each group, sort by urgency.
   const filteredInvoices = invoices
     .filter(inv =>
       inv.contractor.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -403,12 +405,18 @@ export default function PaymentsPage() {
       return true
     })
     .sort((a, b) => {
+      // 1) Actionable invoices first, blocked ones last.
+      const aBlocked = invoiceCompliance[a.id]?.isBlocked ? 1 : 0
+      const bBlocked = invoiceCompliance[b.id]?.isBlocked ? 1 : 0
+      if (aBlocked !== bBlocked) return aBlocked - bBlocked
+      // 2) Then by urgency: overdue → due this week → later → undated.
       const ra = urgencyRank(a)
       const rb = urgencyRank(b)
       if (ra !== rb) return ra - rb
+      // 3) Then soonest due date first within a group.
       const da = parseDue(a)
       const db = parseDue(b)
-      if (da && db) return da.getTime() - db.getTime() // soonest due first within a group
+      if (da && db) return da.getTime() - db.getTime()
       return 0
     })
 
