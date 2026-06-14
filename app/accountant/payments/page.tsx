@@ -52,7 +52,7 @@ import {
 import { useToast } from '@/hooks/use-toast'
 import { sendBatchPaymentNotifications } from '@/lib/notifications'
 import { createClient } from '@/lib/supabase/client'
-import { executeEFTPayment, processPayments, getApprovedInvoices, getApprovedCertificatesForPayment, recordCertificatePayment, getRecentPayments, getRecentPaymentTotals } from '../actions'
+import { executeEFTPayment, processPayments, getApprovedInvoices, getApprovedCertificatesForPayment, recordCertificatePayment, executeCertificateEFTBatch, getRecentPayments, getRecentPaymentTotals } from '../actions'
 import { usePermissions } from '@/hooks/use-permissions'
 import { AppHeader } from '@/components/app-header'
 import { RoleTabBar } from '@/components/role-tab-bar'
@@ -142,6 +142,11 @@ export default function PaymentsPage() {
   const [certPaymentLoading, setCertPaymentLoading] = useState<string | null>(null)
   const [certReviewDialogOpen, setCertReviewDialogOpen] = useState(false)
   const [certToReview, setCertToReview] = useState<typeof approvedCerts[0] | null>(null)
+
+  // Batch certificate payment state (mirrors the invoice batch flow)
+  const [selectedCertIds, setSelectedCertIds] = useState<Set<string>>(new Set())
+  const [certBatchReviewOpen, setCertBatchReviewOpen] = useState(false)
+  const [certBatchProcessing, setCertBatchProcessing] = useState(false)
 
   // Quick-filter driven by the summary cards. Lets the accountant jump straight
   // to the most urgent payable invoices in one click (no search/scroll).
@@ -303,6 +308,63 @@ export default function PaymentsPage() {
       })
     }
     setCertPaymentLoading(null)
+  }
+
+  // Certificates on the same invoice must be paid together (backend rule), so
+  // toggling one cert selects/deselects all of its invoice siblings at once.
+  const certSiblingIds = (cert: typeof approvedCerts[0]) => {
+    const invId = cert.invoice?.id
+    if (!invId) return [cert.id]
+    return approvedCerts.filter(c => c.invoice?.id === invId).map(c => c.id)
+  }
+
+  const toggleCertSelect = (cert: typeof approvedCerts[0]) => {
+    const siblings = certSiblingIds(cert)
+    setSelectedCertIds(prev => {
+      const next = new Set(prev)
+      const willSelect = !prev.has(cert.id)
+      siblings.forEach(id => (willSelect ? next.add(id) : next.delete(id)))
+      return next
+    })
+  }
+
+  const toggleCertSelectAll = () => {
+    if (selectedCertIds.size === approvedCerts.length) {
+      setSelectedCertIds(new Set())
+    } else {
+      setSelectedCertIds(new Set(approvedCerts.map(c => c.id)))
+    }
+  }
+
+  const selectedCertTotal = approvedCerts
+    .filter(c => selectedCertIds.has(c.id))
+    .reduce((sum, c) => sum + c.certified_amount_cents, 0)
+
+  const handlePayCertBatch = async () => {
+    if (selectedCertIds.size === 0) return
+    setCertBatchProcessing(true)
+    const ids = Array.from(selectedCertIds)
+    const result = await executeCertificateEFTBatch({
+      certificate_ids: ids,
+      payment_method: paymentMethod,
+    })
+    if (result.success) {
+      toast({
+        title: 'Certificates Paid',
+        description: `${ids.length} certificate${ids.length === 1 ? '' : 's'} paid in one batch.`,
+      })
+      setApprovedCerts(prev => prev.filter(c => !selectedCertIds.has(c.id)))
+      setSelectedCertIds(new Set())
+      setCertBatchReviewOpen(false)
+      setRefreshKey(k => k + 1) // refresh Paid totals + Recently Paid
+    } else {
+      toast({
+        title: 'Batch Payment Failed',
+        description: result.error || 'Failed to process certificate batch.',
+        variant: 'destructive',
+      })
+    }
+    setCertBatchProcessing(false)
   }
 
   // Check compliance for an invoice based on active settings
@@ -766,6 +828,7 @@ export default function PaymentsPage() {
           <div className="px-6 py-4 border-b border-border bg-muted/30">
             <div className="flex items-center justify-between gap-3">
               <div>
+                <p className="text-xs font-semibold uppercase tracking-wider text-primary mb-1">Step 2 · Pay Invoices (EFT)</p>
                 <h2 className="text-base font-semibold">Invoice Batch Payments</h2>
                 <p className="text-sm text-muted-foreground">
                   Select approved invoices and pay them together in one batch. You choose the payment method (EFT, cheque, wire, or e-transfer) at the review step.
@@ -1138,15 +1201,35 @@ export default function PaymentsPage() {
             are the ready-to-pay action items; paying one unblocks its invoice below. */}
         <div className="order-1 bg-card border border-border rounded-xl overflow-hidden">
         <div className="px-6 py-4 border-b border-border bg-muted/30">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-base font-semibold">Certificate Payments</h2>
-              <p className="text-sm text-muted-foreground">
-                PM-approved certificates paid individually. An invoice with an unpaid certificate stays blocked in the EFT batch below until its certificate is paid here.
-              </p>
+          <div className="flex flex-col gap-3">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wider text-primary mb-1">Step 1 · Pay Certificates</p>
+                <h2 className="text-base font-semibold">Certificate Payments</h2>
+                <p className="text-sm text-muted-foreground">
+                  PM-approved certificates. Select one or more and pay them together, or use Review &amp; Pay on a single row. An invoice with an unpaid certificate stays blocked in the EFT batch below until its certificate is paid here.
+                </p>
+              </div>
+              {approvedCerts.length > 0 && (
+                <span className="text-sm font-medium text-muted-foreground whitespace-nowrap">{approvedCerts.length} ready</span>
+              )}
             </div>
             {approvedCerts.length > 0 && (
-              <span className="text-sm font-medium text-muted-foreground whitespace-nowrap">{approvedCerts.length} ready</span>
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-sm text-muted-foreground">
+                  {selectedCertIds.size > 0 ? `${selectedCertIds.size} selected · ${formatCurrency(selectedCertTotal / 100)}` : 'Select certificates to pay as a batch'}
+                </span>
+                <Button
+                  size="sm"
+                  onClick={() => setCertBatchReviewOpen(true)}
+                  disabled={selectedCertIds.size === 0 || !canExecuteEFT}
+                  title={!canExecuteEFT ? 'You do not have permission to execute EFT payments' : undefined}
+                  className="gap-1"
+                >
+                  <FileSpreadsheet className="w-4 h-4" />
+                  {selectedCertIds.size > 0 ? `Pay Selected · ${formatCurrency(selectedCertTotal / 100)}` : 'Pay Selected'}
+                </Button>
+              </div>
             )}
           </div>
         </div>
@@ -1164,13 +1247,21 @@ export default function PaymentsPage() {
             </div>
           ) : (
             approvedCerts.map((cert) => (
-              <DataCard key={cert.id}>
+              <DataCard key={cert.id} className={selectedCertIds.has(cert.id) ? 'border-primary/40 bg-primary/5' : ''}>
                 <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <h3 className="font-medium truncate">{cert.contractor?.company_name || 'Unknown'}</h3>
-                    <p className="text-sm text-muted-foreground truncate">
-                      {cert.project ? `${cert.project.project_number} – ${cert.project.name}` : '—'}
-                    </p>
+                  <div className="flex items-start gap-3 min-w-0">
+                    <Checkbox
+                      checked={selectedCertIds.has(cert.id)}
+                      onCheckedChange={() => toggleCertSelect(cert)}
+                      aria-label={`Select certificate ${cert.certificate_number}`}
+                      className="mt-1"
+                    />
+                    <div className="min-w-0">
+                      <h3 className="font-medium truncate">{cert.contractor?.company_name || 'Unknown'}</h3>
+                      <p className="text-sm text-muted-foreground truncate">
+                        {cert.project ? `${cert.project.project_number} – ${cert.project.name}` : '—'}
+                      </p>
+                    </div>
                   </div>
                   <p className="font-semibold text-success whitespace-nowrap">
                     {formatCurrency(cert.certified_amount_cents / 100)}
@@ -1231,6 +1322,14 @@ export default function PaymentsPage() {
           <table className="w-full">
             <thead>
               <tr className="border-b border-border">
+                <th className="px-6 py-3 text-left w-12">
+                  <Checkbox
+                    checked={approvedCerts.length > 0 && selectedCertIds.size === approvedCerts.length}
+                    onCheckedChange={toggleCertSelectAll}
+                    aria-label="Select all certificates"
+                    disabled={approvedCerts.length === 0}
+                  />
+                </th>
                 <th className="px-6 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Contractor</th>
                 <th className="px-6 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Invoice #</th>
                 <th className="px-6 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Certificate #</th>
@@ -1242,7 +1341,7 @@ export default function PaymentsPage() {
             <tbody className="divide-y divide-border">
               {certsLoading ? (
                 <tr>
-                  <td colSpan={6} className="px-6 py-8 text-center text-muted-foreground">
+                  <td colSpan={7} className="px-6 py-8 text-center text-muted-foreground">
                     <div className="flex justify-center">
                       <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-primary" />
                     </div>
@@ -1250,14 +1349,21 @@ export default function PaymentsPage() {
                 </tr>
               ) : approvedCerts.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-6 py-10 text-center text-muted-foreground">
+                  <td colSpan={7} className="px-6 py-10 text-center text-muted-foreground">
                     <CreditCard className="w-10 h-10 mx-auto mb-2 opacity-20" />
                     <p>No approved certificates awaiting payment</p>
                   </td>
                 </tr>
               ) : (
                 approvedCerts.map((cert) => (
-                  <tr key={cert.id} className="hover:bg-muted/30 transition-colors">
+                  <tr key={cert.id} className={`transition-colors ${selectedCertIds.has(cert.id) ? 'bg-primary/5' : 'hover:bg-muted/30'}`}>
+                    <td className="px-6 py-4">
+                      <Checkbox
+                        checked={selectedCertIds.has(cert.id)}
+                        onCheckedChange={() => toggleCertSelect(cert)}
+                        aria-label={`Select certificate ${cert.certificate_number}`}
+                      />
+                    </td>
                     <td className="px-6 py-4">
                       <p className="font-medium">{cert.contractor?.company_name || 'Unknown'}</p>
                     </td>
@@ -1456,6 +1562,65 @@ export default function PaymentsPage() {
             >
               <Banknote className="w-4 h-4 mr-2" />
               Confirm Payment
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Certificate Batch Review Dialog */}
+      <Dialog open={certBatchReviewOpen} onOpenChange={setCertBatchReviewOpen}>
+        <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>
+              Pay {selectedCertIds.size} certificate{selectedCertIds.size === 1 ? '' : 's'} · {formatCurrency(selectedCertTotal / 100)}
+            </DialogTitle>
+            <DialogDescription>
+              Review the certificates below, then confirm to pay them together. All certificates on the same invoice are paid as a group.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3">
+            <div className="border border-border rounded-lg divide-y divide-border max-h-64 overflow-y-auto">
+              {approvedCerts.filter(c => selectedCertIds.has(c.id)).map(cert => (
+                <div key={cert.id} className="flex items-center justify-between gap-3 px-3 py-2 text-sm">
+                  <div className="min-w-0">
+                    <p className="font-medium truncate">{cert.contractor?.company_name || 'Unknown'}</p>
+                    <p className="text-xs text-muted-foreground truncate">
+                      <code className="font-mono">{cert.certificate_number}</code>
+                      {cert.invoice?.invoice_number ? ` · ${cert.invoice.invoice_number}` : ''}
+                    </p>
+                  </div>
+                  <span className="font-semibold text-success whitespace-nowrap">{formatCurrency(cert.certified_amount_cents / 100)}</span>
+                </div>
+              ))}
+            </div>
+            <div className="flex justify-between items-center border-t border-border pt-3 text-sm">
+              <span className="text-muted-foreground">Payment Method</span>
+              <Select value={paymentMethod} onValueChange={(v) => setPaymentMethod(v as typeof paymentMethod)}>
+                <SelectTrigger className="w-[180px] h-8">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="eft">EFT (Electronic Funds Transfer)</SelectItem>
+                  <SelectItem value="cheque">Cheque</SelectItem>
+                  <SelectItem value="wire">Wire Transfer</SelectItem>
+                  <SelectItem value="etransfer">E-Transfer</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex justify-between items-center text-sm font-semibold">
+              <span>Total</span>
+              <span className="text-success">{formatCurrency(selectedCertTotal / 100)}</span>
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setCertBatchReviewOpen(false)} disabled={certBatchProcessing}>
+              Cancel
+            </Button>
+            <Button onClick={handlePayCertBatch} disabled={certBatchProcessing || selectedCertIds.size === 0}>
+              <Banknote className="w-4 h-4 mr-2" />
+              {certBatchProcessing ? 'Processing…' : `Confirm Payment · ${formatCurrency(selectedCertTotal / 100)}`}
             </Button>
           </DialogFooter>
         </DialogContent>
