@@ -30,8 +30,16 @@ export interface NotificationEmailProps {
   title: string
   /** Optional greeting line, e.g. "Hi Acme Builders,". */
   greeting?: string
-  /** Body paragraphs (tenant-customizable opening/closing text lives here in later phases). */
+  /** Body paragraphs (used by generic, non-templated alerts). */
   paragraphs: string[]
+  /** Tenant-editable opening message, rendered before the details table. */
+  opening?: string
+  /** Tenant-editable closing message, rendered after the call to action. */
+  closing?: string
+  /** Tenant-editable help/contact message, rendered in the footer area. */
+  help?: string
+  /** Tenant-editable optional note, rendered in a highlighted box near the details. */
+  notes?: string
   /** System-controlled required fields (vendor, invoice #, amount, status, etc.). */
   details?: EmailDetailRow[]
   /** Optional call to action. */
@@ -57,6 +65,10 @@ export function NotificationEmail({
   title,
   greeting,
   paragraphs,
+  opening,
+  closing,
+  help,
+  notes,
   details,
   ctaLabel,
   ctaUrl,
@@ -102,6 +114,13 @@ export function NotificationEmail({
               <Text style={{ fontSize: 15, color: '#0f172a', margin: '0 0 16px' }}>{greeting}</Text>
             ) : null}
 
+            {/* TENANT-EDITABLE: opening message */}
+            {opening ? (
+              <Text style={{ fontSize: 14, lineHeight: '22px', color: '#334155', margin: '0 0 16px' }}>
+                {opening}
+              </Text>
+            ) : null}
+
             {paragraphs.map((p, i) => (
               <Text key={i} style={{ fontSize: 14, lineHeight: '22px', color: '#334155', margin: '0 0 16px' }}>
                 {p}
@@ -128,6 +147,13 @@ export function NotificationEmail({
               </Section>
             ) : null}
 
+            {/* TENANT-EDITABLE: optional note, highlighted */}
+            {notes ? (
+              <Section style={{ backgroundColor: '#f8fafc', borderLeft: `3px solid ${accent}`, borderRadius: 4, padding: '12px 16px', margin: '0 0 20px' }}>
+                <Text style={{ fontSize: 13, lineHeight: '20px', color: '#475569', margin: 0 }}>{notes}</Text>
+              </Section>
+            ) : null}
+
             {ctaLabel && ctaUrl ? (
               <Button
                 href={ctaUrl}
@@ -136,12 +162,25 @@ export function NotificationEmail({
                 {ctaLabel}
               </Button>
             ) : null}
+
+            {/* TENANT-EDITABLE: closing message */}
+            {closing ? (
+              <Text style={{ fontSize: 14, lineHeight: '22px', color: '#334155', margin: '20px 0 0' }}>
+                {closing}
+              </Text>
+            ) : null}
           </Section>
 
           <Hr style={{ borderColor: '#e2e8f0', margin: 0 }} />
 
           {/* SYSTEM-CONTROLLED: footer with tenant contact + PayFlow attribution */}
           <Section style={{ padding: '16px 24px', backgroundColor: '#f8fafc' }}>
+            {/* TENANT-EDITABLE: help / contact message */}
+            {help ? (
+              <Text style={{ fontSize: 12, color: '#64748b', margin: '0 0 10px', fontStyle: 'italic' }}>
+                {help}
+              </Text>
+            ) : null}
             <Text style={{ fontSize: 12, color: '#64748b', margin: '0 0 4px' }}>
               {branding.legalName || branding.companyName}
             </Text>

@@ -18,6 +18,8 @@ import 'server-only'
 import { getSupabaseAdmin } from '@/lib/supabase/admin'
 import { getSiteUrl } from '@/lib/site-url'
 import { renderBrandedEmail } from '@/lib/email/render-email'
+import type { EmailDetailRow } from '@/emails/notification-email'
+import { resolveActiveOrgId } from '@/lib/tenancy'
 
 /** Split a notification body into paragraphs for the branded renderer. */
 function splitParagraphs(body: string): string[] {
@@ -55,6 +57,8 @@ export interface DispatchContext {
   contractorId?: string
   projectId?: string
   triggeredBy?: string
+  /** Tenancy seam: which org this communication belongs to (defaults to the active org). */
+  organizationId?: string | null
   /** Links the communication/in-app record to a specific payment. */
   paymentId?: string
   /** Internal recipients copied on this communication, stored for the audit trail. */
@@ -71,7 +75,20 @@ export interface DispatchArgs {
   link: string
   invoiceId: string
   context: DispatchContext
-}
+  /** Optional subject line override for the email channel (falls back to title). */
+  emailSubject?: string
+  /** Tenant-editable content slots resolved from email_templates (Phase 3). */
+  emailContent?: {
+    opening?: string
+    closing?: string
+    help?: string
+    notes?: string
+  }
+  /** System-controlled required fields rendered in the email's details table. */
+  emailDetails?: EmailDetailRow[]
+  /** CTA label override for the email channel. */
+  emailCtaLabel?: string
+  }
 
 type ChannelStatus = 'sent' | 'simulated' | 'failed' | 'skipped'
 
@@ -108,6 +125,7 @@ async function logDelivery(
 ) {
   try {
     await supabase.from('notification_logs').insert({
+      organization_id: await resolveActiveOrgId(args.context.organizationId),
       event_type: mapEventType(args.type),
       channel,
       recipient_name: args.recipient.name,
@@ -316,15 +334,24 @@ export async function sendNotificationToRecipient(args: DispatchArgs): Promise<D
 
   // 2. Email
   if (args.recipient.email && (args.recipient.emailEnabled ?? true)) {
+    const hasTemplate = !!args.emailContent
+    const subject = args.emailSubject || args.title
     const { html, text } = await renderBrandedEmail({
       title: args.title,
       greeting: `Hi ${args.recipient.name},`,
-      paragraphs: splitParagraphs(args.body),
-      ctaLabel: 'View Invoice',
+      // When a template is supplied, slots drive the copy; otherwise fall back
+      // to the plain body paragraphs (generic alerts).
+      paragraphs: hasTemplate ? [] : splitParagraphs(args.body),
+      opening: args.emailContent?.opening,
+      closing: args.emailContent?.closing,
+      help: args.emailContent?.help,
+      notes: args.emailContent?.notes,
+      details: args.emailDetails,
+      ctaLabel: args.emailCtaLabel || 'View Invoice',
       ctaUrl: `${getSiteUrl()}${link}`,
-      preview: args.title,
+      preview: subject,
     })
-    const r = await sendEmail(args.recipient.email, args.title, html, text)
+    const r = await sendEmail(args.recipient.email, subject, html, text)
     result.emailStatus = r.status
     await logDelivery(supabase, args, 'email', r.status, args.recipient.email)
   } else if (!args.recipient.email) {

@@ -7,6 +7,11 @@ export interface RenderEmailInput {
   title: string
   greeting?: string
   paragraphs: string[]
+  /** Tenant-editable content slots (resolved from email templates). */
+  opening?: string
+  closing?: string
+  help?: string
+  notes?: string
   details?: EmailDetailRow[]
   ctaLabel?: string
   ctaUrl?: string
@@ -36,6 +41,10 @@ export async function renderBrandedEmail(input: RenderEmailInput): Promise<Rende
       title={input.title}
       greeting={input.greeting}
       paragraphs={input.paragraphs}
+      opening={input.opening}
+      closing={input.closing}
+      help={input.help}
+      notes={input.notes}
       details={input.details}
       ctaLabel={input.ctaLabel}
       ctaUrl={input.ctaUrl}

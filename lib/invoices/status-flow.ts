@@ -20,6 +20,9 @@ import {
   type InAppNotificationType,
 } from '@/lib/notifications/server-dispatch'
 import { resolveRecipients, type DistributionEvent } from '@/lib/notifications/distribution'
+import { resolveRenderedTemplate } from '@/lib/email/templates/resolve'
+import { getTemplateDefinition, type TemplateKey } from '@/lib/email/templates/catalog'
+import type { EmailDetailRow } from '@/emails/notification-email'
 
 /**
  * Optional payment metadata used to enrich `paid` / `partially_paid`
