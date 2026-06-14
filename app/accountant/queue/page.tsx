@@ -33,7 +33,7 @@ import {
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import Link from 'next/link'
-  import { approveInvoice, disputeInvoice, getInvoiceQueue } from '../actions'
+import { approveInvoice, rejectInvoice, disputeInvoice, getInvoiceQueue } from '../actions'
 import { createClient } from '@/lib/supabase/client'
 import { usePermissions } from '@/hooks/use-permissions'
 import { useToast } from '@/hooks/use-toast'
@@ -42,89 +42,23 @@ import { RoleTabBar } from '@/components/role-tab-bar'
 import { useListStatePreservation, useWorkflowNavigation } from '@/lib/workflow-navigation'
 import { WorkflowLink } from '@/components/workflow-link'
 
-// Mock invoice data
-const mockInvoices = [
-  {
-    id: 'inv-1',
-    dateSubmitted: '2024-03-05',
-    contractor: 'ABC Electric Ltd.',
-    contractorId: 'cont-1',
-    project: 'Downtown Office Tower',
-    projectId: 'proj-1',
-    invoiceNumber: 'INV-2024-0142',
-    amount: 45750.00,
-    holdback: 4575.00,
-    netPayable: 41175.00,
-    status: 'pending_review',
-    documentUrl: '/mock-invoice.pdf',
-    invoiceDate: '2024-03-01',
-    dueDate: '2024-03-31',
-  },
-  {
-    id: 'inv-2',
-    dateSubmitted: '2024-03-04',
-    contractor: 'ProPlumb Solutions',
-    contractorId: 'cont-2',
-    project: 'Harbourfront Condo Development',
-    projectId: 'proj-2',
-    invoiceNumber: 'PP-2024-089',
-    amount: 28500.00,
-    holdback: 2850.00,
-    netPayable: 25650.00,
-    status: 'pm_approval',
-    documentUrl: '/mock-invoice.pdf',
-    invoiceDate: '2024-03-02',
-    dueDate: '2024-04-01',
-  },
-  {
-    id: 'inv-3',
-    dateSubmitted: '2024-03-03',
-    contractor: 'Steel Masters Inc.',
-    contractorId: 'cont-3',
-    project: 'Industrial Park Expansion',
-    projectId: 'proj-4',
-    invoiceNumber: 'SM-INV-2024-033',
-    amount: 125000.00,
-    holdback: 12500.00,
-    netPayable: 112500.00,
-    status: 'approved',
-    documentUrl: '/mock-invoice.pdf',
-    invoiceDate: '2024-02-28',
-    dueDate: '2024-03-29',
-  },
-  {
-    id: 'inv-4',
-    dateSubmitted: '2024-03-02',
-    contractor: 'GlassWorks Pro',
-    contractorId: 'cont-4',
-    project: 'Downtown Office Tower',
-    projectId: 'proj-1',
-    invoiceNumber: 'GWP-2024-0067',
-    amount: 67800.00,
-    holdback: 6780.00,
-    netPayable: 61020.00,
-    status: 'disputed',
-    documentUrl: '/mock-invoice.pdf',
-    invoiceDate: '2024-02-25',
-    dueDate: '2024-03-26',
-  },
-  {
-    id: 'inv-5',
-    dateSubmitted: '2024-03-01',
-    contractor: 'HVAC Solutions Corp.',
-    contractorId: 'cont-5',
-    project: 'Westside Shopping Centre',
-    projectId: 'proj-3',
-    invoiceNumber: 'HVAC-2024-155',
-    amount: 89250.00,
-    holdback: 8925.00,
-    netPayable: 80325.00,
-    status: 'pending_review',
-    documentUrl: '/mock-invoice.pdf',
-    invoiceDate: '2024-02-27',
-    dueDate: '2024-03-28',
-  },
-]
+// Shape of an invoice row as rendered in the queue (mapped from the server action)
+type QueueInvoice = {
+  id: string
+  dateSubmitted: string
+  contractor: string
+  contractorId: string
+  project: string
+  projectId: string
+  invoiceNumber: string
+  amount: number
+  holdback: number
+  netPayable: number
+  status: string
+  documentUrl: string
+  invoiceDate: string
+  dueDate: string
+}
 
 // Database invoice_status enum: 'draft', 'submitted', 'pending_approval', 'approved', 'rejected', 'paid', 'partially_paid', 'disputed'
 type InvoiceStatus = 'draft' | 'submitted' | 'pending_approval' | 'approved' | 'rejected' | 'paid' | 'partially_paid' | 'disputed'
@@ -159,7 +93,7 @@ function AccountantQueueContent() {
   }
   
   // Invoice state - fetched from server action
-  const [invoices, setInvoices] = useState<typeof mockInvoices>([])
+  const [invoices, setInvoices] = useState<QueueInvoice[]>([])
   const [loading, setLoading] = useState(true)
   const [mounted, setMounted] = useState(false)
   
@@ -170,17 +104,19 @@ function AccountantQueueContent() {
   const { navigateTo } = useWorkflowNavigation()
   
   // Navigate to invoice with context
-  const goToInvoice = useCallback((invoice: typeof mockInvoices[0]) => {
+  const goToInvoice = useCallback((invoice: QueueInvoice) => {
     navigateTo(`/accountant/invoices/${invoice.id}`, { title: invoice.invoiceNumber })
   }, [navigateTo])
   
   // Initialize state from URL params
   const [searchQuery, setSearchQuery] = useState(searchParams.get('q') || '')
   const [statusFilter, setStatusFilter] = useState<string>(searchParams.get('status') || 'all')
-  const [selectedInvoice, setSelectedInvoice] = useState<typeof mockInvoices[0] | null>(null)
+  const [selectedInvoice, setSelectedInvoice] = useState<QueueInvoice | null>(null)
   const [isReviewOpen, setIsReviewOpen] = useState(false)
   const [isDisputeOpen, setIsDisputeOpen] = useState(false)
   const [disputeReason, setDisputeReason] = useState('')
+  const [isRejectOpen, setIsRejectOpen] = useState(false)
+  const [rejectReason, setRejectReason] = useState('')
   const [shortPayAmount, setShortPayAmount] = useState('')
   const [isProcessing, setIsProcessing] = useState(false)
   
@@ -292,7 +228,7 @@ function AccountantQueueContent() {
     })
   }
 
-  const handleReview = (invoice: typeof mockInvoices[0]) => {
+  const handleReview = (invoice: QueueInvoice) => {
     setSelectedInvoice(invoice)
     setIsReviewOpen(true)
   }
@@ -319,12 +255,37 @@ function AccountantQueueContent() {
     setIsProcessing(false)
   }
 
-  const handleRouteToPM = async () => {
+  const handleReject = async () => {
+    if (!selectedInvoice) return
+
+    if (!rejectReason.trim()) {
+      toast({
+        title: 'Reason required',
+        description: 'Please provide a reason before rejecting this invoice.',
+        variant: 'destructive',
+      })
+      return
+    }
+
     setIsProcessing(true)
-    await new Promise(resolve => setTimeout(resolve, 1000))
+    const result = await rejectInvoice({ invoice_id: selectedInvoice.id, reason: rejectReason })
+
+    if (result.success) {
+      toast({
+        title: 'Invoice Rejected',
+        description: `Invoice ${selectedInvoice.invoiceNumber} has been rejected. The contractor has been notified.`,
+      })
+      setIsRejectOpen(false)
+      setIsReviewOpen(false)
+      setRejectReason('')
+    } else {
+      toast({
+        title: 'Rejection Failed',
+        description: result.error || 'Failed to reject invoice.',
+        variant: 'destructive',
+      })
+    }
     setIsProcessing(false)
-    setIsReviewOpen(false)
-    // In production, this would update the invoice status and notify PM
   }
 
   const handleDispute = async () => {
@@ -752,28 +713,32 @@ return (
 
                 {/* Action Buttons */}
                 <div className="space-y-3 pt-4 border-t border-border">
-                  <Button 
-                    className="w-full h-12 touch-manipulation" 
-                    onClick={handleApprove}
-                    disabled={isProcessing}
-                  >
-                    {isProcessing ? (
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    ) : (
-                      <Check className="w-4 h-4 mr-2" />
-                    )}
-                    Approve for Payment
-                  </Button>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {canApprove && (
                     <Button 
-                      variant="secondary" 
-                      className="h-12 touch-manipulation"
-                      onClick={handleRouteToPM}
+                      className="w-full h-12 touch-manipulation" 
+                      onClick={handleApprove}
                       disabled={isProcessing}
                     >
-                      <Send className="w-4 h-4 mr-2" />
-                      Route to PM
+                      {isProcessing ? (
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      ) : (
+                        <Check className="w-4 h-4 mr-2" />
+                      )}
+                      Approve for Payment
                     </Button>
+                  )}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {canReject && (
+                      <Button 
+                        variant="outline" 
+                        className="h-12 text-destructive hover:text-destructive touch-manipulation"
+                        onClick={() => setIsRejectOpen(true)}
+                        disabled={isProcessing}
+                      >
+                        <XCircle className="w-4 h-4 mr-2" />
+                        Reject
+                      </Button>
+                    )}
                     <Button 
                       variant="outline" 
                       className="h-12 text-destructive hover:text-destructive touch-manipulation"
@@ -851,6 +816,50 @@ return (
                 <XCircle className="w-4 h-4 mr-2" />
               )}
               Submit Dispute
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Reject Modal */}
+      <Dialog open={isRejectOpen} onOpenChange={setIsRejectOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <XCircle className="w-5 h-5 text-destructive" />
+              Reject Invoice
+            </DialogTitle>
+            <DialogDescription>
+              Rejecting returns this invoice to the contractor. Provide a clear reason — they will be notified.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-2">
+            <Label htmlFor="rejectReason">Reason for Rejection *</Label>
+            <Textarea
+              id="rejectReason"
+              placeholder="Explain why this invoice is being rejected..."
+              rows={4}
+              value={rejectReason}
+              onChange={(e) => setRejectReason(e.target.value)}
+            />
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsRejectOpen(false)}>
+              Cancel
+            </Button>
+            <Button 
+              variant="destructive" 
+              onClick={handleReject}
+              disabled={!rejectReason.trim() || isProcessing}
+            >
+              {isProcessing ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <XCircle className="w-4 h-4 mr-2" />
+              )}
+              Reject Invoice
             </Button>
           </DialogFooter>
         </DialogContent>

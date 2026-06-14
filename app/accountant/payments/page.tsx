@@ -223,9 +223,7 @@ export default function PaymentsPage() {
           contractorId: (inv.contractor as Record<string, unknown>)?.id as string || '',
           bankInfo: (() => {
             const c = inv.contractor as Record<string, unknown>
-            const last4 =
-              (c?.bank_account_last4 as string) ||
-              ((c?.bank_account_number as string) ? (c.bank_account_number as string).slice(-4) : '')
+            const last4 = (c?.bank_account_last4 as string) || ''
             return last4 ? `**** ${last4}` : 'Not set'
           })(),
           project: (inv.project as Record<string, unknown>)?.name as string || 'Unknown',

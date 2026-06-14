@@ -966,7 +966,6 @@ export async function getInvoiceById(invoiceId: string) {
           postal_code,
           bank_name,
           bank_account_last4,
-          bank_account_number,
           wcb_clearance_expiry,
           status
         ),
@@ -1152,9 +1151,7 @@ export async function getContractorById(contractorId: string) {
         province,
         postal_code,
         bank_name,
-        bank_institution_number,
-        bank_transit_number,
-        bank_account_number,
+        bank_account_last4,
         wcb_clearance_expiry,
         wcb_account_number,
         business_number,
@@ -1236,9 +1233,7 @@ export async function getApprovedInvoices(options?: { limit?: number }) {
           id,
           company_name,
           wcb_clearance_expiry,
-          bank_institution_number,
-          bank_transit_number,
-          bank_account_number
+          bank_account_last4
         ),
         project:projects(id, name, project_number)
       `)
@@ -1306,9 +1301,7 @@ export async function getApprovedCertificatesForPayment(options?: { limit?: numb
             id, 
             company_name,
             bank_name,
-            bank_institution_number,
-            bank_transit_number,
-            bank_account_number,
+            bank_account_last4,
             wcb_clearance_expiry
           )
         ),
