@@ -18,7 +18,11 @@ import {
   ShieldAlert,
   Ban,
   FileWarning,
-  ExternalLink
+  ExternalLink,
+  Clock,
+  History,
+  ChevronDown,
+  X
 } from 'lucide-react'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
@@ -48,7 +52,7 @@ import {
 import { useToast } from '@/hooks/use-toast'
 import { sendBatchPaymentNotifications } from '@/lib/notifications'
 import { createClient } from '@/lib/supabase/client'
-import { executeEFTPayment, processPayments, getApprovedInvoices, getApprovedCertificatesForPayment, recordCertificatePayment } from '../actions'
+import { executeEFTPayment, processPayments, getApprovedInvoices, getApprovedCertificatesForPayment, recordCertificatePayment, getRecentPayments, getRecentPaymentTotals } from '../actions'
 import { usePermissions } from '@/hooks/use-permissions'
 import { AppHeader } from '@/components/app-header'
 import { RoleTabBar } from '@/components/role-tab-bar'
@@ -138,6 +142,45 @@ export default function PaymentsPage() {
   const [certPaymentLoading, setCertPaymentLoading] = useState<string | null>(null)
   const [certReviewDialogOpen, setCertReviewDialogOpen] = useState(false)
   const [certToReview, setCertToReview] = useState<typeof approvedCerts[0] | null>(null)
+
+  // Quick-filter driven by the summary cards. Lets the accountant jump straight
+  // to the most urgent payable invoices in one click (no search/scroll).
+  const [urgencyFilter, setUrgencyFilter] = useState<'all' | 'overdue' | 'due_week'>('all')
+
+  // Completed-work context: recent payments + paid-today/this-week totals.
+  type RecentPayment = {
+    id: string
+    amount_cents: number
+    payment_method: string
+    payment_date: string | null
+    status: string | null
+    contractor: { company_name?: string } | null
+    payment_request: { request_number?: string; invoice?: { invoice_number?: string } | null } | null
+    certificate: { certificate_number?: string } | null
+  }
+  const [recentPayments, setRecentPayments] = useState<RecentPayment[]>([])
+  const [paidTotals, setPaidTotals] = useState({ paidToday: 0, paidTodayCount: 0, paidWeek: 0, paidWeekCount: 0 })
+  const [recentOpen, setRecentOpen] = useState(false)
+
+  // Load recent-payment context (totals + last 10). Re-runs after a payment via refreshKey.
+  const [refreshKey, setRefreshKey] = useState(0)
+  useEffect(() => {
+    const loadRecent = async () => {
+      const [totals, recent] = await Promise.all([getRecentPaymentTotals(), getRecentPayments({ limit: 10 })])
+      if (totals.success) {
+        setPaidTotals({
+          paidToday: totals.paidToday ?? 0,
+          paidTodayCount: totals.paidTodayCount ?? 0,
+          paidWeek: totals.paidWeek ?? 0,
+          paidWeekCount: totals.paidWeekCount ?? 0,
+        })
+      }
+      if (recent.success && Array.isArray(recent.payments)) {
+        setRecentPayments(recent.payments as unknown as RecentPayment[])
+      }
+    }
+    loadRecent()
+  }, [refreshKey])
 
   // Fetch approved invoices from server action
   useEffect(() => {
@@ -251,6 +294,7 @@ export default function PaymentsPage() {
         description: result.message || 'Payment recorded successfully.',
       })
       setApprovedCerts(prev => prev.filter(c => c.id !== certId))
+      setRefreshKey(k => k + 1) // refresh Paid totals + Recently Paid
     } else {
       toast({
         title: 'Payment Failed',
@@ -319,11 +363,54 @@ export default function PaymentsPage() {
   // Count blocked invoices
   const blockedCount = Object.values(invoiceCompliance).filter(c => c.isBlocked).length
 
-  const filteredInvoices = invoices.filter(inv => 
-    inv.contractor.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    inv.project.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    inv.invoiceNumber.toLowerCase().includes(searchTerm.toLowerCase())
-  )
+  // --- Urgency framing (drives the summary band, quick-filters, and sorting) ---
+  const startOfToday = new Date()
+  startOfToday.setHours(0, 0, 0, 0)
+  const inSevenDays = new Date(startOfToday)
+  inSevenDays.setDate(inSevenDays.getDate() + 7)
+
+  const parseDue = (inv: ApprovedInvoice) => {
+    if (!inv.dueDate) return null
+    const d = new Date(inv.dueDate)
+    return Number.isNaN(d.getTime()) ? null : d
+  }
+  const isOverdueToPay = (inv: ApprovedInvoice) => {
+    const d = parseDue(inv)
+    return d !== null && d < startOfToday
+  }
+  const isDueThisWeek = (inv: ApprovedInvoice) => {
+    const d = parseDue(inv)
+    return d !== null && d >= startOfToday && d <= inSevenDays
+  }
+  // Rank for action-first ordering: overdue → due this week → later (dated) → no due date.
+  const urgencyRank = (inv: ApprovedInvoice) => {
+    if (isOverdueToPay(inv)) return 0
+    if (isDueThisWeek(inv)) return 1
+    return parseDue(inv) ? 2 : 3
+  }
+
+  // Search + quick-filter, then sort so the most urgent payable invoices are
+  // always at the top — the accountant sees "pay these now" without scrolling.
+  const filteredInvoices = invoices
+    .filter(inv =>
+      inv.contractor.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      inv.project.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      inv.invoiceNumber.toLowerCase().includes(searchTerm.toLowerCase())
+    )
+    .filter(inv => {
+      if (urgencyFilter === 'overdue') return isOverdueToPay(inv)
+      if (urgencyFilter === 'due_week') return isDueThisWeek(inv)
+      return true
+    })
+    .sort((a, b) => {
+      const ra = urgencyRank(a)
+      const rb = urgencyRank(b)
+      if (ra !== rb) return ra - rb
+      const da = parseDue(a)
+      const db = parseDue(b)
+      if (da && db) return da.getTime() - db.getTime() // soonest due first within a group
+      return 0
+    })
 
   const toggleSelect = (id: string) => {
     // Don't allow selecting blocked invoices
@@ -465,6 +552,7 @@ export default function PaymentsPage() {
     setInvoices(prev => prev.filter(inv => !selectedIds.has(inv.id)))
     setSelectedIds(new Set())
     setSuccessDialogOpen(true)
+    setRefreshKey(k => k + 1) // refresh Paid totals + Recently Paid
   }
 
   const formatCurrency = (amount: number) => {
@@ -495,26 +583,6 @@ export default function PaymentsPage() {
 
   const totalPending = invoices.reduce((sum, inv) => sum + inv.netPayable, 0)
 
-  // Due/overdue framing so the accountant immediately sees what must go out now.
-  const startOfToday = new Date()
-  startOfToday.setHours(0, 0, 0, 0)
-  const inSevenDays = new Date(startOfToday)
-  inSevenDays.setDate(inSevenDays.getDate() + 7)
-
-  const parseDue = (inv: ApprovedInvoice) => {
-    if (!inv.dueDate) return null
-    const d = new Date(inv.dueDate)
-    return Number.isNaN(d.getTime()) ? null : d
-  }
-  const isOverdueToPay = (inv: ApprovedInvoice) => {
-    const d = parseDue(inv)
-    return d !== null && d < startOfToday
-  }
-  const isDueThisWeek = (inv: ApprovedInvoice) => {
-    const d = parseDue(inv)
-    return d !== null && d >= startOfToday && d <= inSevenDays
-  }
-
   const overdueInvoices = invoices.filter(isOverdueToPay)
   const overdueTotal = overdueInvoices.reduce((sum, inv) => sum + inv.netPayable, 0)
   const dueThisWeekInvoices = invoices.filter(isDueThisWeek)
@@ -530,10 +598,16 @@ export default function PaymentsPage() {
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-6 py-8 space-y-6">
-        {/* Money-first summary band - answers "what must go out now" at a glance */}
+        {/* Money-first summary band - answers "what must go out now" at a glance.
+            The first three cards are quick-filters: one click narrows the list. */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          {/* Overdue to Pay */}
-          <div className={`bg-card border rounded-xl p-5 ${overdueInvoices.length > 0 ? 'border-destructive/40' : 'border-border'}`}>
+          {/* Overdue to Pay (quick-filter) */}
+          <button
+            type="button"
+            onClick={() => setUrgencyFilter(f => (f === 'overdue' ? 'all' : 'overdue'))}
+            aria-pressed={urgencyFilter === 'overdue'}
+            className={`text-left bg-card border rounded-xl p-5 transition-colors hover:border-destructive/50 ${urgencyFilter === 'overdue' ? 'border-destructive ring-2 ring-destructive/30' : overdueInvoices.length > 0 ? 'border-destructive/40' : 'border-border'}`}
+          >
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 bg-destructive/10 rounded-lg flex items-center justify-center flex-shrink-0">
                 <AlertTriangle className="w-5 h-5 text-destructive" />
@@ -544,9 +618,14 @@ export default function PaymentsPage() {
                 <p className="text-xs font-medium text-destructive">{overdueInvoices.length} invoice{overdueInvoices.length === 1 ? '' : 's'}</p>
               </div>
             </div>
-          </div>
-          {/* Due This Week */}
-          <div className="bg-card border border-border rounded-xl p-5">
+          </button>
+          {/* Due This Week (quick-filter) */}
+          <button
+            type="button"
+            onClick={() => setUrgencyFilter(f => (f === 'due_week' ? 'all' : 'due_week'))}
+            aria-pressed={urgencyFilter === 'due_week'}
+            className={`text-left bg-card border rounded-xl p-5 transition-colors hover:border-warning/50 ${urgencyFilter === 'due_week' ? 'border-warning ring-2 ring-warning/30' : 'border-border'}`}
+          >
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 bg-warning/10 rounded-lg flex items-center justify-center flex-shrink-0">
                 <Banknote className="w-5 h-5 text-warning" />
@@ -557,9 +636,14 @@ export default function PaymentsPage() {
                 <p className="text-xs font-medium text-foreground/70">{dueThisWeekInvoices.length} invoice{dueThisWeekInvoices.length === 1 ? '' : 's'}</p>
               </div>
             </div>
-          </div>
-          {/* Ready to Pay (all approved) */}
-          <div className="bg-card border border-border rounded-xl p-5">
+          </button>
+          {/* Ready to Pay (resets the quick-filter) */}
+          <button
+            type="button"
+            onClick={() => setUrgencyFilter('all')}
+            aria-pressed={urgencyFilter === 'all'}
+            className={`text-left bg-card border rounded-xl p-5 transition-colors hover:border-success/50 ${urgencyFilter === 'all' ? 'border-success ring-2 ring-success/30' : 'border-border'}`}
+          >
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 bg-success/10 rounded-lg flex items-center justify-center flex-shrink-0">
                 <CheckCircle className="w-5 h-5 text-success" />
@@ -570,7 +654,7 @@ export default function PaymentsPage() {
                 <p className="text-xs font-medium text-foreground/70">{invoices.length} invoice{invoices.length === 1 ? '' : 's'}</p>
               </div>
             </div>
-          </div>
+          </button>
           {/* In This Run (selected) */}
           <div className={`bg-card border rounded-xl p-5 ${selectedIds.size > 0 ? 'border-primary/40' : 'border-border'}`}>
             <div className="flex items-center gap-3">
@@ -585,6 +669,46 @@ export default function PaymentsPage() {
             </div>
           </div>
         </div>
+
+        {/* Completed-work reference: paid today / this week */}
+        <div className="grid grid-cols-2 gap-4">
+          <div className="bg-card border border-border rounded-xl p-4 flex items-center gap-3">
+            <div className="w-9 h-9 bg-muted rounded-lg flex items-center justify-center flex-shrink-0">
+              <Clock className="w-4 h-4 text-muted-foreground" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-lg font-semibold leading-tight truncate">{formatCurrency(paidTotals.paidToday / 100)}</p>
+              <p className="text-xs text-muted-foreground truncate">Paid Today · {paidTotals.paidTodayCount} payment{paidTotals.paidTodayCount === 1 ? '' : 's'}</p>
+            </div>
+          </div>
+          <div className="bg-card border border-border rounded-xl p-4 flex items-center gap-3">
+            <div className="w-9 h-9 bg-muted rounded-lg flex items-center justify-center flex-shrink-0">
+              <History className="w-4 h-4 text-muted-foreground" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-lg font-semibold leading-tight truncate">{formatCurrency(paidTotals.paidWeek / 100)}</p>
+              <p className="text-xs text-muted-foreground truncate">Paid This Week · {paidTotals.paidWeekCount} payment{paidTotals.paidWeekCount === 1 ? '' : 's'}</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Active quick-filter indicator */}
+        {urgencyFilter !== 'all' && (
+          <div className="flex items-center gap-2 text-sm">
+            <span className="text-muted-foreground">Showing</span>
+            <span className="inline-flex items-center gap-1 rounded-full bg-muted px-3 py-1 font-medium">
+              {urgencyFilter === 'overdue' ? 'Overdue invoices' : 'Due this week'}
+              <button
+                type="button"
+                onClick={() => setUrgencyFilter('all')}
+                aria-label="Clear filter"
+                className="hover:text-destructive"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </span>
+          </div>
+        )}
 
         {/* Compliance Warning Banner */}
         {blockedCount > 0 && (
@@ -649,7 +773,9 @@ export default function PaymentsPage() {
             {filteredInvoices.length === 0 ? (
               <div className="text-center py-12">
                 <FileText className="w-12 h-12 mx-auto mb-3 opacity-20" />
-                <p className="text-muted-foreground">No invoices ready for payment</p>
+                <p className="text-muted-foreground">
+                  {urgencyFilter === 'overdue' ? 'No overdue invoices' : urgencyFilter === 'due_week' ? 'No invoices due this week' : 'No invoices ready for payment'}
+                </p>
               </div>
             ) : (
               filteredInvoices.map((invoice) => {
@@ -797,7 +923,7 @@ export default function PaymentsPage() {
                   <tr>
                     <td colSpan={10} className="px-6 py-12 text-center text-muted-foreground">
                       <FileText className="w-12 h-12 mx-auto mb-3 opacity-20" />
-                      <p>No invoices ready for payment</p>
+                      <p>{urgencyFilter === 'overdue' ? 'No overdue invoices' : urgencyFilter === 'due_week' ? 'No invoices due this week' : 'No invoices ready for payment'}</p>
                     </td>
                   </tr>
                 ) : (
@@ -1178,6 +1304,54 @@ export default function PaymentsPage() {
             </tbody>
           </table>
         </div>
+      </div>
+
+      {/* Recently Paid — collapsed by default so it never competes with action items */}
+      <div className="bg-card border border-border rounded-xl overflow-hidden">
+        <button
+          type="button"
+          onClick={() => setRecentOpen(o => !o)}
+          aria-expanded={recentOpen}
+          className="w-full px-6 py-4 flex items-center justify-between gap-3 hover:bg-muted/30 transition-colors"
+        >
+          <div className="flex items-center gap-3 text-left">
+            <div className="w-9 h-9 bg-muted rounded-lg flex items-center justify-center flex-shrink-0">
+              <History className="w-4 h-4 text-muted-foreground" />
+            </div>
+            <div>
+              <h2 className="text-base font-semibold">Recently Paid</h2>
+              <p className="text-sm text-muted-foreground">Last {recentPayments.length} payment{recentPayments.length === 1 ? '' : 's'} for verification and reference</p>
+            </div>
+          </div>
+          <ChevronDown className={`w-5 h-5 text-muted-foreground transition-transform ${recentOpen ? 'rotate-180' : ''}`} />
+        </button>
+
+        {recentOpen && (
+          <div className="border-t border-border divide-y divide-border">
+            {recentPayments.length === 0 ? (
+              <div className="px-6 py-8 text-center text-sm text-muted-foreground">No payments recorded yet.</div>
+            ) : (
+              recentPayments.map(p => {
+                const ref = p.payment_request?.invoice?.invoice_number || p.certificate?.certificate_number || p.payment_request?.request_number || '—'
+                const method = methodLabels[p.payment_method as keyof typeof methodLabels] || p.payment_method
+                return (
+                  <div key={p.id} className="px-6 py-3 flex items-center justify-between gap-4">
+                    <div className="min-w-0">
+                      <p className="font-medium truncate">{p.contractor?.company_name || 'Unknown vendor'}</p>
+                      <p className="text-xs text-muted-foreground truncate">
+                        <code className="font-mono">{ref}</code> · {method} · {formatDate(p.payment_date || undefined)}
+                      </p>
+                    </div>
+                    <div className="text-right flex-shrink-0">
+                      <p className="font-semibold">{formatCurrency((p.amount_cents || 0) / 100)}</p>
+                      {p.status && <p className="text-xs text-success capitalize">{p.status}</p>}
+                    </div>
+                  </div>
+                )
+              })
+            )}
+          </div>
+        )}
       </div>
       </main>
 

@@ -1374,6 +1374,87 @@ export async function getApprovedInvoices(options?: { limit?: number }) {
   })
 }
 
+/**
+ * Summary totals for the payment dashboard: how much has gone out today and
+ * this calendar week. Keeps the accountant oriented on completed work alongside
+ * the "ready to pay" action items. Low row volume, so summed in JS.
+ */
+export async function getRecentPaymentTotals() {
+  return withPermission(PERMISSIONS.PAYMENTS.PROCESS_PAYMENTS, async () => {
+    const supabase = getSupabaseAdmin()
+
+    // Start of the current week (Monday), local-naive ISO date.
+    const now = new Date()
+    const day = now.getDay() // 0=Sun..6=Sat
+    const diffToMonday = (day + 6) % 7
+    const startOfWeek = new Date(now)
+    startOfWeek.setDate(now.getDate() - diffToMonday)
+    const weekStr = startOfWeek.toISOString().split('T')[0]
+    const todayStr = now.toISOString().split('T')[0]
+
+    const { data, error } = await supabase
+      .from('payments')
+      .select('amount_cents, payment_date')
+      .gte('payment_date', weekStr)
+
+    if (error) {
+      console.error('Get recent payment totals error:', error)
+      return { success: false, error: error.message, paidToday: 0, paidTodayCount: 0, paidWeek: 0, paidWeekCount: 0 }
+    }
+
+    const rows = data || []
+    let paidToday = 0, paidTodayCount = 0, paidWeek = 0, paidWeekCount = 0
+    for (const r of rows) {
+      paidWeek += r.amount_cents || 0
+      paidWeekCount += 1
+      if (r.payment_date === todayStr) {
+        paidToday += r.amount_cents || 0
+        paidTodayCount += 1
+      }
+    }
+
+    return { success: true, paidToday, paidTodayCount, paidWeek, paidWeekCount }
+  })
+}
+
+/**
+ * Most recent payments for quick verification and reference. Joins through
+ * payment_requests for the invoice number and to contractors for the name.
+ */
+export async function getRecentPayments(options?: { limit?: number }) {
+  return withPermission(PERMISSIONS.PAYMENTS.PROCESS_PAYMENTS, async () => {
+    const supabase = getSupabaseAdmin()
+
+    const { data, error } = await supabase
+      .from('payments')
+      .select(`
+        id,
+        amount_cents,
+        payment_method,
+        payment_date,
+        status,
+        cheque_number,
+        etransfer_reference,
+        wire_reference,
+        eft_file_id,
+        created_at,
+        contractor:contractors(id, company_name),
+        payment_request:payment_requests(id, invoice_id, request_number, invoice:invoices(invoice_number)),
+        certificate:payment_certificates(id, certificate_number)
+      `)
+      .order('payment_date', { ascending: false })
+      .order('created_at', { ascending: false })
+      .limit(options?.limit || 10)
+
+    if (error) {
+      console.error('Get recent payments error:', error)
+      return { success: false, error: error.message, payments: [] }
+    }
+
+    return { success: true, payments: data || [] }
+  })
+}
+
 // =====================================================
 // PAYMENT CERTIFICATE PAYMENT PROCESSING
 // =====================================================
