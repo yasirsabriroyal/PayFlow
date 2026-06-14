@@ -55,15 +55,22 @@ export const approveInvoice = secureAction(
     
     const supabase = getSupabaseAdmin()
     
-    // Get user record
+    // Get user record (incl. name + role for the status-change actor)
     const { data: userData } = await supabase
       .from('users')
-      .select('id, first_name, last_name, role')
+      .select('id, first_name, last_name, role, email')
       .eq('auth_user_id', user.id)
       .single()
     
     if (!userData) {
       throw new Error('User not found')
+    }
+
+    const eftActor = {
+      userId: userData.id,
+      name: `${userData.first_name ?? ''} ${userData.last_name ?? ''}`.trim() || userData.email || 'Accountant',
+      role: userData.role ?? 'accountant',
+      authUserId: user.id,
     }
     
     // Centralized transition: validates, updates status, writes audit + history,

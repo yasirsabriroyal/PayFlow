@@ -19,6 +19,22 @@ import {
   sendNotificationToRecipient,
   type InAppNotificationType,
 } from '@/lib/notifications/server-dispatch'
+import { resolveRecipients, type DistributionEvent } from '@/lib/notifications/distribution'
+
+/**
+ * Optional payment metadata used to enrich `paid` / `partially_paid`
+ * notifications (and to link the resulting communication records to the
+ * payment). Passed by the payment server actions.
+ */
+export interface PaymentNotificationContext {
+  paymentId?: string
+  paymentDate?: string
+  paymentReference?: string
+  paymentMethod?: string
+  issuedByName?: string
+  amountPaidCents?: number
+  receiptUrl?: string
+}
 
 export type InvoiceStatus =
   | 'draft'
@@ -65,6 +81,10 @@ export interface StatusChangeInput {
   reason?: string
   /** Extra column updates to apply alongside status (e.g. reject/dispute metadata) */
   extraInvoiceUpdates?: Record<string, unknown>
+  /** Reserved for per-tenant distribution policies (currently global). */
+  organizationId?: string | null
+  /** Payment metadata used to enrich + link `paid`/`partially_paid` notifications. */
+  paymentContext?: PaymentNotificationContext
 }
 
 export interface StatusChangeResult {
@@ -103,7 +123,7 @@ export function isTransitionAllowed(from: string | null, to: InvoiceStatus): boo
 export async function applyInvoiceStatusChange(
   input: StatusChangeInput
 ): Promise<StatusChangeResult> {
-  const { invoiceId, newStatus, actor, reason, extraInvoiceUpdates } = input
+  const { invoiceId, newStatus, actor, reason, extraInvoiceUpdates, organizationId, paymentContext } = input
   const supabase = getSupabaseAdmin()
 
   // 1. Load current invoice (status + routing fields)
@@ -181,6 +201,8 @@ export async function applyInvoiceStatusChange(
       newStatus,
       reason,
       actor,
+      organizationId,
+      payment: paymentContext,
     })
   } catch (e) {
     console.error('[status-flow] notification dispatch failed:', e)
@@ -202,32 +224,18 @@ interface DispatchInput {
   newStatus: InvoiceStatus
   reason?: string
   actor: StatusChangeActor
+  organizationId?: string | null
+  payment?: PaymentNotificationContext
 }
 
-interface ResolvedRecipient {
-  userId: string
-  name: string
-  email: string | null
-  phone: string | null
-  role: string
-  emailEnabled: boolean
-  smsEnabled: boolean
-  whatsAppEnabled: boolean
-}
-
-/**
- * Per-status recipient role routing (staff side). Contractor is resolved separately.
- */
-const STAFF_RECIPIENTS_BY_STATUS: Record<InvoiceStatus, Array<'admin' | 'accountant' | 'project_manager'>> = {
-  draft: [],
-  submitted: ['accountant', 'admin'], // + assigned PM (resolved separately)
-  pending_approval: ['accountant', 'admin'],
-  approved: ['accountant'], // + assigned PM, + contractor
-  rejected: [], // + assigned PM, + contractor
-  revision_requested: [], // contractor only (resolved separately)
-  disputed: ['accountant', 'admin'], // + assigned PM
-  partially_paid: ['admin'], // + assigned PM, + contractor
-  paid: ['admin'], // + assigned PM, + contractor
+interface PaidEnrichment {
+  vendorName?: string
+  projectName?: string
+  paymentDate?: string
+  paymentReference?: string
+  paymentMethod?: string
+  issuedByName?: string
+  receiptUrl?: string
 }
 
 function statusToInAppType(status: InvoiceStatus): InAppNotificationType {
@@ -251,11 +259,28 @@ function statusToInAppType(status: InvoiceStatus): InAppNotificationType {
   }
 }
 
+/**
+ * Detailed paid/partially_paid body. Internal copies (PM/Accountant/Admin) see
+ * vendor, project, payment date, reference, method, and who issued the payment.
+ */
+function buildPaidBody(invoiceNumber: string, amount: string, e?: PaidEnrichment): string {
+  const lines = [`Payment of ${amount} has been processed for invoice ${invoiceNumber}.`]
+  if (e?.vendorName) lines.push(`Vendor: ${e.vendorName}`)
+  if (e?.projectName) lines.push(`Project: ${e.projectName}`)
+  if (e?.paymentDate) lines.push(`Payment date: ${e.paymentDate}`)
+  if (e?.paymentReference) lines.push(`Reference: ${e.paymentReference}`)
+  if (e?.paymentMethod) lines.push(`Method: ${e.paymentMethod.toUpperCase()}`)
+  if (e?.issuedByName) lines.push(`Issued by: ${e.issuedByName}`)
+  if (e?.receiptUrl) lines.push(`Receipt: ${e.receiptUrl}`)
+  return lines.join('\n')
+}
+
 function buildMessage(
   status: InvoiceStatus,
   invoiceNumber: string,
   amount: string,
-  reason?: string
+  reason?: string,
+  enrichment?: PaidEnrichment
 ): { title: string; body: string } {
   switch (status) {
     case 'submitted':
@@ -275,9 +300,9 @@ function buildMessage(
     case 'disputed':
       return { title: `Invoice ${invoiceNumber} disputed`, body: reason ? `Disputed: ${reason}` : `Invoice for ${amount} has been flagged as disputed.` }
     case 'partially_paid':
-      return { title: `Invoice ${invoiceNumber} partially paid`, body: `A partial payment was recorded for invoice ${invoiceNumber}.` }
+      return { title: `Invoice ${invoiceNumber} partially paid`, body: buildPaidBody(invoiceNumber, amount, enrichment) }
     case 'paid':
-      return { title: `Invoice ${invoiceNumber} paid`, body: `Payment of ${amount} has been processed.` }
+      return { title: `Invoice ${invoiceNumber} paid`, body: buildPaidBody(invoiceNumber, amount, enrichment) }
     default:
       return { title: `Invoice ${invoiceNumber} updated`, body: `Invoice status changed to ${status}.` }
   }
@@ -287,132 +312,80 @@ function formatCents(cents: number): string {
   return new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD' }).format((cents ?? 0) / 100)
 }
 
-async function dispatchStatusNotifications(input: DispatchInput): Promise<void> {
+/**
+ * Load vendor + project names to enrich paid/partially_paid notifications.
+ * Only runs for payment events that carry a payment context.
+ */
+async function buildPaymentEnrichment(
+  status: InvoiceStatus,
+  contractorId: string | null,
+  projectId: string | null,
+  payment?: PaymentNotificationContext
+): Promise<PaidEnrichment | undefined> {
+  if ((status !== 'paid' && status !== 'partially_paid') || !payment) return undefined
   const supabase = getSupabaseAdmin()
-  const { newStatus, invoiceNumber, totalCents, contractorId, projectId, reason, actor } = input
+
+  let vendorName: string | undefined
+  let projectName: string | undefined
+  if (contractorId) {
+    const { data } = await supabase
+      .from('contractors')
+      .select('company_name, contact_name')
+      .eq('id', contractorId)
+      .maybeSingle()
+    vendorName = data?.company_name || data?.contact_name || undefined
+  }
+  if (projectId) {
+    const { data } = await supabase.from('projects').select('name').eq('id', projectId).maybeSingle()
+    projectName = data?.name || undefined
+  }
+
+  return {
+    vendorName,
+    projectName,
+    paymentDate: payment.paymentDate,
+    paymentReference: payment.paymentReference,
+    paymentMethod: payment.paymentMethod,
+    issuedByName: payment.issuedByName,
+    receiptUrl: payment.receiptUrl,
+  }
+}
+
+/**
+ * Fan out a status-change notification. Recipient routing is fully delegated to
+ * the configurable distribution framework (`resolveRecipients`), making it
+ * tenant-ready and free of hardcoded recipient lists.
+ */
+async function dispatchStatusNotifications(input: DispatchInput): Promise<void> {
+  const { newStatus, invoiceNumber, totalCents, contractorId, projectId, reason, actor, organizationId, payment } = input
+
+  // Resolve WHO gets notified from configuration (role / user / project-role / vendor).
+  const recipients = await resolveRecipients({
+    event: newStatus as DistributionEvent,
+    organizationId: organizationId ?? null,
+    contractorId,
+    projectId,
+    actorUserId: actor.userId,
+  })
+  if (recipients.length === 0) return
 
   const amount = formatCents(totalCents)
-  const { title, body } = buildMessage(newStatus, invoiceNumber, amount, reason)
+  const enrichment = await buildPaymentEnrichment(newStatus, contractorId, projectId, payment)
+  const { title, body } = buildMessage(newStatus, invoiceNumber, amount, reason, enrichment)
   const type = statusToInAppType(newStatus)
   const link = `/invoices/${input.invoiceId}`
 
-  const recipients = new Map<string, ResolvedRecipient>()
+  // Internal staff copied on this communication — recorded on each log row.
+  const ccRecipients = recipients
+    .filter((r) => r.role !== 'contractor')
+    .map((r) => ({ name: r.name, email: r.email, role: r.role }))
 
-  // --- Staff recipients by role ---
-  const staffRoles = STAFF_RECIPIENTS_BY_STATUS[newStatus] ?? []
-  if (staffRoles.length > 0) {
-    const { data: staff } = await supabase
-      .from('users')
-      .select('id, email, phone, first_name, last_name, role, notification_email, notification_phone, email_notifications_enabled, sms_notifications_enabled, whatsapp_notifications_enabled, is_active')
-      .in('role', staffRoles)
-      .eq('is_active', true)
-
-    for (const u of staff ?? []) {
-      recipients.set(u.id, {
-        userId: u.id,
-        name: `${u.first_name ?? ''} ${u.last_name ?? ''}`.trim() || 'User',
-        email: u.notification_email || u.email,
-        phone: u.notification_phone || u.phone,
-        role: u.role,
-        emailEnabled: u.email_notifications_enabled ?? true,
-        smsEnabled: u.sms_notifications_enabled ?? true,
-        whatsAppEnabled: u.whatsapp_notifications_enabled ?? false,
-      })
-    }
-  }
-
-  // --- Assigned PM(s) for the project ---
-  const pmStatuses: InvoiceStatus[] = ['submitted', 'pending_approval', 'approved', 'rejected', 'disputed', 'paid', 'partially_paid']
-  if (projectId && pmStatuses.includes(newStatus)) {
-    const { data: assignments } = await supabase
-      .from('project_assignments')
-      .select('user_id, users:user_id (id, email, phone, first_name, last_name, role, notification_email, notification_phone, email_notifications_enabled, sms_notifications_enabled, whatsapp_notifications_enabled, is_active)')
-      .eq('project_id', projectId)
-
-    for (const a of assignments ?? []) {
-      const rawUsers = (a as { users?: unknown }).users
-      const u = (Array.isArray(rawUsers) ? rawUsers[0] : rawUsers) as Record<string, unknown> | undefined
-      if (u && u.is_active && u.role === 'project_manager') {
-        recipients.set(u.id as string, {
-          userId: u.id as string,
-          name: `${u.first_name ?? ''} ${u.last_name ?? ''}`.trim() || 'Project Manager',
-          email: (u.notification_email as string) || (u.email as string),
-          phone: (u.notification_phone as string) || (u.phone as string),
-          role: u.role as string,
-          emailEnabled: (u.email_notifications_enabled as boolean) ?? true,
-          smsEnabled: (u.sms_notifications_enabled as boolean) ?? true,
-          whatsAppEnabled: (u.whatsapp_notifications_enabled as boolean) ?? false,
-        })
-      }
-    }
-  }
-
-  // --- Contractor (for approved / rejected / revision / paid / partially_paid) ---
-  const contractorStatuses: InvoiceStatus[] = ['approved', 'rejected', 'revision_requested', 'paid', 'partially_paid']
-  if (contractorId && contractorStatuses.includes(newStatus)) {
-    const { data: contractor } = await supabase
-      .from('contractors')
-      .select('id, auth_user_id, company_name, contact_name, email, phone')
-      .eq('id', contractorId)
-      .single()
-
-    if (contractor) {
-      // Map to a users row for in-app delivery (if the contractor has portal access)
-      let contractorUserId: string | null = null
-      if (contractor.auth_user_id) {
-        const { data: cu } = await supabase
-          .from('users')
-          .select('id, email_notifications_enabled, sms_notifications_enabled, whatsapp_notifications_enabled')
-          .eq('auth_user_id', contractor.auth_user_id)
-          .maybeSingle()
-        contractorUserId = cu?.id ?? null
-
-        if (contractorUserId) {
-          recipients.set(contractorUserId, {
-            userId: contractorUserId,
-            name: contractor.contact_name || contractor.company_name || 'Contractor',
-            email: contractor.email,
-            phone: contractor.phone,
-            role: 'contractor',
-            emailEnabled: cu?.email_notifications_enabled ?? true,
-            smsEnabled: cu?.sms_notifications_enabled ?? true,
-            whatsAppEnabled: cu?.whatsapp_notifications_enabled ?? false,
-          })
-        }
-      }
-
-      // Contractor without portal account: still send email/WhatsApp (no in-app row)
-      if (!contractorUserId && (contractor.email || contractor.phone)) {
-        await sendNotificationToRecipient({
-          recipientUserId: null,
-          recipient: {
-            id: contractor.id,
-            name: contractor.contact_name || contractor.company_name || 'Contractor',
-            email: contractor.email ?? undefined,
-            phone: contractor.phone ?? undefined,
-            role: 'contractor',
-          },
-          type,
-          title,
-          body,
-          link,
-          invoiceId: input.invoiceId,
-          context: { invoiceId: input.invoiceId, contractorId: contractor.id, projectId: projectId ?? undefined, triggeredBy: actor.userId ?? undefined },
-        })
-      }
-    }
-  }
-
-  // --- Exclude the actor from their own notifications ---
-  if (actor.userId) recipients.delete(actor.userId)
-
-  // --- Fan out to all resolved (users-table) recipients ---
   await Promise.all(
-    Array.from(recipients.values()).map((r) =>
+    recipients.map((r) =>
       sendNotificationToRecipient({
         recipientUserId: r.userId,
         recipient: {
-          id: r.userId,
+          id: r.userId ?? r.contractorId ?? undefined,
           name: r.name,
           email: r.email ?? undefined,
           phone: r.phone ?? undefined,
@@ -426,7 +399,14 @@ async function dispatchStatusNotifications(input: DispatchInput): Promise<void> 
         body,
         link,
         invoiceId: input.invoiceId,
-        context: { invoiceId: input.invoiceId, contractorId: contractorId ?? undefined, projectId: projectId ?? undefined, triggeredBy: actor.userId ?? undefined },
+        context: {
+          invoiceId: input.invoiceId,
+          contractorId: contractorId ?? undefined,
+          projectId: projectId ?? undefined,
+          triggeredBy: actor.userId ?? undefined,
+          paymentId: payment?.paymentId,
+          ccRecipients,
+        },
       })
     )
   )

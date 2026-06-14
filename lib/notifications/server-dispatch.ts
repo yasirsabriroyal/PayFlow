@@ -46,6 +46,10 @@ export interface DispatchContext {
   contractorId?: string
   projectId?: string
   triggeredBy?: string
+  /** Links the communication/in-app record to a specific payment. */
+  paymentId?: string
+  /** Internal recipients copied on this communication, stored for the audit trail. */
+  ccRecipients?: Array<{ name: string; email?: string | null; role?: string }>
 }
 
 export interface DispatchArgs {
@@ -106,9 +110,12 @@ async function logDelivery(
       recipient_role: args.recipient.role,
       subject: args.title,
       message_preview: args.body?.substring(0, 500),
+      email_body: channel === 'email' ? args.body : null,
+      cc_recipients: args.context.ccRecipients ? args.context.ccRecipients : null,
       invoice_id: args.context.invoiceId,
       project_id: args.context.projectId,
       contractor_id: args.context.contractorId,
+      payment_id: args.context.paymentId ?? null,
       status,
       triggered_by: args.context.triggeredBy,
     })
@@ -300,6 +307,8 @@ export async function sendNotificationToRecipient(args: DispatchArgs): Promise<D
         body: args.body,
         link,
         invoice_id: args.invoiceId,
+        project_id: args.context.projectId ?? null,
+        payment_id: args.context.paymentId ?? null,
       })
       result.inApp = true
       await logDelivery(supabase, args, 'in_app', 'sent')
