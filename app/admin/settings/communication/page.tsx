@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { getCompanySettings, updateCompanySettings } from '@/app/admin/actions'
-import { renderBrandingPreview } from './actions'
+import { renderBrandingPreview, getPlanEntitlements, setWhiteLabel } from './actions'
 import { TemplateEditor } from '@/components/communication/template-editor'
 import { Palette, CheckCircle, Lock, AlertTriangle, Loader2, Mail, ExternalLink, Info, History } from 'lucide-react'
 
@@ -78,9 +78,24 @@ export default function BrandingCenterPage() {
   const [previewLoading, setPreviewLoading] = useState(false)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  // Plan entitlement state for the white-label gate.
+  const [planLabel, setPlanLabel] = useState<string>('Standard')
+  const [whiteLabelAllowed, setWhiteLabelAllowed] = useState(false)
+  const [wlSaving, setWlSaving] = useState(false)
+  const [wlError, setWlError] = useState<string | null>(null)
+
   useEffect(() => {
     async function load() {
-      const result = await getCompanySettings()
+      const [result, ent] = await Promise.all([getCompanySettings(), getPlanEntitlements()])
+
+      // Plan entitlement is authoritative for the white-label opt-in state.
+      let wlEnabled = false
+      if (ent && 'success' in ent && ent.success) {
+        setPlanLabel(ent.planLabel)
+        setWhiteLabelAllowed(ent.whiteLabelAllowed)
+        wlEnabled = ent.whiteLabelEnabled
+      }
+
       if (result && 'settings' in result && result.settings) {
         const s = result.settings as Record<string, string | boolean | null>
         setForm({
@@ -91,7 +106,7 @@ export default function BrandingCenterPage() {
           email: (s.email as string) ?? '',
           primary_color: (s.primary_color as string) || DEFAULT_PRIMARY,
           accent_color: (s.accent_color as string) || DEFAULT_ACCENT,
-          white_label_enabled: s.white_label_enabled === true,
+          white_label_enabled: wlEnabled,
         })
       }
       setLoading(false)
@@ -160,6 +175,26 @@ export default function BrandingCenterPage() {
       setError(err.message || 'An unexpected error occurred')
     } finally {
       setSaving(false)
+    }
+  }
+
+  async function handleWhiteLabelToggle(next: boolean) {
+    // Optimistic; server enforces the plan entitlement and is authoritative.
+    setForm((prev) => ({ ...prev, white_label_enabled: next }))
+    setWlSaving(true)
+    setWlError(null)
+    try {
+      const res = await setWhiteLabel(next)
+      if (!res || !('success' in res) || !res.success) {
+        throw new Error(res && 'error' in res && res.error ? res.error : 'Could not update white-label setting.')
+      }
+      // Reflect change in the live preview immediately.
+      refreshPreview({ ...form, white_label_enabled: next })
+    } catch (err: any) {
+      setForm((prev) => ({ ...prev, white_label_enabled: !next }))
+      setWlError(err.message || 'Could not update white-label setting.')
+    } finally {
+      setWlSaving(false)
     }
   }
 
@@ -280,17 +315,35 @@ export default function BrandingCenterPage() {
               <div className="bg-white border border-gray-200 rounded-xl p-6 space-y-3">
                 <div className="flex items-center justify-between">
                   <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">White-Label Footer</h2>
-                  <span className="inline-flex items-center gap-1 text-xs font-medium text-gray-500 bg-gray-100 px-2 py-1 rounded-full">
-                    <Lock className="w-3 h-3" /> Plan feature
+                  <span
+                    className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-1 rounded-full ${
+                      whiteLabelAllowed ? 'text-emerald-700 bg-emerald-50' : 'text-gray-500 bg-gray-100'
+                    }`}
+                  >
+                    {whiteLabelAllowed ? <CheckCircle className="w-3 h-3" /> : <Lock className="w-3 h-3" />}
+                    {planLabel} plan
                   </span>
                 </div>
-                <label className="flex items-center gap-3 opacity-60 cursor-not-allowed">
-                  <input type="checkbox" checked={form.white_label_enabled} disabled className="h-4 w-4" readOnly />
-                  <span className="text-sm text-gray-700">Remove the “Powered by PayFlow” footer</span>
+                <label
+                  className={`flex items-center gap-3 ${
+                    whiteLabelAllowed && !wlSaving ? 'cursor-pointer' : 'opacity-60 cursor-not-allowed'
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={form.white_label_enabled}
+                    disabled={!whiteLabelAllowed || wlSaving}
+                    onChange={(e) => handleWhiteLabelToggle(e.target.checked)}
+                    className="h-4 w-4"
+                  />
+                  <span className="text-sm text-gray-700">Remove the &ldquo;Powered by PayFlow&rdquo; footer</span>
+                  {wlSaving && <Loader2 className="w-3 h-3 text-gray-400 animate-spin" />}
                 </label>
+                {wlError && <p className="text-xs text-red-600">{wlError}</p>}
                 <p className="text-xs text-gray-500">
-                  White-label removal is governed by your plan entitlement and unlocks in a later release. Until then,
-                  the PayFlow footer is shown on all emails.
+                  {whiteLabelAllowed
+                    ? 'Your plan includes white-label. When enabled, outbound emails will not show the PayFlow footer.'
+                    : 'White-label removal is included on the Professional and Enterprise plans. The PayFlow footer is shown on all emails on your current plan.'}
                 </p>
               </div>
 

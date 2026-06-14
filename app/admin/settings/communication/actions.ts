@@ -7,7 +7,8 @@ import { getEmailBranding, type EmailBranding } from '@/lib/branding/get-active-
 import { renderBrandedEmail } from '@/lib/email/render-email'
 import { getSiteUrl } from '@/lib/site-url'
 import { getSupabaseAdmin } from '@/lib/supabase/admin'
-import { resolveActiveOrgId } from '@/lib/tenancy'
+import { resolveActiveOrg, resolveActiveOrgId } from '@/lib/tenancy'
+import { getOrgEntitlements } from '@/lib/entitlements'
 import { resolveInternalUserId } from '@/lib/utils/resolve-user'
 import {
   resolveTemplateSlots,
@@ -91,6 +92,63 @@ export async function renderBrandingPreview(input: BrandingPreviewInput) {
     })
 
     return { success: true as const, html }
+  })
+}
+
+/**
+ * Read the active organization's plan, its entitlements, and the current
+ * white-label opt-in state. Drives the plan-gated White-Label card in the
+ * Branding Center so the toggle reflects the real plan.
+ */
+export async function getPlanEntitlements() {
+  return withPermission(PERMISSIONS.ADMINISTRATION.MANAGE_USERS, async () => {
+    const [{ plan, planLabel, entitlements }, org] = await Promise.all([
+      getOrgEntitlements(null),
+      resolveActiveOrg(null),
+    ])
+    return {
+      success: true as const,
+      plan,
+      planLabel,
+      whiteLabelAllowed: entitlements.whiteLabel,
+      // The admin's opt-in toggle (only meaningful when allowed by the plan).
+      whiteLabelEnabled: org?.whiteLabelEnabled === true,
+    }
+  })
+}
+
+/**
+ * Persist the white-label opt-in on the active organization. Server-side
+ * ENFORCED: if the org's plan does not grant white-label, the request is
+ * rejected regardless of what the client sends.
+ */
+export async function setWhiteLabel(enabled: boolean) {
+  return withPermission(PERMISSIONS.ADMINISTRATION.MANAGE_USERS, async (userData) => {
+    const { entitlements } = await getOrgEntitlements(null)
+    if (!entitlements.whiteLabel) {
+      return { success: false as const, error: 'White-label is not included in your current plan.' }
+    }
+
+    const supabase = getSupabaseAdmin()
+    const orgId = await resolveActiveOrgId(null)
+    const { error } = await supabase
+      .from('organizations')
+      .update({ white_label_enabled: enabled, updated_at: new Date().toISOString() })
+      .eq('id', orgId)
+
+    if (error) return { success: false as const, error: error.message }
+
+    const internalUserId = await resolveInternalUserId(userData.id, supabase)
+    await supabase.from('audit_logs').insert({
+      action: 'white_label_updated',
+      entity_type: 'organization',
+      entity_id: orgId,
+      user_id: internalUserId,
+      new_values: { white_label_enabled: enabled },
+    })
+
+    revalidatePath('/admin/settings/communication')
+    return { success: true as const, whiteLabelEnabled: enabled }
   })
 }
 
