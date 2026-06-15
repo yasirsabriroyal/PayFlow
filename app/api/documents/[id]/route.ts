@@ -22,7 +22,7 @@ export async function GET(
     const adminSupabase = getSupabaseAdmin()
     const { data: document, error: dbError } = await adminSupabase
       .from('invoice_documents')
-      .select('file_url, file_name, file_type, uploaded_by')
+      .select('file_url, file_name, file_type, uploaded_by, uploaded_by_auth_id, invoice_id')
       .eq('id', id)
       .single()
 
@@ -40,8 +40,31 @@ export async function GET(
       .single()
     const isInternalStaff = userData?.role === 'admin' || userData?.role === 'project_manager' || userData?.role === 'accountant'
     const isUploader = !!userData?.id && document.uploaded_by === userData.id
+    // Contractors have no public.users row, so they're matched on the auth id
+    // we now record at upload time.
+    const isUploaderByAuth = document.uploaded_by_auth_id === user.id
 
-    if (!isInternalStaff && !isUploader) {
+    // Fallback for contractors: allow access when this auth user owns the
+    // invoice the document belongs to (covers legacy rows missing the auth id).
+    let isInvoiceOwner = false
+    if (!isInternalStaff && !isUploader && !isUploaderByAuth && document.invoice_id) {
+      const { data: contractor } = await adminSupabase
+        .from('contractors')
+        .select('id')
+        .eq('auth_user_id', user.id)
+        .maybeSingle()
+
+      if (contractor?.id) {
+        const { data: invoice } = await adminSupabase
+          .from('invoices')
+          .select('contractor_id')
+          .eq('id', document.invoice_id)
+          .maybeSingle()
+        isInvoiceOwner = invoice?.contractor_id === contractor.id
+      }
+    }
+
+    if (!isInternalStaff && !isUploader && !isUploaderByAuth && !isInvoiceOwner) {
        return NextResponse.json({ error: 'Unauthorized to access this document' }, { status: 403 })
     }
 

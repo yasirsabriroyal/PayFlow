@@ -3,6 +3,7 @@
 import { useState, useCallback, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import { upload } from '@vercel/blob/client'
 import { Building2, Upload, FileText, Calculator, ArrowLeft, Check, X, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -34,7 +35,9 @@ export default function SubmitInvoicePage() {
   const [invoiceDate, setInvoiceDate] = useState('')
   const [subtotal, setSubtotal] = useState('')
   const [applyHoldback, setApplyHoldback] = useState(true)
-  const [uploadedFile, setUploadedFile] = useState<File | null>(null)
+  const [files, setFiles] = useState<File[]>([])
+  // Per-file upload progress (0-100), aligned to `files` by index.
+  const [uploadProgress, setUploadProgress] = useState<number[]>([])
   const [taxRate, setTaxRate] = useState<ProjectTaxRate | null>(null)
   const [taxLoading, setTaxLoading] = useState(false)
 
@@ -51,6 +54,74 @@ export default function SubmitInvoicePage() {
     ? `HST (${(taxRate.gstHstRate * 100).toFixed(0)}%)`
     : `GST (${((taxRate?.gstHstRate ?? 0) * 100).toFixed(0)}%)`
 
+  // Allowed file types — kept in sync with the upload-token route and server.
+  const MAX_FILE_SIZE = 15 * 1024 * 1024 // 15 MB
+  const ALLOWED_EXTENSIONS = ['.pdf', '.jpg', '.jpeg', '.png', '.heic', '.heif']
+  const ALLOWED_MIME = [
+    'application/pdf',
+    'image/jpeg',
+    'image/png',
+    'image/heic',
+    'image/heif',
+  ]
+
+  // Validate a single file by MIME type (with an extension fallback, since some
+  // browsers report an empty type for HEIC) and size. Returns an error or null.
+  const validateFile = (file: File): string | null => {
+    const lowerName = file.name.toLowerCase()
+    const extOk = ALLOWED_EXTENSIONS.some((ext) => lowerName.endsWith(ext))
+    const mimeOk = file.type ? ALLOWED_MIME.includes(file.type) : false
+    if (!extOk && !mimeOk) {
+      return 'Unsupported file type. Use PDF, JPG, PNG, or HEIC.'
+    }
+    if (file.size === 0) {
+      return 'File is empty.'
+    }
+    if (file.size > MAX_FILE_SIZE) {
+      return 'File exceeds the 15 MB limit.'
+    }
+    return null
+  }
+
+  // Add files from a picker or drop, validating each and de-duplicating by
+  // name + size. Invalid files are reported via toast and skipped.
+  const addFiles = useCallback(
+    (incoming: FileList | File[]) => {
+      const accepted: File[] = []
+      const rejected: string[] = []
+
+      Array.from(incoming).forEach((file) => {
+        const error = validateFile(file)
+        if (error) {
+          rejected.push(`${file.name}: ${error}`)
+        } else {
+          accepted.push(file)
+        }
+      })
+
+      if (accepted.length > 0) {
+        setFiles((prev) => {
+          const seen = new Set(prev.map((f) => `${f.name}:${f.size}`))
+          const deduped = accepted.filter((f) => !seen.has(`${f.name}:${f.size}`))
+          return [...prev, ...deduped]
+        })
+      }
+
+      if (rejected.length > 0) {
+        toast({
+          title: 'Some files were not added',
+          description: rejected.join(' '),
+          variant: 'destructive',
+        })
+      }
+    },
+    [toast],
+  )
+
+  const removeFile = (index: number) => {
+    setFiles((prev) => prev.filter((_, i) => i !== index))
+  }
+
   // File upload handlers
   const handleDrag = useCallback((e: React.DragEvent) => {
     e.preventDefault()
@@ -66,19 +137,18 @@ export default function SubmitInvoicePage() {
     e.preventDefault()
     e.stopPropagation()
     setDragActive(false)
-    
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      const file = e.dataTransfer.files[0]
-      if (file.type === 'application/pdf') {
-        setUploadedFile(file)
-      }
+
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      addFiles(e.dataTransfer.files)
     }
-  }, [])
+  }, [addFiles])
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      setUploadedFile(e.target.files[0])
+    if (e.target.files && e.target.files.length > 0) {
+      addFiles(e.target.files)
     }
+    // Reset the input so re-selecting the same file fires onChange again.
+    e.target.value = ''
   }
 
   const [projects, setProjects] = useState<{ id: string, name: string, project_number: string }[]>([])
@@ -117,9 +187,52 @@ export default function SubmitInvoicePage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+
+    if (files.length === 0) {
+      toast({
+        title: 'Invoice document required',
+        description: 'Please attach at least one invoice file before submitting.',
+        variant: 'destructive',
+      })
+      return
+    }
+
     setIsSubmitting(true)
+    setUploadProgress(new Array(files.length).fill(0))
 
     try {
+      // 1. Upload each file directly to Vercel Blob (bypasses the 1 MB Server
+      //    Action limit). Collect the resulting metadata to link server-side.
+      const uploadedDocs: {
+        pathname: string
+        fileName: string
+        fileSize: number
+        fileType: string
+      }[] = []
+
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i]
+        const cleanName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_')
+        const blob = await upload(`invoices/incoming/${Date.now()}-${cleanName}`, file, {
+          access: 'private',
+          handleUploadUrl: '/api/documents/upload-token',
+          onUploadProgress: ({ percentage }) => {
+            setUploadProgress((prev) => {
+              const next = [...prev]
+              next[i] = percentage
+              return next
+            })
+          },
+        })
+        uploadedDocs.push({
+          pathname: blob.pathname,
+          fileName: file.name,
+          fileSize: file.size,
+          fileType: file.type,
+        })
+      }
+
+      // 2. Submit the invoice with the uploaded document metadata only.
       const formData = new FormData()
       formData.append('projectId', projectId)
       formData.append('invoiceNumber', invoiceNumber)
@@ -134,9 +247,7 @@ export default function SubmitInvoicePage() {
       formData.append('pstRate', (taxRate?.pstRate ?? 0).toString())
       formData.append('qstRate', (taxRate?.qstRate ?? 0).toString())
       formData.append('holdbackAmount', holdbackAmount.toString())
-      if (uploadedFile) {
-        formData.append('file', uploadedFile)
-      }
+      formData.append('documents', JSON.stringify(uploadedDocs))
 
       const result = await submitVendorInvoice(formData)
       if (result.success) {
@@ -154,10 +265,16 @@ export default function SubmitInvoicePage() {
         toast({ title: 'Submission Failed', description: result.error, variant: 'destructive' })
       }
     } catch (e) {
-      console.error(e)
-      toast({ title: 'Error', description: 'An unexpected error occurred', variant: 'destructive' })
+      console.error('[v0] Invoice submission error:', e)
+      toast({
+        title: 'Upload failed',
+        description:
+          'We could not upload your documents or submit the invoice. Please check your files and try again.',
+        variant: 'destructive',
+      })
     } finally {
       setIsSubmitting(false)
+      setUploadProgress([])
     }
   }
 
@@ -233,7 +350,8 @@ export default function SubmitInvoicePage() {
               setInvoiceDate('')
               setSubtotal('')
               setApplyHoldback(true)
-              setUploadedFile(null)
+              setFiles([])
+              setUploadProgress([])
             }}>
               Submit Another
             </Button>
@@ -383,14 +501,14 @@ export default function SubmitInvoicePage() {
                 <div className="bg-card border border-border rounded-xl p-6 space-y-4">
                   <h2 className="font-semibold flex items-center gap-2">
                     <Upload className="w-5 h-5 text-muted-foreground" />
-                    Attach Invoice PDF *
+                    Attach Invoice Documents *
                   </h2>
 
                   <div
                     className={`
                       relative border-2 border-dashed rounded-xl p-8 text-center transition-colors
                       ${dragActive ? 'border-primary bg-primary/5' : 'border-border'}
-                      ${uploadedFile ? 'border-success bg-success/5' : ''}
+                      ${files.length > 0 ? 'border-success bg-success/5' : ''}
                     `}
                     onDragEnter={handleDrag}
                     onDragLeave={handleDrag}
@@ -399,49 +517,79 @@ export default function SubmitInvoicePage() {
                   >
                     <input
                       type="file"
-                      accept="application/pdf"
+                      multiple
+                      accept=".pdf,.jpg,.jpeg,.png,.heic,.heif,application/pdf,image/jpeg,image/png,image/heic,image/heif"
                       onChange={handleFileChange}
-                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                      disabled={isSubmitting}
+                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-not-allowed"
                     />
-                    
-                    {uploadedFile ? (
-                      <div className="space-y-3">
-                        <div className="w-12 h-12 bg-success/10 rounded-full flex items-center justify-center mx-auto">
-                          <Check className="w-6 h-6 text-success" />
-                        </div>
-                        <div>
-                          <p className="font-medium">{uploadedFile.name}</p>
-                          <p className="text-sm text-muted-foreground">
-                            {(uploadedFile.size / 1024 / 1024).toFixed(2)} MB
-                          </p>
-                        </div>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            setUploadedFile(null)
-                          }}
-                        >
-                          <X className="w-4 h-4 mr-2" />
-                          Remove
-                        </Button>
+
+                    <div className="space-y-3">
+                      <div className="w-12 h-12 bg-muted rounded-full flex items-center justify-center mx-auto">
+                        <Upload className="w-6 h-6 text-muted-foreground" />
                       </div>
-                    ) : (
-                      <div className="space-y-3">
-                        <div className="w-12 h-12 bg-muted rounded-full flex items-center justify-center mx-auto">
-                          <Upload className="w-6 h-6 text-muted-foreground" />
-                        </div>
-                        <div>
-                          <p className="font-medium">Drop your invoice PDF here</p>
-                          <p className="text-sm text-muted-foreground">
-                            or click to browse (PDF only, max 10MB)
-                          </p>
-                        </div>
+                      <div>
+                        <p className="font-medium">
+                          Drop your invoice files here
+                        </p>
+                        <p className="text-sm text-muted-foreground">
+                          or click to browse — PDF, JPG, PNG, or HEIC. Multiple files allowed (max 15MB each).
+                        </p>
                       </div>
-                    )}
+                    </div>
                   </div>
+
+                  {/* Selected files list */}
+                  {files.length > 0 && (
+                    <ul className="space-y-2">
+                      {files.map((file, index) => {
+                        const progress = uploadProgress[index] ?? 0
+                        const uploading = isSubmitting && progress < 100
+                        const done = isSubmitting && progress >= 100
+                        return (
+                          <li
+                            key={`${file.name}-${file.size}-${index}`}
+                            className="flex items-center gap-3 rounded-lg border border-border bg-background p-3"
+                          >
+                            <div className="w-9 h-9 shrink-0 bg-muted rounded-lg flex items-center justify-center">
+                              {done ? (
+                                <Check className="w-4 h-4 text-success" />
+                              ) : uploading ? (
+                                <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+                              ) : (
+                                <FileText className="w-4 h-4 text-muted-foreground" />
+                              )}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className="truncate text-sm font-medium">{file.name}</p>
+                              <p className="text-xs text-muted-foreground">
+                                {(file.size / 1024 / 1024).toFixed(2)} MB
+                              </p>
+                              {isSubmitting && (
+                                <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-muted">
+                                  <div
+                                    className="h-full rounded-full bg-primary transition-all"
+                                    style={{ width: `${progress}%` }}
+                                  />
+                                </div>
+                              )}
+                            </div>
+                            {!isSubmitting && (
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => removeFile(index)}
+                                aria-label={`Remove ${file.name}`}
+                              >
+                                <X className="w-4 h-4" />
+                              </Button>
+                            )}
+                          </li>
+                        )
+                      })}
+                    </ul>
+                  )}
                 </div>
               </div>
 
@@ -509,12 +657,12 @@ export default function SubmitInvoicePage() {
                     type="submit" 
                     className="w-full" 
                     size="lg"
-                    disabled={!projectId || !invoiceNumber || !invoiceDate || !subtotal || !uploadedFile || isSubmitting}
+                    disabled={!projectId || !invoiceNumber || !invoiceDate || !subtotal || files.length === 0 || isSubmitting}
                   >
                     {isSubmitting ? (
                       <>
                         <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                        Submitting...
+                        Uploading &amp; submitting...
                       </>
                     ) : (
                       'Submit Invoice'
@@ -522,7 +670,7 @@ export default function SubmitInvoicePage() {
                   </Button>
 
                   {/* Validation Messages */}
-                  {(!projectId || !invoiceNumber || !invoiceDate || !subtotal || !uploadedFile) && (
+                  {(!projectId || !invoiceNumber || !invoiceDate || !subtotal || files.length === 0) && (
                     <div className="text-xs text-muted-foreground space-y-1">
                       <p className="font-medium">Required to submit:</p>
                       <ul className="space-y-0.5">
@@ -530,7 +678,7 @@ export default function SubmitInvoicePage() {
                         {!invoiceNumber && <li className="flex items-center gap-1"><X className="w-3 h-3 text-destructive" /> Enter invoice number</li>}
                         {!invoiceDate && <li className="flex items-center gap-1"><X className="w-3 h-3 text-destructive" /> Enter invoice date</li>}
                         {!subtotal && <li className="flex items-center gap-1"><X className="w-3 h-3 text-destructive" /> Enter subtotal amount</li>}
-                        {!uploadedFile && <li className="flex items-center gap-1"><X className="w-3 h-3 text-destructive" /> Upload invoice PDF</li>}
+                        {files.length === 0 && <li className="flex items-center gap-1"><X className="w-3 h-3 text-destructive" /> Attach at least one invoice document</li>}
                       </ul>
                     </div>
                   )}
