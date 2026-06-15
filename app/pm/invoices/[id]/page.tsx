@@ -24,6 +24,7 @@ import { AppHeader } from '@/components/app-header'
 import { RoleTabBar } from '@/components/role-tab-bar'
 import { PaymentReceiptModal } from '@/components/payment-receipt-modal'
 import { InvoiceStatusTimeline } from '@/components/invoice-status-timeline'
+import { InvoiceClarificationThread } from '@/components/invoice-clarification-thread'
 import {
   getCertificatesForInvoice,
   submitCertificate,
@@ -938,6 +939,9 @@ export default function PMInvoiceDetailPage() {
               <InvoiceStatusTimeline invoiceId={invoiceId} />
             </CardContent>
           </Card>
+
+          {/* Clarification Thread */}
+          <InvoiceClarificationThread invoiceId={invoiceId} />
 
           {/* Invoice Review Actions */}
           {canTakeAction && (
