@@ -24,6 +24,7 @@ import { AppHeader } from '@/components/app-header'
 import { RoleTabBar } from '@/components/role-tab-bar'
 import { PaymentReceiptModal } from '@/components/payment-receipt-modal'
 import { InvoiceStatusTimeline } from '@/components/invoice-status-timeline'
+import { InvoiceClarificationThread } from '@/components/invoice-clarification-thread'
 import {
   getCertificatesForInvoice,
   submitCertificate,
@@ -34,6 +35,8 @@ import {
   pmApproveInvoice,
   pmRejectInvoice,
   pmDisputeInvoice,
+  getPMInvoiceById,
+  getPMInvoiceDocuments,
 } from '../../actions'
 
 type Invoice = {
@@ -72,6 +75,16 @@ type Invoice = {
   } | null
 }
 
+type InvoiceDocument = {
+  id: string
+  file_name: string
+  file_type: string | null
+  file_size_bytes: number | null
+  document_type: string | null
+  description: string | null
+  created_at: string
+}
+
 type PaymentCertificate = {
   id: string
   certificate_number: string
@@ -98,6 +111,21 @@ const statusConfig: Record<string, { label: string; variant: 'default' | 'second
   disputed: { label: 'Disputed', variant: 'destructive', icon: <AlertCircle className="w-4 h-4" /> },
 }
 
+function formatFileSize(bytes: number | null): string {
+  if (!bytes || bytes <= 0) return ''
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+function formatDocType(type: string | null): string {
+  if (!type) return 'Document'
+  return type
+    .split('_')
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(' ')
+}
+
 const certStatusConfig: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' }> = {
   draft: { label: 'Draft', variant: 'secondary' },
   pending: { label: 'Pending Approval', variant: 'outline' },
@@ -119,6 +147,11 @@ export default function PMInvoiceDetailPage() {
   const [error, setError] = useState<string | null>(null)
   const [actionLoading, setActionLoading] = useState(false)
   const [notes, setNotes] = useState('')
+
+  // Invoice attachments
+  const [documents, setDocuments] = useState<InvoiceDocument[]>([])
+  const [docsLoading, setDocsLoading] = useState(true)
+  const [previewDoc, setPreviewDoc] = useState<InvoiceDocument | null>(null)
 
   // Certificate state
   const [certificates, setCertificates] = useState<PaymentCertificate[]>([])
@@ -143,59 +176,33 @@ export default function PMInvoiceDetailPage() {
 
   useEffect(() => {
     async function fetchInvoice() {
-      const supabase = createClient()
+      // Scoped server action enforces PM assignment access; an out-of-scope
+      // invoice returns "not found" rather than leaking data.
+      const result = await getPMInvoiceById(invoiceId)
 
-      const { data, error } = await supabase
-        .from('invoices')
-        .select(`
-          id,
-          invoice_number,
-          invoice_date,
-          due_date,
-          total_cents,
-          holdback_cents,
-          net_payable_cents,
-          status,
-          contractor:contractors(
-            id,
-            company_name,
-            contact_name,
-            email,
-            phone,
-            address_line1,
-            city,
-            province,
-            wcb_clearance_expiry,
-            status
-          ),
-          project:projects(
-            id,
-            name,
-            project_number,
-            address_line1,
-            city,
-            province,
-            start_date,
-            estimated_completion_date,
-            current_budget_cents,
-            spent_cents,
-            is_active
-          )
-        `)
-        .eq('id', invoiceId)
-        .single()
-
-      if (error) {
-        console.error('Error fetching invoice:', error)
+      if (!result.success || !result.invoice) {
         setError('Invoice not found')
       } else {
-        setInvoice(data as unknown as Invoice)
+        setInvoice(result.invoice as unknown as Invoice)
       }
       setLoading(false)
     }
 
     if (invoiceId) {
       fetchInvoice()
+    }
+  }, [invoiceId])
+
+  useEffect(() => {
+    async function fetchDocuments() {
+      const result = await getPMInvoiceDocuments(invoiceId)
+      if (result.success) {
+        setDocuments(result.documents as InvoiceDocument[])
+      }
+      setDocsLoading(false)
+    }
+    if (invoiceId) {
+      fetchDocuments()
     }
   }, [invoiceId])
 
@@ -475,6 +482,68 @@ export default function PMInvoiceDetailPage() {
                   </p>
                 </div>
               </div>
+            </CardContent>
+          </Card>
+
+          {/* Invoice Documents */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <FileText className="w-5 h-5" />
+                Invoice Documents
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {docsLoading ? (
+                <p className="text-sm text-muted-foreground">Loading documents...</p>
+              ) : documents.length === 0 ? (
+                <div className="flex items-center gap-2 rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground">
+                  <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                  No document attached to this invoice. Review the line items and project scope before approving, or request a revision to ask the contractor to attach the original invoice.
+                </div>
+              ) : (
+                <ul className="space-y-2">
+                  {documents.map((doc) => {
+                    const isImage = (doc.file_type || '').startsWith('image/')
+                    const isPdf =
+                      (doc.file_type || '').includes('pdf') ||
+                      doc.file_name.toLowerCase().endsWith('.pdf')
+                    const canPreview = isImage || isPdf
+                    return (
+                      <li
+                        key={doc.id}
+                        className="flex items-center justify-between gap-3 rounded-lg border border-border p-3"
+                      >
+                        <div className="flex min-w-0 items-center gap-3">
+                          <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-muted">
+                            <FileText className="h-4 w-4 text-muted-foreground" />
+                          </div>
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-medium">{doc.file_name}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {formatDocType(doc.document_type)}
+                              {doc.file_size_bytes ? ` · ${formatFileSize(doc.file_size_bytes)}` : ''}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex flex-shrink-0 items-center gap-2">
+                          {canPreview && (
+                            <Button variant="outline" size="sm" onClick={() => setPreviewDoc(doc)}>
+                              View
+                            </Button>
+                          )}
+                          <a
+                            href={`/api/documents/${doc.id}`}
+                            className="inline-flex items-center text-sm text-primary hover:underline"
+                          >
+                            Download
+                          </a>
+                        </div>
+                      </li>
+                    )
+                  })}
+                </ul>
+              )}
             </CardContent>
           </Card>
 
@@ -871,6 +940,9 @@ export default function PMInvoiceDetailPage() {
             </CardContent>
           </Card>
 
+          {/* Clarification Thread */}
+          <InvoiceClarificationThread invoiceId={invoiceId} />
+
           {/* Invoice Review Actions */}
           {canTakeAction && (
             <Card>
@@ -1026,6 +1098,44 @@ export default function PMInvoiceDetailPage() {
             >
               {editLoading ? 'Saving…' : 'Save Changes'}
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Document preview */}
+      <Dialog open={!!previewDoc} onOpenChange={(open) => !open && setPreviewDoc(null)}>
+        <DialogContent className="max-w-4xl">
+          <DialogHeader>
+            <DialogTitle className="truncate pr-6">{previewDoc?.file_name}</DialogTitle>
+            <DialogDescription>{formatDocType(previewDoc?.document_type ?? null)}</DialogDescription>
+          </DialogHeader>
+          {previewDoc && (
+            <div className="max-h-[70vh] overflow-auto rounded-lg border border-border bg-muted">
+              {(previewDoc.file_type || '').startsWith('image/') ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={`/api/documents/${previewDoc.id}?inline=1`}
+                  alt={previewDoc.file_name}
+                  className="mx-auto block max-w-full"
+                />
+              ) : (
+                <iframe
+                  src={`/api/documents/${previewDoc.id}?inline=1`}
+                  title={previewDoc.file_name}
+                  className="h-[70vh] w-full"
+                />
+              )}
+            </div>
+          )}
+          <DialogFooter>
+            {previewDoc && (
+              <a
+                href={`/api/documents/${previewDoc.id}`}
+                className="inline-flex items-center text-sm text-primary hover:underline"
+              >
+                Download original
+              </a>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>

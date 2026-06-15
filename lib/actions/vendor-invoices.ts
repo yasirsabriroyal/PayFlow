@@ -2,7 +2,7 @@
 
 import { getSupabaseAdmin } from '@/lib/supabase/admin'
 import { createClient } from '@/lib/supabase/server'
-import { put } from '@vercel/blob'
+import { del } from '@vercel/blob'
 import { applyInvoiceStatusChange } from '@/lib/invoices/status-flow'
 import { resolveInternalUserId } from '@/lib/utils/resolve-user'
 
@@ -44,7 +44,40 @@ export async function submitVendorInvoice(formData: FormData) {
     const holdbackAmount = parseFloat(formData.get('holdbackAmount') as string)
     const invoiceDate = formData.get('invoiceDate') as string
     const dueDate = formData.get('dueDate') as string
-    const file = formData.get('file') as File | null
+
+    // Documents are uploaded directly to Vercel Blob from the browser (to
+    // bypass the 1 MB Server Action body limit). The form sends only the
+    // resulting metadata as JSON, which we validate and persist below.
+    type UploadedDocMeta = {
+      pathname: string
+      fileName: string
+      fileSize: number
+      fileType: string
+    }
+    let uploadedDocs: UploadedDocMeta[] = []
+    const documentsRaw = formData.get('documents') as string | null
+    if (documentsRaw) {
+      try {
+        const parsed = JSON.parse(documentsRaw)
+        if (Array.isArray(parsed)) {
+          uploadedDocs = parsed
+            .filter(
+              (d): d is UploadedDocMeta =>
+                d &&
+                typeof d.pathname === 'string' &&
+                typeof d.fileName === 'string',
+            )
+            .map((d) => ({
+              pathname: d.pathname,
+              fileName: d.fileName,
+              fileSize: Number(d.fileSize) || 0,
+              fileType: typeof d.fileType === 'string' ? d.fileType : '',
+            }))
+        }
+      } catch {
+        return { success: false, error: 'Invalid document metadata' }
+      }
+    }
 
     // Optional tax breakdown supplied by the form. Falls back gracefully when absent.
     const subtotalRaw = parseFloat(formData.get('subtotal') as string)
@@ -132,25 +165,44 @@ export async function submitVendorInvoice(formData: FormData) {
       return { success: false, error: invoiceError?.message || 'Failed to create invoice' }
     }
 
-    // 2. Upload and link the document
-    if (file && file.size > 0) {
-      const timestamp = Date.now()
-      const cleanName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_')
-      const pathname = `users/${user.id}/invoices/${invoice.id}/${timestamp}-${cleanName}`
-      
-      const blob = await put(pathname, file, { access: 'private' })
-      
-      await adminSupabase.from('invoice_documents').insert({
+    // 2. Link the already-uploaded documents to the invoice.
+    //    The bytes are already in Blob (uploaded client-side); here we only
+    //    persist the metadata rows. We MUST check for errors — a silent
+    //    failure here previously caused contractors' PDFs to be lost while
+    //    still showing a success message.
+    if (uploadedDocs.length > 0) {
+      const rows = uploadedDocs.map((doc, index) => ({
         invoice_id: invoice.id,
         entity_type: 'invoice',
-        document_type: 'original_invoice',
-        document_url: blob.pathname,
-        file_url: blob.pathname,
-        file_name: file.name,
-        file_size_bytes: file.size,
-        file_type: file.type,
-        uploaded_by: user.id
-      })
+        // First document is the primary invoice; any extras are supporting.
+        document_type: index === 0 ? 'original_invoice' : 'supporting_document',
+        file_url: doc.pathname,
+        file_name: doc.fileName,
+        file_size_bytes: doc.fileSize,
+        file_type: doc.fileType,
+        // Record the uploader's auth id (works for contractors, who have no
+        // public.users row). The legacy uploaded_by FK is left null.
+        uploaded_by_auth_id: user.id,
+      }))
+
+      const { error: docError } = await adminSupabase
+        .from('invoice_documents')
+        .insert(rows)
+
+      if (docError) {
+        console.error('[v0] Invoice document link error:', docError)
+        // Roll back so we never present a submitted invoice that is missing
+        // its documents. Remove the orphaned blobs and the invoice row, then
+        // surface a real error to the contractor.
+        await Promise.allSettled(
+          uploadedDocs.map((doc) => del(doc.pathname)),
+        )
+        await adminSupabase.from('invoices').delete().eq('id', invoice.id)
+        return {
+          success: false,
+          error: 'Failed to attach invoice documents. Please try again.',
+        }
+      }
     }
 
     // 3. Move the freshly-created invoice into the review queue via the

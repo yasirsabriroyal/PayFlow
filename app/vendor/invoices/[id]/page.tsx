@@ -8,6 +8,7 @@ import { formatCurrency } from '@/lib/utils'
 import { getVendorInvoiceDetail } from '@/lib/actions/vendor-invoices'
 import { StatusBadge } from '../invoice-list'
 import { InvoiceStatusTimeline } from '@/components/invoice-status-timeline'
+import { InvoiceClarificationThread } from '@/components/invoice-clarification-thread'
 
 function formatDate(value: string | null) {
   if (!value) return '—'
@@ -152,6 +153,9 @@ export default async function VendorInvoiceDetailPage({
                 )}
               </div>
             </div>
+
+            {/* Clarification Thread */}
+            <InvoiceClarificationThread invoiceId={invoice.id} />
           </div>
 
           {/* Sidebar: status + payment */}
