@@ -105,38 +105,6 @@ const roleConfig: Record<UserRole, { label: string; icon: typeof Shield; color: 
   accountant: { label: 'Accountant', icon: Calculator, color: 'bg-success/10 text-success' },
 }
 
-// Mock data for initial display
-const mockTeamMembers: TeamMember[] = [
-  { 
-    id: '1', auth_user_id: 'auth-1', email: 'admin@payflow.ca', 
-    first_name: 'Sarah', last_name: 'Chen', role: 'admin', 
-    is_active: true, last_login_at: new Date().toISOString(), created_at: '2024-01-15' 
-  },
-  { 
-    id: '2', auth_user_id: 'auth-2', email: 'mike.johnson@payflow.ca', 
-    first_name: 'Mike', last_name: 'Johnson', role: 'project_manager', 
-    is_active: true, last_login_at: new Date(Date.now() - 86400000).toISOString(), created_at: '2024-02-01' 
-  },
-  { 
-    id: '3', auth_user_id: 'auth-3', email: 'lisa.wong@payflow.ca', 
-    first_name: 'Lisa', last_name: 'Wong', role: 'accountant', 
-    is_active: true, last_login_at: new Date(Date.now() - 3600000).toISOString(), created_at: '2024-02-15' 
-  },
-  { 
-    id: '4', auth_user_id: 'auth-4', email: 'david.miller@payflow.ca', 
-    first_name: 'David', last_name: 'Miller', role: 'project_manager', 
-    is_active: false, last_login_at: null, created_at: '2024-03-01' 
-  },
-]
-
-const mockInvitations: TeamInvitation[] = [
-  { 
-    id: 'inv-1', email: 'new.hire@company.com', first_name: 'Alex', last_name: 'Thompson',
-    role: 'accountant', status: 'pending', expires_at: new Date(Date.now() + 86400000 * 5).toISOString(),
-    created_at: new Date(Date.now() - 86400000 * 2).toISOString()
-  },
-]
-
 export default function TeamManagementPage() {
   const { toast } = useToast()
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([])
@@ -206,10 +174,6 @@ export default function TeamManagementPage() {
       
       if (!error && users && users.length > 0) {
         setTeamMembers(users as TeamMember[])
-      } else if (process.env.NODE_ENV === 'development') {
-        // DEV ONLY: Fall back to mock data
-        console.warn('[DEV] No team members in database - using mock data')
-        setTeamMembers(mockTeamMembers)
       }
 
       // Fetch pending invitations
@@ -221,10 +185,6 @@ export default function TeamManagementPage() {
       
 if (invites && invites.length > 0) {
         setInvitations(invites as TeamInvitation[])
-      } else if (process.env.NODE_ENV === 'development') {
-        // DEV ONLY: Fall back to mock data
-        console.warn('[DEV] No invitations in database - using mock data')
-        setInvitations(mockInvitations)
       }
       
       setIsLoading(false)
