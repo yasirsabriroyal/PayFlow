@@ -88,3 +88,83 @@ export async function hasPermissionForProject(
   const projectPermissions = await getProjectPermissionsForUser(internalUserId, projectId)
   return projectPermissions.includes(permission)
 }
+
+/**
+ * Action guard: run `action` only if the current user has `permission` either
+ * globally OR via an active project-role assignment on `projectId`.
+ *
+ * Additive by design — callers that previously used the global `withPermission`
+ * can switch to this to ALSO allow project-scoped members, without removing any
+ * existing global access. Returns a standard `{ success, error }` envelope on
+ * denial so it composes with existing action return types.
+ */
+export async function withProjectPermission<T>(
+  projectId: string,
+  permission: Permission,
+  action: () => Promise<T>,
+): Promise<T | { success: false; error: string }> {
+  const user = await getCurrentUser()
+  if (!user) {
+    return { success: false, error: 'Unauthorized: Not authenticated' }
+  }
+
+  const allowed = await hasPermissionForProject(
+    { role: user.role, authUserId: user.id },
+    projectId,
+    permission,
+  )
+
+  if (!allowed) {
+    return {
+      success: false,
+      error: `Forbidden: Missing permission '${permission}' for this project`,
+    }
+  }
+
+  return action()
+}
+
+/**
+ * Action guard keyed off an INVOICE: resolves the invoice's project, then
+ * allows the action if the current user has `permission` globally OR via an
+ * active project-role assignment on that project. Passes the authenticated
+ * user to `action` so callers keep their existing actor-building logic.
+ *
+ * Additive: this is a drop-in replacement for a global `withPermission` on
+ * invoice actions that should also honor project-team grants.
+ */
+export async function withInvoiceProjectPermission<T>(
+  invoiceId: string,
+  permission: Permission,
+  action: (user: { id: string; email?: string; role: UserRole }) => Promise<T>,
+): Promise<T | { success: false; error: string }> {
+  const user = await getCurrentUser()
+  if (!user) {
+    return { success: false, error: 'Unauthorized: Not authenticated' }
+  }
+
+  // Resolve the invoice's project for the scoped check.
+  const admin = getSupabaseAdmin()
+  const { data: invoice } = await admin
+    .from('invoices')
+    .select('project_id')
+    .eq('id', invoiceId)
+    .maybeSingle()
+
+  const projectId = (invoice?.project_id as string | null) ?? ''
+
+  const allowed = await hasPermissionForProject(
+    { role: user.role, authUserId: user.id },
+    projectId,
+    permission,
+  )
+
+  if (!allowed) {
+    return {
+      success: false,
+      error: `Forbidden: Missing permission '${permission}' for this invoice`,
+    }
+  }
+
+  return action({ id: user.id, email: user.email, role: user.role })
+}
