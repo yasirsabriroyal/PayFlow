@@ -17,6 +17,7 @@ import { PAID_PAYMENT_STATUSES } from '@/lib/payments/status'
 import { resolveInternalUserId } from '@/lib/utils/resolve-user'
 import { applyInvoiceStatusChange } from '@/lib/invoices/status-flow'
 import { resolvePmScope } from '@/lib/permissions/pm-scope'
+import { withInvoiceProjectPermission } from '@/lib/permissions/project-roles'
 
 /**
  * Build a status-engine actor from the authenticated user. Resolves the
@@ -42,7 +43,7 @@ async function buildActor(user: { id: string; email?: string; role: string }) {
  * transition is validated and audit + history + notifications are emitted.
  */
 export async function pmApproveInvoice(invoiceId: string) {
-  return withPermission(PERMISSIONS.INVOICES.APPROVE_INVOICES, async (user) => {
+  return withInvoiceProjectPermission(invoiceId, PERMISSIONS.INVOICES.APPROVE_INVOICES, async (user) => {
     const actor = await buildActor(user)
     const { invoice } = await applyInvoiceStatusChange({
       invoiceId,
@@ -57,7 +58,7 @@ export async function pmApproveInvoice(invoiceId: string) {
  * Reject an invoice (PM) with a required reason.
  */
 export async function pmRejectInvoice(invoiceId: string, reason: string) {
-  return withPermission(PERMISSIONS.INVOICES.REJECT_INVOICES, async (user) => {
+  return withInvoiceProjectPermission(invoiceId, PERMISSIONS.INVOICES.REJECT_INVOICES, async (user) => {
     if (!reason?.trim()) {
       return { success: false as const, error: 'A rejection reason is required' }
     }
@@ -81,7 +82,7 @@ export async function pmRejectInvoice(invoiceId: string, reason: string) {
  * Flag an invoice as disputed (PM) with a required reason.
  */
 export async function pmDisputeInvoice(invoiceId: string, reason: string) {
-  return withPermission(PERMISSIONS.INVOICES.DISPUTE_INVOICES, async (user) => {
+  return withInvoiceProjectPermission(invoiceId, PERMISSIONS.INVOICES.DISPUTE_INVOICES, async (user) => {
     if (!reason?.trim()) {
       return { success: false as const, error: 'A dispute reason is required' }
     }

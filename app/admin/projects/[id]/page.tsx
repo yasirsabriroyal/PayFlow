@@ -45,6 +45,7 @@ import {
 import Link from 'next/link'
 import { RoleTabBar } from '@/components/role-tab-bar'
 import { AppHeader } from '@/components/app-header'
+import { ProjectTeamSection } from './project-team-section'
 
 interface Project {
   id: string
@@ -506,6 +507,10 @@ export default function ProjectDetailsPage({ params }: { params: Promise<{ id: s
               <FileText className="w-4 h-4" />
               Change Orders
             </TabsTrigger>
+            <TabsTrigger value="team" className="gap-2">
+              <Users className="w-4 h-4" />
+              Team
+            </TabsTrigger>
           </TabsList>
 
           {/* Contractors Tab */}
@@ -646,6 +651,11 @@ export default function ProjectDetailsPage({ params }: { params: Promise<{ id: s
                 </div>
               )}
             </div>
+          </TabsContent>
+
+          {/* Team Tab */}
+          <TabsContent value="team" className="mt-4">
+            <ProjectTeamSection projectId={project.id} />
           </TabsContent>
         </Tabs>
       </main>
