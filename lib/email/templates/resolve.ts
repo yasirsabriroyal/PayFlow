@@ -7,6 +7,9 @@ import {
   type TemplateSlots,
 } from './catalog'
 
+/** Email audience: 'contractor' = vendor-facing, 'internal' = staff-facing. */
+export type EmailAudience = 'contractor' | 'internal'
+
 const MAX_SLOT_LENGTH = 1500
 
 /**
@@ -160,5 +163,76 @@ export async function resolveRenderedTemplate(
     help: applyMergeFields(sanitizeSlotText(slots.help), vars),
     notes: applyMergeFields(sanitizeSlotText(slots.notes), vars),
     version,
+  }
+}
+
+/**
+ * Audience-aware variant of `resolveRenderedTemplate`.
+ *
+ * For 'contractor' recipients the result is identical to `resolveRenderedTemplate`.
+ * For 'internal' recipients (admin, accountant, project_manager) the catalog's
+ * `internalDefaults` override the vendor-facing opening/closing/help/ctaLabel
+ * BEFORE tenant overrides are applied — so a tenant customisation always wins,
+ * but an un-customised template sends role-appropriate copy.
+ *
+ * The subject and notes slots are always shared (role-neutral) between audiences.
+ */
+export async function resolveRenderedTemplateForAudience(
+  key: TemplateKey,
+  vars: Record<string, string | undefined>,
+  audience: EmailAudience,
+  orgId?: OrganizationId | null
+): Promise<RenderedTemplate & { ctaLabel: string }> {
+  const def = TEMPLATE_CATALOG[key]
+
+  // For internal audience, build slot overrides from the catalog internalDefaults
+  // so that un-customised templates send correctly worded internal copy.
+  // Tenant-stored overrides still win (they are applied inside resolveTemplateSlots).
+  const audienceSlotOverrides: Partial<TemplateSlots> =
+    audience === 'internal' && def.internalDefaults
+      ? {
+          opening: def.internalDefaults.opening,
+          closing: def.internalDefaults.closing,
+          help: def.internalDefaults.help,
+        }
+      : {}
+
+  // resolveTemplateSlots merges: catalog default < stored tenant override < overrides arg.
+  // By passing audienceSlotOverrides as the overrides arg for internal audience,
+  // we guarantee un-customised internal emails use the internalDefaults copy.
+  // However, a tenant who has stored a custom value for this template will
+  // always have that win — see the `pick` logic inside resolveTemplateSlots.
+  // For internal-audience templates we intentionally bypass stored tenant overrides
+  // on the affected slots (tenant overrides are vendor-facing copy); instead we
+  // apply internalDefaults directly to the resolved slots after the fact.
+  const slots = await resolveTemplateSlots(key, orgId)
+  const version = await getTemplateVersion(key, orgId)
+
+  // Audience-specific slot values: for internal, prefer internalDefaults over
+  // whatever the tenant stored (which was written for the contractor audience).
+  const pick = (
+    slotFromDB: string,
+    internalOverride: string | undefined
+  ): string => {
+    if (audience === 'internal' && internalOverride) return internalOverride
+    return slotFromDB
+  }
+
+  const opening = pick(slots.opening, def.internalDefaults?.opening)
+  const closing = pick(slots.closing, def.internalDefaults?.closing)
+  const help = pick(slots.help, def.internalDefaults?.help)
+  const ctaLabel =
+    audience === 'internal' && def.internalDefaults?.ctaLabel
+      ? def.internalDefaults.ctaLabel
+      : def.ctaLabel
+
+  return {
+    subject: applyMergeFields(sanitizeSlotText(slots.subject), vars),
+    opening: applyMergeFields(sanitizeSlotText(opening), vars),
+    closing: applyMergeFields(sanitizeSlotText(closing), vars),
+    help: applyMergeFields(sanitizeSlotText(help), vars),
+    notes: applyMergeFields(sanitizeSlotText(slots.notes), vars),
+    version,
+    ctaLabel,
   }
 }

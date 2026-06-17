@@ -20,7 +20,7 @@ import {
   type InAppNotificationType,
 } from '@/lib/notifications/server-dispatch'
 import { resolveRecipients, type DistributionEvent } from '@/lib/notifications/distribution'
-import { resolveRenderedTemplate } from '@/lib/email/templates/resolve'
+import { resolveRenderedTemplate, resolveRenderedTemplateForAudience, type EmailAudience } from '@/lib/email/templates/resolve'
 import { getTemplateDefinition, type TemplateKey } from '@/lib/email/templates/catalog'
 import type { EmailDetailRow } from '@/emails/notification-email'
 import { getEmailBranding } from '@/lib/branding/get-active-branding'
@@ -598,52 +598,39 @@ async function dispatchStatusNotifications(input: DispatchInput): Promise<void> 
   const type = statusToInAppType(newStatus)
   const link = `/invoices/${input.invoiceId}`
 
-  // Resolve the tenant-editable email template content + the system-controlled
-  // details table ONCE for this event (identical for every recipient). The
-  // email channel uses these; the in-app channel keeps the concise title/body.
-  let emailSubject: string | undefined
-  let emailContent: { opening?: string; closing?: string; help?: string; notes?: string } | undefined
-  let emailDetails: EmailDetailRow[] | undefined
-  let emailCtaLabel: string | undefined
-  let templateVersion: number | null = null
-
+  // Build merge vars shared across all recipients.
+  // recipient_name is resolved per-recipient below so vendors see their own name
+  // and internal staff see their own name.
   const templateKey = statusToTemplateKey(newStatus)
+  let branding: Awaited<ReturnType<typeof getEmailBranding>> | undefined
   if (templateKey) {
     try {
-      const branding = await getEmailBranding(organizationId ?? null)
-      const vars: Record<string, string | undefined> = {
-        company_name: branding.companyName,
-        recipient_name: enrichment?.vendorName,
-        vendor_name: enrichment?.vendorName,
-        invoice_number: invoiceNumber,
-        project_name: enrichment?.projectName,
-        invoice_total: amount,
-        payment_amount:
-          typeof enrichment?.amountPaidCents === 'number' ? formatCents(enrichment.amountPaidCents) : amount,
-        remaining_balance:
-          typeof enrichment?.remainingCents === 'number' ? formatCents(enrichment.remainingCents) : undefined,
-        payment_date: enrichment?.paymentDate,
-        payment_method: enrichment?.paymentMethod?.toUpperCase(),
-        payment_reference: enrichment?.paymentReference,
-        payment_status: humanStatus(newStatus),
-        processed_by: enrichment?.issuedByName,
-      }
-      const rendered = await resolveRenderedTemplate(templateKey, vars, organizationId ?? null)
-      emailSubject = rendered.subject || undefined
-      emailContent = {
-        opening: rendered.opening || undefined,
-        closing: rendered.closing || undefined,
-        help: rendered.help || undefined,
-        notes: rendered.notes || undefined,
-      }
-      emailDetails = buildEmailDetails(newStatus, invoiceNumber, amount, reason, enrichment)
-      emailCtaLabel = getTemplateDefinition(templateKey).ctaLabel
-      templateVersion = rendered.version
+      branding = await getEmailBranding(organizationId ?? null)
     } catch (e) {
-      // Template resolution must never block delivery — fall back to plain body.
-      console.error('[status-flow] template resolution failed, using plain body:', e)
+      console.error('[status-flow] branding fetch failed:', e)
     }
   }
+
+  const baseVars: Record<string, string | undefined> = {
+    company_name: branding?.companyName,
+    vendor_name: enrichment?.vendorName,
+    invoice_number: invoiceNumber,
+    project_name: enrichment?.projectName,
+    invoice_total: amount,
+    payment_amount:
+      typeof enrichment?.amountPaidCents === 'number' ? formatCents(enrichment.amountPaidCents) : amount,
+    remaining_balance:
+      typeof enrichment?.remainingCents === 'number' ? formatCents(enrichment.remainingCents) : undefined,
+    payment_date: enrichment?.paymentDate,
+    payment_method: enrichment?.paymentMethod?.toUpperCase(),
+    payment_reference: enrichment?.paymentReference,
+    payment_status: humanStatus(newStatus),
+    processed_by: enrichment?.issuedByName,
+  }
+
+  const emailDetails = templateKey
+    ? buildEmailDetails(newStatus, invoiceNumber, amount, reason, enrichment)
+    : undefined
 
   // Internal staff copied on this communication — recorded on each log row.
   const ccRecipients = recipients
@@ -651,8 +638,43 @@ async function dispatchStatusNotifications(input: DispatchInput): Promise<void> 
     .map((r) => ({ name: r.name, email: r.email, role: r.role }))
 
   await Promise.all(
-    recipients.map((r) =>
-      sendNotificationToRecipient({
+    recipients.map(async (r) => {
+      // Resolve template content per-recipient so that contractors receive
+      // vendor-facing copy and internal staff receive role-appropriate copy.
+      let emailSubject: string | undefined
+      let emailContent: { opening?: string; closing?: string; help?: string; notes?: string } | undefined
+      let emailCtaLabel: string | undefined
+      let templateVersion: number | null = null
+
+      if (templateKey) {
+        try {
+          const audience: EmailAudience = r.role === 'contractor' ? 'contractor' : 'internal'
+          const vars: Record<string, string | undefined> = {
+            ...baseVars,
+            recipient_name: r.name,
+          }
+          const rendered = await resolveRenderedTemplateForAudience(
+            templateKey,
+            vars,
+            audience,
+            organizationId ?? null
+          )
+          emailSubject = rendered.subject || undefined
+          emailContent = {
+            opening: rendered.opening || undefined,
+            closing: rendered.closing || undefined,
+            help: rendered.help || undefined,
+            notes: rendered.notes || undefined,
+          }
+          emailCtaLabel = rendered.ctaLabel
+          templateVersion = rendered.version
+        } catch (e) {
+          // Template resolution must never block delivery — fall back to plain body.
+          console.error('[status-flow] template resolution failed for recipient, using plain body:', e)
+        }
+      }
+
+      return sendNotificationToRecipient({
         recipientUserId: r.userId,
         recipient: {
           id: r.userId ?? r.contractorId ?? undefined,
@@ -684,7 +706,7 @@ async function dispatchStatusNotifications(input: DispatchInput): Promise<void> 
           ccRecipients,
         },
       })
-    )
+    })
   )
 }
 
