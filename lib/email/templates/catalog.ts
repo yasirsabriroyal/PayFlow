@@ -107,7 +107,7 @@ export const TEMPLATE_CATALOG: Record<TemplateKey, TemplateDefinition> = {
     category: 'Onboarding',
     ctaLabel: 'Accept Invitation',
     defaults: {
-      subject: 'You have been invited to {{company_name}}',
+      subject: 'Welcome to {{company_name}} | Complete Your Account Setup',
       opening:
         '{{company_name}} has invited you to submit invoices and track payments through their secure portal. Click below to set up your account.',
       closing: 'We look forward to working with you.',

@@ -553,7 +553,9 @@ export const inviteContractorToPortal = secureAction(
           phone: contractor.phone || undefined,
           name: contractor.contact_name || contractor.company_name,
         },
-        companyName: contractor.company_name,
+        // The contractor's own company is the INVITEE — the inviting company is
+        // resolved from tenant branding inside the sender, never passed here.
+        vendorCompanyName: contractor.company_name,
         inviteUrl,
         expiresAt,
         roleLabel: 'Vendor / Contractor',
