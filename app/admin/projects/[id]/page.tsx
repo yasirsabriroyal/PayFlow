@@ -15,7 +15,13 @@ import {
   Building2,
   TrendingUp,
   TrendingDown,
-  AlertTriangle
+  AlertTriangle,
+  UserPlus,
+  Trash2,
+  Mail,
+  Phone,
+  Calendar,
+  Loader2
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -46,6 +52,14 @@ import Link from 'next/link'
 import { RoleTabBar } from '@/components/role-tab-bar'
 import { AppHeader } from '@/components/app-header'
 import { ProjectTeamSection } from './project-team-section'
+import {
+  getProjectContractors,
+  getAvailableContractors,
+  assignContractorToProject,
+  removeContractorFromProject,
+} from '@/app/projects/[id]/actions'
+import { usePermissions } from '@/hooks/use-permissions'
+import { PERMISSIONS } from '@/lib/permissions/constants'
 
 interface Project {
   id: string
@@ -81,12 +95,29 @@ interface ChangeOrder {
 
 interface ProjectContractor {
   id: string
+  project_id: string
+  contractor_id: string
+  trade: string | null
+  notes: string | null
+  contract_amount_cents: number | null
+  status: 'active' | 'completed' | 'terminated'
+  assigned_at: string
+  contractor: {
+    id: string
+    company_name: string
+    contact_name: string
+    email: string
+    phone: string | null
+    status: string
+  }
+}
+
+interface AvailableContractor {
+  id: string
   company_name: string
   contact_name: string
   email: string
   status: string
-  total_billed_cents: number
-  total_paid_cents: number
 }
 
 
@@ -110,6 +141,8 @@ function formatDate(dateString: string | null): string {
 
 export default function ProjectDetailsPage({ params }: { params: Promise<{ id: string }> }) {
   const resolvedParams = use(params)
+  const { hasPermission } = usePermissions()
+  const canManageContractors = hasPermission(PERMISSIONS.PROJECTS.EDIT_PROJECTS)
   const [project, setProject] = useState<Project | null>(null)
   const [changeOrders, setChangeOrders] = useState<ChangeOrder[]>([])
   const [contractors, setContractors] = useState<ProjectContractor[]>([])
@@ -117,6 +150,19 @@ export default function ProjectDetailsPage({ params }: { params: Promise<{ id: s
   const [isChangeOrderModalOpen, setIsChangeOrderModalOpen] = useState(false)
   const [isCreatingCO, setIsCreatingCO] = useState(false)
   const [activeTab, setActiveTab] = useState('contractors')
+
+  // Contractor assignment state
+  const [isAssignModalOpen, setIsAssignModalOpen] = useState(false)
+  const [availableContractors, setAvailableContractors] = useState<AvailableContractor[]>([])
+  const [isLoadingAvailable, setIsLoadingAvailable] = useState(false)
+  const [isAssigning, setIsAssigning] = useState(false)
+  const [assignError, setAssignError] = useState<string | null>(null)
+  const [removingId, setRemovingId] = useState<string | null>(null)
+  const [assignForm, setAssignForm] = useState({
+    contractor_id: '',
+    trade: '',
+    contract_amount: '',
+  })
 
   // New change order form state
   const [newChangeOrder, setNewChangeOrder] = useState({
@@ -144,9 +190,6 @@ export default function ProjectDetailsPage({ params }: { params: Promise<{ id: s
       .eq('project_id', resolvedParams.id)
       .order('created_at', { ascending: false })
 
-    // For contractors, we'd normally join through invoices/payments
-    // Using mock data for now
-
     if (!projectData) {
       // Reflect the real database (not-found / empty state)
       setProject(null)
@@ -155,8 +198,13 @@ export default function ProjectDetailsPage({ params }: { params: Promise<{ id: s
     } else {
       setProject(projectData)
       setChangeOrders(coData && coData.length > 0 ? coData : [])
-      // Contractors are derived from invoice/payment joins
-      setContractors([])
+      // Load real assigned contractors from project_contractors
+      const contractorsResult = await getProjectContractors(resolvedParams.id)
+      if (contractorsResult.success && contractorsResult.data) {
+        setContractors(contractorsResult.data)
+      } else {
+        setContractors([])
+      }
     }
     
     setIsLoading(false)
@@ -166,6 +214,88 @@ export default function ProjectDetailsPage({ params }: { params: Promise<{ id: s
     fetchProjectData()
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resolvedParams.id])
+
+  // Open the assign dialog and load available contractors
+  const openAssignModal = async () => {
+    setAssignError(null)
+    setAssignForm({ contractor_id: '', trade: '', contract_amount: '' })
+    setIsAssignModalOpen(true)
+    setIsLoadingAvailable(true)
+    try {
+      const result = await getAvailableContractors(resolvedParams.id)
+      if (result.success && result.data) {
+        setAvailableContractors(result.data)
+      } else {
+        setAvailableContractors([])
+        setAssignError(result.error || 'Unable to load available contractors.')
+      }
+    } catch (err) {
+      console.error('[v0] openAssignModal error:', err)
+      setAssignError('Unable to load available contractors. Please try again.')
+    } finally {
+      setIsLoadingAvailable(false)
+    }
+  }
+
+  // Assign the selected contractor to this project
+  const handleAssignContractor = async () => {
+    if (!assignForm.contractor_id) {
+      setAssignError('Please select a contractor.')
+      return
+    }
+    setIsAssigning(true)
+    setAssignError(null)
+
+    // Parse optional contract amount (entered in dollars) to cents.
+    let contractAmountCents: number | null = null
+    if (assignForm.contract_amount.trim()) {
+      const parsed = Number.parseFloat(assignForm.contract_amount.replace(/[^0-9.]/g, ''))
+      if (Number.isNaN(parsed) || parsed < 0) {
+        setAssignError('Contract amount must be a valid positive number.')
+        setIsAssigning(false)
+        return
+      }
+      contractAmountCents = Math.round(parsed * 100)
+    }
+
+    try {
+      const result = await assignContractorToProject(
+        resolvedParams.id,
+        assignForm.contractor_id,
+        assignForm.trade.trim() || null,
+        null,
+        contractAmountCents
+      )
+      if (result.success) {
+        setIsAssignModalOpen(false)
+        await fetchProjectData()
+      } else {
+        setAssignError(result.error || 'Unable to save assignment. Please try again.')
+      }
+    } catch (err) {
+      console.error('[v0] handleAssignContractor error:', err)
+      setAssignError('Unable to save assignment. Please try again.')
+    } finally {
+      setIsAssigning(false)
+    }
+  }
+
+  // Remove a contractor assignment
+  const handleRemoveContractor = async (assignmentId: string) => {
+    setRemovingId(assignmentId)
+    try {
+      const result = await removeContractorFromProject(assignmentId)
+      if (result.success) {
+        await fetchProjectData()
+      } else {
+        console.error('[v0] removeContractor failed:', result.error)
+      }
+    } catch (err) {
+      console.error('[v0] handleRemoveContractor error:', err)
+    } finally {
+      setRemovingId(null)
+    }
+  }
 
   const handleCreateChangeOrder = async () => {
     if (!project) return
@@ -375,62 +505,111 @@ export default function ProjectDetailsPage({ params }: { params: Promise<{ id: s
                   <Users className="w-4 h-4 text-primary" />
                   Assigned Contractors
                 </h3>
-                <span className="text-sm text-muted-foreground">{contractors.length} contractors</span>
+                <div className="flex items-center gap-3">
+                  <span className="text-sm text-muted-foreground">
+                    {contractors.length} {contractors.length === 1 ? 'contractor' : 'contractors'}
+                  </span>
+                  {canManageContractors && contractors.length > 0 && (
+                    <Button size="sm" className="gap-2" onClick={openAssignModal}>
+                      <UserPlus className="w-4 h-4" />
+                      Assign Contractor
+                    </Button>
+                  )}
+                </div>
               </div>
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead>
-                    <tr className="border-b border-border bg-muted/30">
-                      <th className="text-left px-6 py-3 text-sm font-medium text-muted-foreground">Contractor</th>
-                      <th className="text-left px-6 py-3 text-sm font-medium text-muted-foreground">Contact</th>
-                      <th className="text-center px-6 py-3 text-sm font-medium text-muted-foreground">Status</th>
-                      <th className="text-right px-6 py-3 text-sm font-medium text-muted-foreground">Total Billed</th>
-                      <th className="text-right px-6 py-3 text-sm font-medium text-muted-foreground">Total Paid</th>
-                      <th className="text-right px-6 py-3 text-sm font-medium text-muted-foreground">Outstanding</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {contractors.map((contractor) => (
-                      <tr key={contractor.id} className="border-b border-border last:border-0 hover:bg-muted/20">
-                        <td className="px-6 py-4">
-                          <div className="flex items-center gap-3">
-                            <div className="w-9 h-9 bg-primary/10 rounded-lg flex items-center justify-center">
-                              <Building2 className="w-4 h-4 text-primary" />
-                            </div>
-                            <span className="font-medium">{contractor.company_name}</span>
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 text-sm text-muted-foreground">
-                          <p>{contractor.contact_name}</p>
-                          <p>{contractor.email}</p>
-                        </td>
-                        <td className="px-6 py-4 text-center">
-                          <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${
-                            contractor.status === 'active'
-                              ? 'bg-success/10 text-success'
-                              : 'bg-warning/10 text-warning'
-                          }`}>
-                            {contractor.status === 'active' ? 'Active' : 'Pending KYC'}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 text-right font-medium">
-                          {formatCurrency(contractor.total_billed_cents)}
-                        </td>
-                        <td className="px-6 py-4 text-right">
-                          {formatCurrency(contractor.total_paid_cents)}
-                        </td>
-                        <td className="px-6 py-4 text-right font-medium text-warning">
-                          {formatCurrency(contractor.total_billed_cents - contractor.total_paid_cents)}
-                        </td>
+              {contractors.length > 0 ? (
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b border-border bg-muted/30">
+                        <th className="text-left px-6 py-3 text-sm font-medium text-muted-foreground">Contractor</th>
+                        <th className="text-left px-6 py-3 text-sm font-medium text-muted-foreground">Contact</th>
+                        <th className="text-left px-6 py-3 text-sm font-medium text-muted-foreground">Trade</th>
+                        <th className="text-center px-6 py-3 text-sm font-medium text-muted-foreground">Compliance</th>
+                        <th className="text-right px-6 py-3 text-sm font-medium text-muted-foreground">Contract Amount</th>
+                        <th className="text-left px-6 py-3 text-sm font-medium text-muted-foreground">Assigned</th>
+                        {canManageContractors && (
+                          <th className="text-right px-6 py-3 text-sm font-medium text-muted-foreground">Actions</th>
+                        )}
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              {contractors.length === 0 && (
+                    </thead>
+                    <tbody>
+                      {contractors.map((pc) => (
+                        <tr key={pc.id} className="border-b border-border last:border-0 hover:bg-muted/20">
+                          <td className="px-6 py-4">
+                            <div className="flex items-center gap-3">
+                              <div className="w-9 h-9 bg-primary/10 rounded-lg flex items-center justify-center">
+                                <Building2 className="w-4 h-4 text-primary" />
+                              </div>
+                              <span className="font-medium">{pc.contractor?.company_name || '-'}</span>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 text-sm text-muted-foreground">
+                            <p>{pc.contractor?.contact_name || '-'}</p>
+                            {pc.contractor?.email && (
+                              <p className="flex items-center gap-1.5">
+                                <Mail className="w-3 h-3" /> {pc.contractor.email}
+                              </p>
+                            )}
+                            {pc.contractor?.phone && (
+                              <p className="flex items-center gap-1.5">
+                                <Phone className="w-3 h-3" /> {pc.contractor.phone}
+                              </p>
+                            )}
+                          </td>
+                          <td className="px-6 py-4 text-sm text-muted-foreground">
+                            {pc.trade || '-'}
+                          </td>
+                          <td className="px-6 py-4 text-center">
+                            <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${
+                              pc.contractor?.status === 'active'
+                                ? 'bg-success/10 text-success'
+                                : 'bg-warning/10 text-warning'
+                            }`}>
+                              {pc.contractor?.status === 'active' ? 'Active' : 'Pending KYC'}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 text-right font-medium">
+                            {pc.contract_amount_cents != null ? formatCurrency(pc.contract_amount_cents) : '-'}
+                          </td>
+                          <td className="px-6 py-4 text-sm text-muted-foreground">
+                            <span className="flex items-center gap-1.5">
+                              <Calendar className="w-3 h-3" /> {formatDate(pc.assigned_at)}
+                            </span>
+                          </td>
+                          {canManageContractors && (
+                            <td className="px-6 py-4 text-right">
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                                onClick={() => handleRemoveContractor(pc.id)}
+                                disabled={removingId === pc.id}
+                              >
+                                {removingId === pc.id ? (
+                                  <Loader2 className="w-4 h-4 animate-spin" />
+                                ) : (
+                                  <Trash2 className="w-4 h-4" />
+                                )}
+                                <span className="sr-only">Remove contractor</span>
+                              </Button>
+                            </td>
+                          )}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
                 <div className="p-12 text-center">
                   <Users className="w-12 h-12 text-muted-foreground/50 mx-auto mb-4" />
-                  <p className="text-muted-foreground">No contractors assigned</p>
+                  <p className="text-muted-foreground mb-4">No contractors assigned to this project yet.</p>
+                  {canManageContractors && (
+                    <Button className="gap-2" onClick={openAssignModal}>
+                      <UserPlus className="w-4 h-4" />
+                      Assign Contractor
+                    </Button>
+                  )}
                 </div>
               )}
             </div>
@@ -514,6 +693,109 @@ export default function ProjectDetailsPage({ params }: { params: Promise<{ id: s
         </Tabs>
       </main>
 
+      {/* Assign Contractor Modal */}
+      <Dialog open={isAssignModalOpen} onOpenChange={setIsAssignModalOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <UserPlus className="w-5 h-5 text-primary" />
+              Assign Contractor
+            </DialogTitle>
+            <DialogDescription>
+              Assign a contractor to this project. Compliance documents are not required to assign.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-4">
+            {assignError && (
+              <div className="flex items-start gap-2 p-3 bg-destructive/10 border border-destructive/20 rounded-md text-sm text-destructive">
+                <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
+                <span>{assignError}</span>
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <Label htmlFor="assign_contractor">Contractor *</Label>
+              {isLoadingAvailable ? (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
+                  <Loader2 className="w-4 h-4 animate-spin" /> Loading available contractors…
+                </div>
+              ) : availableContractors.length > 0 ? (
+                <Select
+                  value={assignForm.contractor_id}
+                  onValueChange={(value) => setAssignForm({ ...assignForm, contractor_id: value })}
+                >
+                  <SelectTrigger id="assign_contractor">
+                    <SelectValue placeholder="Select a contractor" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {availableContractors.map((c) => (
+                      <SelectItem key={c.id} value={c.id}>
+                        <span className="flex items-center gap-2">
+                          {c.company_name}
+                          <span className={`text-xs ${c.status === 'active' ? 'text-success' : 'text-warning'}`}>
+                            ({c.status === 'active' ? 'Active' : 'Pending KYC'})
+                          </span>
+                        </span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <p className="text-sm text-muted-foreground py-2">
+                  No available contractors to assign. All eligible contractors are already assigned.
+                </p>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="assign_trade">Trade / Category (Optional)</Label>
+              <Input
+                id="assign_trade"
+                placeholder="e.g. Electrical, Concrete, Framing"
+                value={assignForm.trade}
+                onChange={(e) => setAssignForm({ ...assignForm, trade: e.target.value })}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="assign_amount">Contract Amount (CAD, Optional)</Label>
+              <div className="relative">
+                <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <Input
+                  id="assign_amount"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  placeholder="0.00"
+                  className="pl-10"
+                  value={assignForm.contract_amount}
+                  onChange={(e) => setAssignForm({ ...assignForm, contract_amount: e.target.value })}
+                />
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsAssignModalOpen(false)} disabled={isAssigning}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleAssignContractor}
+              disabled={isAssigning || isLoadingAvailable || availableContractors.length === 0 || !assignForm.contractor_id}
+            >
+              {isAssigning ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" /> Assigning…
+                </>
+              ) : (
+                'Assign Contractor'
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Create Change Order Modal */}
       <Dialog open={isChangeOrderModalOpen} onOpenChange={setIsChangeOrderModalOpen}>
         <DialogContent className="sm:max-w-lg">
@@ -539,7 +821,7 @@ export default function ProjectDetailsPage({ params }: { params: Promise<{ id: s
                 </SelectTrigger>
                 <SelectContent>
                   {contractors.map(c => (
-                    <SelectItem key={c.id} value={c.id}>{c.company_name}</SelectItem>
+                    <SelectItem key={c.id} value={c.contractor_id}>{c.contractor?.company_name || 'Unknown'}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
