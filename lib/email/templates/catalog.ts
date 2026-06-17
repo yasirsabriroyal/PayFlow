@@ -43,6 +43,19 @@ export interface TemplatePreviewRow {
   strong?: boolean
 }
 
+/**
+ * Audience-specific content overrides for internal-staff notifications.
+ * When a recipient is not a contractor, these slots replace the (vendor-facing)
+ * `defaults` values so that internal team members receive appropriately worded
+ * emails. Only slots that differ from the contractor version need to be listed.
+ */
+export interface AudienceOverrides {
+  opening?: string
+  closing?: string
+  help?: string
+  ctaLabel?: string
+}
+
 export interface TemplateDefinition {
   key: TemplateKey
   label: string
@@ -51,6 +64,12 @@ export interface TemplateDefinition {
   category: 'Onboarding' | 'Invoices' | 'Payments' | 'Compliance' | 'Account'
   ctaLabel: string
   defaults: TemplateSlots
+  /**
+   * Internal-audience overrides. Applied when a notification is being sent to
+   * an admin, accountant, or project manager instead of the contractor/vendor.
+   * Slots not listed here fall through to `defaults`.
+   */
+  internalDefaults?: AudienceOverrides
   /** Merge tokens this template understands (for the placeholder guide). */
   mergeFields: MergeField[]
   /** Sample data used to render the live preview. */
@@ -131,6 +150,12 @@ export const TEMPLATE_CATALOG: Record<TemplateKey, TemplateDefinition> = {
       help: 'Questions about this invoice? Reach out to the submitting vendor or your accounts team.',
       notes: '',
     },
+    internalDefaults: {
+      opening: 'A new invoice from {{vendor_name}} has been submitted and is awaiting your review.',
+      closing: 'Please review at your earliest convenience.',
+      help: 'Questions about this invoice? Contact the submitting contractor directly.',
+      ctaLabel: 'Review Invoice',
+    },
     mergeFields: PAYMENT_FIELDS,
     preview: {
       greeting: 'Hi Team,',
@@ -155,6 +180,12 @@ export const TEMPLATE_CATALOG: Record<TemplateKey, TemplateDefinition> = {
       closing: 'You will receive a confirmation once payment is processed.',
       help: 'Questions about timing? Contact our accounts payable team.',
       notes: '',
+    },
+    internalDefaults: {
+      opening: 'Invoice {{invoice_number}} from {{vendor_name}} has been approved for payment.',
+      closing: 'The vendor will be notified separately. Payment will be processed on the next scheduled run.',
+      help: 'Questions about payment timing? Contact your accounts payable team.',
+      ctaLabel: 'View Invoice',
     },
     mergeFields: PAYMENT_FIELDS,
     preview: {
@@ -181,6 +212,12 @@ export const TEMPLATE_CATALOG: Record<TemplateKey, TemplateDefinition> = {
       help: 'If you believe this is an error, contact our accounts payable team.',
       notes: '',
     },
+    internalDefaults: {
+      opening: 'Invoice {{invoice_number}} from {{vendor_name}} has been rejected. The reason is included below.',
+      closing: 'The vendor has been notified and may resubmit a corrected invoice.',
+      help: 'Questions about this rejection? Contact the reviewing approver.',
+      ctaLabel: 'View Invoice',
+    },
     mergeFields: PAYMENT_FIELDS,
     preview: {
       greeting: 'Hi Northbridge Mechanical Ltd,',
@@ -205,6 +242,12 @@ export const TEMPLATE_CATALOG: Record<TemplateKey, TemplateDefinition> = {
       help: 'Not sure what to change? Reply to this email and we will clarify.',
       notes: '',
     },
+    internalDefaults: {
+      opening: 'A revision has been requested on invoice {{invoice_number}} from {{vendor_name}}. The requested changes are listed below.',
+      closing: 'The vendor has been notified and asked to resubmit.',
+      help: 'Questions about the requested changes? Contact the reviewing approver.',
+      ctaLabel: 'View Invoice',
+    },
     mergeFields: PAYMENT_FIELDS,
     preview: {
       greeting: 'Hi Northbridge Mechanical Ltd,',
@@ -228,6 +271,12 @@ export const TEMPLATE_CATALOG: Record<TemplateKey, TemplateDefinition> = {
       closing: 'Thank you for your work with us.',
       help: 'Questions about this payment? Contact our accounts payable team.',
       notes: '',
+    },
+    internalDefaults: {
+      opening: 'Payment has been processed for invoice {{invoice_number}} from {{vendor_name}}. A summary is below for your records.',
+      closing: 'The vendor has been notified of this payment.',
+      help: 'Questions about this payment? Contact the processing accountant.',
+      ctaLabel: 'View Payment',
     },
     mergeFields: PAYMENT_FIELDS,
     preview: {
