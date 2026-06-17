@@ -11,7 +11,7 @@ import {
   RATE_LIMITS,
 } from '@/lib/security/secureAction'
 import { getSupabaseAdmin } from '@/lib/supabase/admin'
-import { sendContractorInvitationNotification } from '@/lib/notifications'
+import { sendContractorInviteEmail } from '@/lib/notifications/server-dispatch'
 import { getSiteUrl } from '@/lib/site-url'
 
 // =====================================================
@@ -542,25 +542,24 @@ export const inviteContractorToPortal = secureAction(
 
     const inviteUrl = `${getSiteUrl()}/vendor/accept-invite?token=${token}`
 
-    // Send the invitation notification (gracefully simulates if creds missing)
+    // Send the branded invitation email (centralized PayFlow standard).
+    // Falls back to simulation if provider creds are missing.
     let notificationSent = false
     try {
-      const result = await sendContractorInvitationNotification(
-        {
-          id: contractor.id,
+      const result = await sendContractorInviteEmail({
+        recipient: {
+          contractorId: contractor.id,
           email: inviteEmail,
           phone: contractor.phone || undefined,
           name: contractor.contact_name || contractor.company_name,
-          role: 'contractor',
         },
-        {
-          companyName: contractor.company_name,
-          inviteUrl,
-          expiresAt,
-        },
-        { contractorId: contractor.id, triggeredBy: userData?.id }
-      )
-      notificationSent = result.success
+        companyName: contractor.company_name,
+        inviteUrl,
+        expiresAt,
+        roleLabel: 'Vendor / Contractor',
+        triggeredBy: userData?.id,
+      })
+      notificationSent = result.emailStatus === 'sent' || result.emailStatus === 'simulated'
     } catch (notifyError) {
       console.error('Contractor invite notification error:', notifyError)
     }

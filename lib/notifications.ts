@@ -573,46 +573,6 @@ export async function sendInvoiceSubmittedNotification(
 }
 
 /**
- * Send a contractor portal invitation (email + optional WhatsApp).
- * Contains a tokenized link the contractor uses to set a password and
- * activate their portal login. Uses the 'general' event type so it works
- * regardless of the notification_logs event constraint.
- */
-export async function sendContractorInvitationNotification(
-  recipient: NotificationRecipient,
-  data: { companyName: string; inviteUrl: string; expiresAt?: string },
-  context?: NotificationContext
-): Promise<NotificationResult> {
-  const subject = `You're invited to the PayFlow vendor portal`
-  const expiryNote = data.expiresAt
-    ? `<p style="margin: 0 0 16px; color: #64748b; font-size: 13px;">This invitation expires on ${new Date(data.expiresAt).toLocaleDateString('en-CA')}.</p>`
-    : ''
-
-  const html = `
-    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-      <div style="background: #334155; color: white; padding: 20px; border-radius: 8px 8px 0 0;">
-        <h1 style="margin: 0; font-size: 20px;">PayFlow Vendor Portal Invitation</h1>
-      </div>
-      <div style="background: #f8fafc; padding: 20px; border: 1px solid #e2e8f0; border-top: none;">
-        <p style="margin: 0 0 16px;">Hi ${recipient.name},</p>
-        <p style="margin: 0 0 16px;">${data.companyName} has been invited to access the PayFlow vendor portal, where you can submit invoices, track payments, and manage compliance documents.</p>
-        <p style="margin: 0 0 16px;">Click the button below to set your password and activate your account:</p>
-        <a href="${data.inviteUrl}" style="display: inline-block; background: #334155; color: white; padding: 12px 24px; border-radius: 6px; text-decoration: none;">Accept Invitation</a>
-        ${expiryNote}
-        <p style="margin: 16px 0 0; color: #64748b; font-size: 12px; word-break: break-all;">Or paste this link into your browser: ${data.inviteUrl}</p>
-      </div>
-      <div style="padding: 16px; text-align: center; color: #64748b; font-size: 12px;">PayFlow AP - Enterprise Accounts Payable</div>
-    </div>
-  `
-
-  const text = `You're invited to the PayFlow vendor portal.\n\nAccept your invitation and set your password:\n${data.inviteUrl}${data.expiresAt ? `\n\nThis invitation expires on ${new Date(data.expiresAt).toLocaleDateString('en-CA')}.` : ''}`
-
-  const whatsApp = `*PayFlow Vendor Portal Invitation*\n\nHi ${recipient.name}, ${data.companyName} has been invited to the PayFlow vendor portal.\n\nActivate your account here:\n${data.inviteUrl}`
-
-  return sendNotification('general', recipient, context || {}, { subject, html, text, whatsApp })
-}
-
-/**
  * Notify when payment is registered (staged for processing)
  * Routes to: All Accountants
  */
