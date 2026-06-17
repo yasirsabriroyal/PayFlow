@@ -73,74 +73,7 @@ interface Contractor {
   auth_user_id?: string | null
 }
 
-// Mock data for when database is empty
-const mockContractors: Contractor[] = [
-  {
-    id: "1",
-    company_name: "Northern Electrical Ltd.",
-    contact_name: "Mike Johnson",
-    email: "mike@northernelectric.ca",
-    phone: "(403) 555-0101",
-    city: "Calgary",
-    province: "AB",
-    status: "active",
-    wcb_clearance_expiry: "2027-06-15",
-    kyc_completed_at: "2025-01-15T10:00:00Z",
-    created_at: "2025-01-10T08:00:00Z",
-  },
-  {
-    id: "2",
-    company_name: "Prairie Plumbing Co.",
-    contact_name: "Sarah Williams",
-    email: "sarah@prairieplumbing.ca",
-    phone: "(780) 555-0202",
-    city: "Edmonton",
-    province: "AB",
-    status: "pending_kyc",
-    wcb_clearance_expiry: null,
-    kyc_completed_at: null,
-    created_at: "2026-02-28T14:30:00Z",
-  },
-  {
-    id: "3",
-    company_name: "Mountain HVAC Services",
-    contact_name: "David Chen",
-    email: "david@mountainhvac.ca",
-    phone: "(403) 555-0303",
-    city: "Red Deer",
-    province: "AB",
-    status: "active",
-    wcb_clearance_expiry: "2025-12-01",
-    kyc_completed_at: "2024-11-20T09:15:00Z",
-    created_at: "2024-11-15T11:00:00Z",
-  },
-  {
-    id: "4",
-    company_name: "Foothills Concrete Inc.",
-    contact_name: "Jennifer Brown",
-    email: "jennifer@foothillsconcrete.ca",
-    phone: "(403) 555-0404",
-    city: "Lethbridge",
-    province: "AB",
-    status: "suspended",
-    wcb_clearance_expiry: "2025-01-15",
-    kyc_completed_at: "2024-06-10T16:45:00Z",
-    created_at: "2024-06-01T10:00:00Z",
-  },
-  {
-    id: "5",
-    company_name: "Valley Framing Solutions",
-    contact_name: "Robert Taylor",
-    email: "robert@valleyframing.ca",
-    phone: "(587) 555-0505",
-    city: "Medicine Hat",
-    province: "AB",
-    status: "active",
-    wcb_clearance_expiry: "2027-03-20",
-    kyc_completed_at: "2025-02-01T13:20:00Z",
-    created_at: "2025-01-25T09:00:00Z",
-  },
-]
+
 
 const tradeCategories = [
   "All Trades",
@@ -223,12 +156,8 @@ function ContractorDirectoryContent() {
           created_at: v.created_at as string,
           auth_user_id: (v.auth_user_id as string | null) ?? null,
         })))
-      } else if (process.env.NODE_ENV === 'development') {
-        // DEV ONLY: Fall back to mock data when database is empty
-        console.warn('[DEV] No contractors in database - using mock data')
-        setContractors(mockContractors)
       } else {
-        // Production: Show empty state
+        // Reflect the real database (empty state when no contractors exist)
         setContractors([])
       }
       setLoading(false)

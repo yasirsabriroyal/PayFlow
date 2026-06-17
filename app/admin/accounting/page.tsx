@@ -27,107 +27,25 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 
-// Mock audit log data
-const mockAuditLogs = [
-  {
-    id: '1',
-    type: 'invoice_approved',
-    description: 'Invoice INV-2024-0312 approved for payment',
-    entity: { type: 'Invoice', id: 'INV-2024-0312', name: 'ProPlumb Solutions Inc.' },
-    amount: 42000.00,
-    user: 'Sarah Johnson',
-    timestamp: '2024-03-20T14:32:00Z',
-    syncStatus: 'pending',
-    qbReference: null,
-  },
-  {
-    id: '2',
-    type: 'eft_paid',
-    description: 'EFT Batch EFT-20240320-001 processed',
-    entity: { type: 'EFT Batch', id: 'EFT-20240320-001', name: '5 payments' },
-    amount: 127500.00,
-    user: 'Mike Chen',
-    timestamp: '2024-03-20T11:15:00Z',
-    syncStatus: 'pending',
-    qbReference: null,
-  },
-  {
-    id: '3',
-    type: 'holdback_released',
-    description: 'Holdback released for INV-2024-0145',
-    entity: { type: 'Holdback', id: 'HB-2024-0145', name: 'Elite Electrical Ltd.' },
-    amount: 4500.00,
-    user: 'Sarah Johnson',
-    timestamp: '2024-03-19T16:45:00Z',
-    syncStatus: 'synced',
-    qbReference: 'QB-JE-2024-0892',
-  },
-  {
-    id: '4',
-    type: 'invoice_approved',
-    description: 'Invoice INV-2024-0298 approved for payment',
-    entity: { type: 'Invoice', id: 'INV-2024-0298', name: 'SteelFrame Structures' },
-    amount: 87500.00,
-    user: 'David Park',
-    timestamp: '2024-03-19T10:22:00Z',
-    syncStatus: 'synced',
-    qbReference: 'QB-BILL-2024-0445',
-  },
-  {
-    id: '5',
-    type: 'eft_paid',
-    description: 'EFT Batch EFT-20240318-002 processed',
-    entity: { type: 'EFT Batch', id: 'EFT-20240318-002', name: '3 payments' },
-    amount: 68200.00,
-    user: 'Mike Chen',
-    timestamp: '2024-03-18T15:30:00Z',
-    syncStatus: 'synced',
-    qbReference: 'QB-PMT-2024-0221',
-  },
-  {
-    id: '6',
-    type: 'invoice_approved',
-    description: 'Invoice INV-2024-0276 approved for payment',
-    entity: { type: 'Invoice', id: 'INV-2024-0276', name: 'HVAC Masters Corp.' },
-    amount: 61000.00,
-    user: 'Sarah Johnson',
-    timestamp: '2024-03-18T09:15:00Z',
-    syncStatus: 'failed',
-    qbReference: null,
-    errorMessage: 'Vendor not found in QuickBooks',
-  },
-  {
-    id: '7',
-    type: 'holdback_released',
-    description: 'Holdback released for INV-2024-0189',
-    entity: { type: 'Holdback', id: 'HB-2024-0189', name: 'ProPlumb Solutions Inc.' },
-    amount: 3200.00,
-    user: 'Sarah Johnson',
-    timestamp: '2024-03-17T14:00:00Z',
-    syncStatus: 'synced',
-    qbReference: 'QB-JE-2024-0878',
-  },
-  {
-    id: '8',
-    type: 'invoice_approved',
-    description: 'Invoice INV-2024-0265 approved for payment',
-    entity: { type: 'Invoice', id: 'INV-2024-0265', name: 'FinishLine Drywall' },
-    amount: 54000.00,
-    user: 'David Park',
-    timestamp: '2024-03-17T11:30:00Z',
-    syncStatus: 'synced',
-    qbReference: 'QB-BILL-2024-0432',
-  },
-]
+// Audit log entry shape for the QuickBooks sync view
+interface AuditLogEntry {
+  id: string
+  type: string
+  description: string
+  entity: { type: string; id: string; name: string }
+  amount: number
+  user: string
+  timestamp: string
+  syncStatus: SyncStatus
+  qbReference: string | null
+  errorMessage?: string
+}
 
 type SyncStatus = 'pending' | 'synced' | 'failed'
 
 export default function AccountingSyncPage() {
-  // DEV ONLY: Audit logs - using mock data until real audit_logs table integration
-  const [auditLogs, setAuditLogs] = useState(() => {
-    // Use mock data in development, empty in production
-    return process.env.NODE_ENV === 'development' ? mockAuditLogs : []
-  })
+  // Audit logs reflect the real database; QuickBooks audit integration pending
+  const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([])
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<SyncStatus | null>(null)
   const [typeFilter, setTypeFilter] = useState<string | null>(null)

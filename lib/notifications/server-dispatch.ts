@@ -20,6 +20,7 @@ import { getSiteUrl } from '@/lib/site-url'
 import { renderBrandedEmail } from '@/lib/email/render-email'
 import type { EmailDetailRow } from '@/emails/notification-email'
 import { resolveActiveOrgId } from '@/lib/tenancy'
+import { resolveRenderedTemplate } from '@/lib/email/templates/resolve'
 
 /** Split a notification body into paragraphs for the branded renderer. */
 function splitParagraphs(body: string): string[] {
@@ -409,6 +410,141 @@ export async function sendNotificationToRecipient(args: DispatchArgs): Promise<D
     const r = await sendWhatsApp(args.recipient.phone, `*${args.title}*\n\n${args.body}`)
     result.whatsAppStatus = r.status
     await logDelivery(supabase, args, 'whatsapp', r.status, args.recipient.phone)
+  }
+
+  return result
+}
+
+export interface ContractorInviteArgs {
+  recipient: {
+    /** contractors.id — used for the audit trail on notification_logs. */
+    contractorId?: string
+    name: string
+    email?: string
+    phone?: string
+  }
+  /** Tenant company/trading name (used for greeting + merge fields). */
+  companyName: string
+  /** Secure, tokenized acceptance URL. The raw token is never used elsewhere. */
+  inviteUrl: string
+  /** ISO expiry timestamp, if available. */
+  expiresAt?: string
+  /** Optional role label shown in the body (defaults to "Vendor / Contractor"). */
+  roleLabel?: string
+  /** Optional project assignment shown in the details table. */
+  projectName?: string
+  triggeredBy?: string
+  organizationId?: string | null
+}
+
+/**
+ * Deliver a contractor/vendor portal invitation using the centralized PayFlow
+ * branded email standard — the SAME shell, branding, and footer logic as the
+ * payment confirmation email. Routes the body through the tenant-editable
+ * `contractor_invite` template slots, renders via `renderBrandedEmail`, and
+ * logs the delivery to `notification_logs`. Never throws.
+ *
+ * SECURITY: only the secure invite URL carries the token (no raw token in the
+ * body), no internal user/contractor IDs are exposed in the email, and the
+ * URL is intentionally not written to logs.
+ */
+export async function sendContractorInviteEmail(
+  args: ContractorInviteArgs
+): Promise<{ emailStatus: ChannelStatus; whatsAppStatus: ChannelStatus }> {
+  const supabase = getSupabaseAdmin()
+  const result = {
+    emailStatus: 'skipped' as ChannelStatus,
+    whatsAppStatus: 'skipped' as ChannelStatus,
+  }
+
+  const orgId = await resolveActiveOrgId(args.organizationId)
+  const expiryLabel = args.expiresAt
+    ? new Date(args.expiresAt).toLocaleDateString('en-CA', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+      })
+    : undefined
+
+  // Resolve tenant-editable copy (org override merged over system defaults).
+  const rendered = await resolveRenderedTemplate('contractor_invite', {
+    company_name: args.companyName,
+    recipient_name: args.recipient.name,
+    vendor_name: args.recipient.name,
+  }, orgId)
+
+  // System-controlled detail rows shown in the invitation (no sensitive data).
+  const details: EmailDetailRow[] = [
+    { label: 'Invited By', value: args.companyName, strong: true },
+    { label: 'Role', value: args.roleLabel || 'Vendor / Contractor' },
+  ]
+  if (args.projectName) {
+    details.push({ label: 'Project', value: args.projectName })
+  }
+  if (expiryLabel) {
+    details.push({ label: 'Invitation Expires', value: expiryLabel, strong: true })
+  }
+
+  const title = `You've been invited to join ${args.companyName} on PayFlow`
+  const subject = rendered.subject || title
+  // Explain what PayFlow is used for, alongside the tenant-editable opening.
+  const contextLine =
+    'PayFlow is the secure workspace used to manage invoices, approvals, payments, and project payment workflows.'
+
+  if (args.recipient.email) {
+    const { html, text } = await renderBrandedEmail({
+      title,
+      greeting: `Hi ${args.recipient.name},`,
+      paragraphs: [contextLine],
+      opening: rendered.opening,
+      closing: rendered.closing,
+      help: rendered.help,
+      notes: rendered.notes,
+      details,
+      ctaLabel: 'Accept Invitation',
+      ctaUrl: args.inviteUrl,
+      preview: subject,
+      orgId,
+    })
+
+    const r = await sendEmail(args.recipient.email, subject, html, text)
+    result.emailStatus = r.status
+
+    try {
+      const now = new Date().toISOString()
+      await supabase.from('notification_logs').insert({
+        organization_id: orgId,
+        event_type: 'general',
+        channel: 'email',
+        recipient_name: args.recipient.name,
+        recipient_email: args.recipient.email,
+        recipient_contractor_id: args.recipient.contractorId ?? null,
+        recipient_role: 'contractor',
+        subject,
+        // Never persist the tokenized invite URL — keep the body token-free.
+        message_preview: contextLine.substring(0, 500),
+        contractor_id: args.recipient.contractorId ?? null,
+        template_key: 'contractor_invite',
+        template_version: rendered.version,
+        external_message_id: r.id ?? null,
+        error_message: r.error ?? null,
+        sent_at: r.status === 'sent' ? now : null,
+        failed_at: r.status === 'failed' ? now : null,
+        status: r.status,
+        triggered_by: args.triggeredBy ?? null,
+      })
+    } catch (e) {
+      console.error('[notify-dispatch] contractor invite log failed:', e)
+    }
+  }
+
+  // Optional WhatsApp nudge (text channel) — the secure link only, no token in logs.
+  if (args.recipient.phone) {
+    const waBody = `*${title}*\n\n${contextLine}\n\nAccept your invitation: ${args.inviteUrl}${
+      expiryLabel ? `\n\nExpires ${expiryLabel}.` : ''
+    }`
+    const r = await sendWhatsApp(args.recipient.phone, waBody)
+    result.whatsAppStatus = r.status
   }
 
   return result

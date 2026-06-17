@@ -89,134 +89,6 @@ interface ProjectContractor {
   total_paid_cents: number
 }
 
-// Mock data
-const mockProject: Project = {
-  id: '1',
-  project_number: 'PRJ-2026-001',
-  name: 'Royal Heights Condominiums',
-  address_line1: '1200 King Street West',
-  city: 'Toronto',
-  province: 'ON',
-  original_budget_cents: 1250000000,
-  current_budget_cents: 1325000000,
-  spent_cents: 875000000,
-  committed_cents: 125000000,
-  is_active: true,
-  start_date: '2025-03-15',
-  estimated_completion_date: '2026-09-30',
-  description: 'A 25-story residential condominium development featuring 180 luxury units with underground parking and amenity spaces.',
-}
-
-const mockChangeOrders: ChangeOrder[] = [
-  {
-    id: '1',
-    co_number: 'CO-001',
-    description: 'Additional elevator shaft structural reinforcement per engineer recommendation',
-    amount_cents: 4500000,
-    status: 'approved',
-    contractor_id: '1',
-    contractor: { company_name: 'Structural Solutions Inc.' },
-    created_at: '2025-06-15T10:00:00Z',
-    approved_at: '2025-06-18T14:30:00Z',
-    approved_by: 'admin',
-  },
-  {
-    id: '2',
-    co_number: 'CO-002',
-    description: 'Upgraded HVAC system for improved energy efficiency',
-    amount_cents: 2500000,
-    status: 'approved',
-    contractor_id: '2',
-    contractor: { company_name: 'Climate Control Systems' },
-    created_at: '2025-07-22T09:00:00Z',
-    approved_at: '2025-07-25T11:00:00Z',
-    approved_by: 'admin',
-  },
-  {
-    id: '3',
-    co_number: 'CO-003',
-    description: 'Credit for removed landscaping scope - transferred to separate contract',
-    amount_cents: -1250000,
-    status: 'approved',
-    contractor_id: '3',
-    contractor: { company_name: 'GreenScape Landscaping' },
-    created_at: '2025-08-10T14:00:00Z',
-    approved_at: '2025-08-12T10:00:00Z',
-    approved_by: 'admin',
-  },
-  {
-    id: '4',
-    co_number: 'CO-004',
-    description: 'Additional underground parking level per client request',
-    amount_cents: 8500000,
-    status: 'pending',
-    contractor_id: '4',
-    contractor: { company_name: 'Excavation Experts Ltd.' },
-    created_at: '2026-02-28T16:00:00Z',
-    approved_at: null,
-    approved_by: null,
-  },
-  {
-    id: '5',
-    co_number: 'CO-005',
-    description: 'Premium lobby finishes upgrade',
-    amount_cents: 1250000,
-    status: 'rejected',
-    contractor_id: '5',
-    contractor: { company_name: 'Interior Finishes Pro' },
-    created_at: '2026-01-15T11:00:00Z',
-    approved_at: null,
-    approved_by: null,
-  },
-]
-
-const mockContractors: ProjectContractor[] = [
-  {
-    id: '1',
-    company_name: 'Structural Solutions Inc.',
-    contact_name: 'Mike Thompson',
-    email: 'mike@structuralsolutions.ca',
-    status: 'active',
-    total_billed_cents: 32500000,
-    total_paid_cents: 28000000,
-  },
-  {
-    id: '2',
-    company_name: 'Climate Control Systems',
-    contact_name: 'Sarah Chen',
-    email: 'sarah@climatecontrol.ca',
-    status: 'active',
-    total_billed_cents: 18500000,
-    total_paid_cents: 15000000,
-  },
-  {
-    id: '3',
-    company_name: 'Premier Electric Ltd.',
-    contact_name: 'James Wilson',
-    email: 'james@premierelectric.ca',
-    status: 'active',
-    total_billed_cents: 45000000,
-    total_paid_cents: 42000000,
-  },
-  {
-    id: '4',
-    company_name: 'Plumbing Professionals',
-    contact_name: 'Lisa Brown',
-    email: 'lisa@plumbingpros.ca',
-    status: 'active',
-    total_billed_cents: 28000000,
-    total_paid_cents: 25000000,
-  },
-  {
-    id: '5',
-    company_name: 'Concrete Masters',
-    contact_name: 'Robert Martinez',
-    email: 'robert@concretemasters.ca',
-    status: 'pending_kyc',
-    total_billed_cents: 0,
-    total_paid_cents: 0,
-  },
-]
 
 function formatCurrency(cents: number): string {
   return new Intl.NumberFormat('en-CA', {
@@ -276,33 +148,15 @@ export default function ProjectDetailsPage({ params }: { params: Promise<{ id: s
     // Using mock data for now
 
     if (!projectData) {
-      if (process.env.NODE_ENV === 'development') {
-        // DEV ONLY: Fall back to mock data
-        console.warn('[DEV] Project not found in database - using mock data')
-        setProject(mockProject)
-        setChangeOrders(mockChangeOrders)
-        setContractors(mockContractors)
-      } else {
-        // Production: Show not found state
-        setProject(null)
-        setChangeOrders([])
-        setContractors([])
-      }
+      // Reflect the real database (not-found / empty state)
+      setProject(null)
+      setChangeOrders([])
+      setContractors([])
     } else {
       setProject(projectData)
-      if (coData && coData.length > 0) {
-        setChangeOrders(coData)
-      } else if (process.env.NODE_ENV === 'development') {
-        setChangeOrders(mockChangeOrders)
-      } else {
-        setChangeOrders([])
-      }
-      // Contractors would come from invoice/payment joins - mock for now
-      if (process.env.NODE_ENV === 'development') {
-        setContractors(mockContractors)
-      } else {
-        setContractors([])
-      }
+      setChangeOrders(coData && coData.length > 0 ? coData : [])
+      // Contractors are derived from invoice/payment joins
+      setContractors([])
     }
     
     setIsLoading(false)

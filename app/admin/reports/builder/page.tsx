@@ -138,25 +138,6 @@ const datasetColumns: Record<DatasetType, ColumnDefinition[]> = {
   ],
 }
 
-// Mock saved templates
-const mockTemplates: ReportTemplate[] = [
-  {
-    id: 'sys-1', name: 'All Invoices', description: 'Complete invoice listing',
-    dataset: 'invoices', columns: ['invoice_number', 'contractor_name', 'project_name', 'total_cents', 'status'],
-    is_system: true, is_shared: true, created_at: '2024-01-01', last_used_at: '2024-03-01', use_count: 45
-  },
-  {
-    id: 'sys-2', name: 'Pending Holdbacks', description: 'Holdbacks awaiting release',
-    dataset: 'holdbacks', columns: ['project_name', 'contractor_name', 'holdback_amount_cents', 'release_due_date', 'status'],
-    is_system: true, is_shared: true, created_at: '2024-01-01', last_used_at: '2024-02-28', use_count: 23
-  },
-  {
-    id: 'sys-3', name: 'Project Budget Summary', description: 'Budget utilization by project',
-    dataset: 'projects', columns: ['project_number', 'name', 'current_budget_cents', 'spent_cents', 'spent_percentage'],
-    is_system: true, is_shared: true, created_at: '2024-01-01', last_used_at: '2024-03-02', use_count: 67
-  },
-]
-
 export default function ReportBuilderPage() {
   const { toast } = useToast()
   const [templates, setTemplates] = useState<ReportTemplate[]>([])
@@ -180,10 +161,6 @@ export default function ReportBuilderPage() {
       
       if (data && data.length > 0) {
         setTemplates(data as ReportTemplate[])
-      } else if (process.env.NODE_ENV === 'development') {
-        // DEV ONLY: Fall back to mock templates
-        console.warn('[DEV] No report templates in database - using mock data')
-        setTemplates(mockTemplates)
       }
     }
     loadTemplates()
