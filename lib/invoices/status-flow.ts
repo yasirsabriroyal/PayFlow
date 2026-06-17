@@ -321,8 +321,13 @@ function formatCents(cents: number): string {
 }
 
 /**
- * Load vendor + project names to enrich paid/partially_paid notifications.
- * Only runs for payment events that carry a payment context.
+ * Load vendor name, project name, and (for payment events) payment metadata to
+ * enrich ALL status-change notifications — not just paid/partially_paid.
+ *
+ * Vendor and project are fetched for every status so that project info always
+ * appears in the email details table (submitted, approved, rejected, etc.).
+ * Payment-specific fields (amounts, method, reference) are only populated when
+ * a PaymentNotificationContext is provided.
  */
 async function buildPaymentEnrichment(
   status: InvoiceStatus,
@@ -331,11 +336,15 @@ async function buildPaymentEnrichment(
   payment?: PaymentNotificationContext,
   invoiceId?: string
 ): Promise<PaidEnrichment | undefined> {
-  if ((status !== 'paid' && status !== 'partially_paid') || !payment) return undefined
+  // Nothing to enrich when we have no contractor and no project.
+  if (!contractorId && !projectId && !payment) return undefined
+
   const supabase = getSupabaseAdmin()
 
+  // Always fetch vendor + project names so every email event shows project info.
   let vendorName: string | undefined
   let projectName: string | undefined
+
   if (contractorId) {
     const { data } = await supabase
       .from('contractors')
@@ -344,14 +353,17 @@ async function buildPaymentEnrichment(
       .maybeSingle()
     vendorName = data?.company_name || data?.contact_name || undefined
   }
+
   if (projectId) {
     const { data } = await supabase.from('projects').select('name').eq('id', projectId).maybeSingle()
     projectName = data?.name || undefined
   }
 
-  // Outstanding balance after this payment (best-effort; never blocks the email).
+  // Payment-specific enrichment — only applies to paid/partially_paid events.
+  const isPaymentEvent = status === 'paid' || status === 'partially_paid'
+
   let remainingCents: number | undefined
-  if (invoiceId) {
+  if (isPaymentEvent && payment && invoiceId) {
     const { data: inv } = await supabase
       .from('invoices')
       .select('amount_remaining_cents')
@@ -365,12 +377,13 @@ async function buildPaymentEnrichment(
   return {
     vendorName,
     projectName,
-    paymentDate: payment.paymentDate,
-    paymentReference: payment.paymentReference,
-    paymentMethod: payment.paymentMethod,
-    issuedByName: payment.issuedByName,
-    receiptUrl: payment.receiptUrl,
-    amountPaidCents: payment.amountPaidCents,
+    // Payment-specific fields — undefined for non-payment events.
+    paymentDate: isPaymentEvent ? payment?.paymentDate : undefined,
+    paymentReference: isPaymentEvent ? payment?.paymentReference : undefined,
+    paymentMethod: isPaymentEvent ? payment?.paymentMethod : undefined,
+    issuedByName: isPaymentEvent ? payment?.issuedByName : undefined,
+    receiptUrl: isPaymentEvent ? payment?.receiptUrl : undefined,
+    amountPaidCents: isPaymentEvent ? payment?.amountPaidCents : undefined,
     remainingCents,
   }
 }
