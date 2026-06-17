@@ -112,7 +112,7 @@ export const TEMPLATE_CATALOG: Record<TemplateKey, TemplateDefinition> = {
       opening:
         'Welcome aboard! Your {{company_name}} account is ready. You can now sign in to review and manage accounts payable activity.',
       closing: 'We are glad to have you on the team.',
-      help: 'If you have any questions getting started, just reply to this email.',
+      help: 'If you have any questions getting started, contact us at info@royaldevelopment.ca or +1 403.303.3316.',
       notes: '',
     },
     mergeFields: COMMON_FIELDS,
@@ -130,7 +130,7 @@ export const TEMPLATE_CATALOG: Record<TemplateKey, TemplateDefinition> = {
       opening:
         'You have been invited to submit invoices and track payments through the {{company_name}} secure contractor portal. Click the button below to set up your account and get started.',
       closing: 'We look forward to working with you.',
-      help: 'Need help getting set up? Reply to this email and we will be happy to assist.',
+      help: 'Need help getting set up? Contact us at info@royaldevelopment.ca or call +1 403.303.3316.',
       notes: '',
     },
     mergeFields: [...COMMON_FIELDS, { token: '{{vendor_name}}', description: 'Invited vendor name' }],
@@ -178,7 +178,7 @@ export const TEMPLATE_CATALOG: Record<TemplateKey, TemplateDefinition> = {
       subject: 'Invoice {{invoice_number}} approved',
       opening: 'Good news — your invoice has been approved for payment.',
       closing: 'You will receive a confirmation once payment is processed.',
-      help: 'Questions about timing? Contact our accounts payable team.',
+      help: 'Questions about timing? Contact us at info@royaldevelopment.ca or call +1 403.303.3316.',
       notes: '',
     },
     internalDefaults: {
@@ -209,7 +209,7 @@ export const TEMPLATE_CATALOG: Record<TemplateKey, TemplateDefinition> = {
       subject: 'Invoice {{invoice_number}} was rejected',
       opening: 'Your invoice could not be approved at this time. The reason is included below.',
       closing: 'Please review the details and submit a corrected invoice.',
-      help: 'If you believe this is an error, contact our accounts payable team.',
+      help: 'If you believe this is an error, contact us at info@royaldevelopment.ca or call +1 403.303.3316.',
       notes: '',
     },
     internalDefaults: {
@@ -239,7 +239,7 @@ export const TEMPLATE_CATALOG: Record<TemplateKey, TemplateDefinition> = {
       subject: 'Invoice {{invoice_number}} needs revision',
       opening: 'We need a few changes before this invoice can be approved. Details are below.',
       closing: 'Once updated, please resubmit and we will review promptly.',
-      help: 'Not sure what to change? Reply to this email and we will clarify.',
+      help: 'Not sure what to change? Contact us at info@royaldevelopment.ca or call +1 403.303.3316.',
       notes: '',
     },
     internalDefaults: {
@@ -269,7 +269,7 @@ export const TEMPLATE_CATALOG: Record<TemplateKey, TemplateDefinition> = {
       subject: 'Payment Confirmation — Invoice {{invoice_number}}',
       opening: 'Your invoice has been paid. A summary of the payment is below for your records.',
       closing: 'Thank you for your work with us.',
-      help: 'Questions about this payment? Contact our accounts payable team.',
+      help: 'Questions about this payment? Contact us at info@royaldevelopment.ca or call +1 403.303.3316.',
       notes: '',
     },
     internalDefaults: {
@@ -334,7 +334,7 @@ export const TEMPLATE_CATALOG: Record<TemplateKey, TemplateDefinition> = {
       opening:
         'One or more of your compliance documents are expiring soon. To avoid payment delays, please update them before the expiry date.',
       closing: 'Keeping your documents current ensures uninterrupted payments.',
-      help: 'Need help updating a document? Contact our compliance team.',
+      help: 'Need help updating a document? Contact us at info@royaldevelopment.ca or call +1 403.303.3316.',
       notes: '',
     },
     mergeFields: [...COMMON_FIELDS, { token: '{{vendor_name}}', description: 'Vendor name' }],
