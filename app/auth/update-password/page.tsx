@@ -27,8 +27,37 @@ export default function UpdatePasswordPage() {
     const checkSession = async () => {
       const supabase = createClient()
       
-      // First, check if there's a hash fragment with tokens (Supabase recovery flow)
-      // The hash contains access_token and refresh_token for password recovery
+      // Flow 1 (PKCE): the recovery link lands here with a ?code= query param
+      // that must be exchanged for a session. This is the flow used by the
+      // modern @supabase/ssr client.
+      if (typeof window !== 'undefined') {
+        const queryParams = new URLSearchParams(window.location.search)
+        const code = queryParams.get('code')
+        const errorDescription = queryParams.get('error_description')
+
+        if (errorDescription) {
+          setError(errorDescription)
+          setIsLoading(false)
+          return
+        }
+
+        if (code) {
+          const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code)
+          if (!exchangeError) {
+            setIsValidSession(true)
+            setIsLoading(false)
+            // Clean the code out of the URL
+            window.history.replaceState(null, '', window.location.pathname)
+            return
+          }
+          setError('Invalid or expired reset link. Please request a new password reset.')
+          setIsLoading(false)
+          return
+        }
+      }
+
+      // Flow 2 (legacy implicit): the hash fragment carries access_token and
+      // refresh_token directly.
       if (typeof window !== 'undefined' && window.location.hash) {
         const hashParams = new URLSearchParams(window.location.hash.substring(1))
         const accessToken = hashParams.get('access_token')
