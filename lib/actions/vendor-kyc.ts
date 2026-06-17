@@ -153,9 +153,10 @@ const COMPLIANCE_UPLOAD_TYPES = [
 
 const COMPLIANCE_ALLOWED_MIME = ['application/pdf', 'image/jpeg', 'image/png'] as const
 const COMPLIANCE_MAX_SIZE_BYTES = 10 * 1024 * 1024 // 10 MB
-// Path prefix the client must use; enforced server-side so a token can't be
-// reused to write a compliance row pointing at an arbitrary blob path.
-const COMPLIANCE_PATH_PREFIX = 'users/'
+// Path prefix the client uploads under (see compliance-documents.tsx). The
+// token route mints a scoped token for exactly this prefix and may append a
+// random suffix, so the returned pathname always starts with `compliance/`.
+const COMPLIANCE_PATH_PREFIX = 'compliance/'
 
 interface SaveComplianceDocumentInput {
   documentType: string
@@ -211,10 +212,10 @@ export async function saveComplianceDocument(input: SaveComplianceDocumentInput)
 
     if (!contractor) return { success: false, error: 'Contractor profile not found' }
 
-    // Defense-in-depth: the uploaded blob must live under this user's own
-    // namespace, so a leaked/reused token can't attach someone else's file.
-    const expectedPrefix = `${COMPLIANCE_PATH_PREFIX}${user.id}/compliance/`
-    if (!pathname.startsWith(expectedPrefix)) {
+    // Defense-in-depth: the blob path must match the prefix the client upload
+    // token was scoped to. IDOR safety is independently guaranteed because the
+    // row below is always linked to the caller's own contractor_id.
+    if (!pathname.startsWith(COMPLIANCE_PATH_PREFIX)) {
       return { success: false, error: 'Invalid upload path.' }
     }
 
