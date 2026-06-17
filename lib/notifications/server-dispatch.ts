@@ -499,11 +499,11 @@ export async function sendContractorInviteEmail(
     details.push({ label: 'Invitation Expires', value: expiryLabel, strong: true })
   }
 
-  const title = `You've been invited to join ${invitingCompany} on PayFlow`
-  const subject = rendered.subject || title
-  // Explain what PayFlow is used for, alongside the tenant-editable opening.
+  const title = `Contractor Portal Invitation`
+  const subject = rendered.subject || `You have been invited to the ${invitingCompany} Contractor Portal`
+  // Secondary context line — brief, not redundant with the opening.
   const contextLine =
-    'PayFlow is the secure workspace used to manage invoices, approvals, payments, and project payment workflows.'
+    'This is a secure portal used to submit invoices, track approvals, and view payment status.'
 
   if (args.recipient.email) {
     const { html, text } = await renderBrandedEmail({
@@ -557,7 +557,7 @@ export async function sendContractorInviteEmail(
 
   // Optional WhatsApp nudge (text channel) — the secure link only, no token in logs.
   if (args.recipient.phone) {
-    const waBody = `*${title}*\n\n${contextLine}\n\nAccept your invitation: ${args.inviteUrl}${
+    const waBody = `*${invitingCompany} — Contractor Portal Invitation*\n\n${rendered.opening || contextLine}\n\nAccept your invitation: ${args.inviteUrl}${
       expiryLabel ? `\n\nExpires ${expiryLabel}.` : ''
     }`
     const r = await sendWhatsApp(args.recipient.phone, waBody)
