@@ -34,8 +34,9 @@ const nextConfig = {
               "font-src 'self' https://fonts.gstatic.com",
               // blob: for file previews; https: for avatars/external images
               "img-src 'self' data: blob: https:",
-              // Supabase REST + realtime WS; Vercel Analytics
-              "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://vitals.vercel-insights.com https://va.vercel-scripts.com",
+              // Supabase REST + realtime WS; Vercel Analytics; Vercel Blob
+              // (client-side document/invoice uploads PUT directly to Blob storage)
+              "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://vitals.vercel-insights.com https://va.vercel-scripts.com https://blob.vercel-storage.com https://*.public.blob.vercel-storage.com",
               // Vercel preview toolbar
               "frame-src 'self' https://vercel.live",
               // Matches X-Frame-Options: DENY
