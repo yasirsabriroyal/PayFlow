@@ -33,11 +33,15 @@ import {
   assignProjectManager,
   removeProjectAssignment,
   archiveProject,
-  restoreProject
+  restoreProject,
+  getNextProjectNumber
 } from './project-actions'
 import { useListStatePreservation } from '@/lib/workflow-navigation'
 import { AppHeader } from '@/components/app-header'
 import { RoleTabBar } from '@/components/role-tab-bar'
+import { usePermissions } from '@/hooks/use-permissions'
+import { PERMISSIONS } from '@/lib/permissions/constants'
+import { isValidProjectNumber } from '@/lib/projects/project-number'
 
 // Type definitions
 type ProjectAssignment = {
@@ -97,6 +101,9 @@ const PROVINCES = ['ON', 'BC', 'AB', 'SK', 'MB', 'QC', 'NB', 'NS', 'PE', 'NL', '
 
 export default function AdminProjectsPage() {
   const router = useRouter()
+  const { hasPermission } = usePermissions()
+  // Admins / users with edit_projects may override the auto-generated number.
+  const canOverrideNumber = hasPermission(PERMISSIONS.PROJECTS.EDIT_PROJECTS)
   const [projects, setProjects] = useState<Project[]>([])
   const [managers, setManagers] = useState<Manager[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -116,12 +123,18 @@ export default function AdminProjectsPage() {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
   const [isCreating, setIsCreating] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
+  const [isGeneratingNumber, setIsGeneratingNumber] = useState(false)
+  const [numberManuallyEdited, setNumberManuallyEdited] = useState(false)
   
   // Edit modal state
   const [isEditModalOpen, setIsEditModalOpen] = useState(false)
   const [editingProject, setEditingProject] = useState<Project | null>(null)
   const [isUpdating, setIsUpdating] = useState(false)
   const [updateError, setUpdateError] = useState<string | null>(null)
+  // Project-number change protection state.
+  const [originalNumber, setOriginalNumber] = useState('')
+  const [numberChangeConfirm, setNumberChangeConfirm] = useState<{ usageCount: number } | null>(null)
+  const [numberChangeReason, setNumberChangeReason] = useState('')
   
   // Assign PM modal state
   const [isAssignModalOpen, setIsAssignModalOpen] = useState(false)
@@ -193,11 +206,55 @@ export default function AdminProjectsPage() {
     })
   }, [projects, searchQuery, statusFilter])
 
+  // Open the create modal and auto-generate the next project number.
+  const openCreateModal = async () => {
+    setCreateError(null)
+    setNumberManuallyEdited(false)
+    setNewProject({
+      name: '', project_number: '', address_line1: '', city: '', province: 'ON',
+      description: '', start_date: '', estimated_completion_date: '', original_budget_cents: 0,
+    })
+    setIsCreateModalOpen(true)
+    setIsGeneratingNumber(true)
+    try {
+      const result = await getNextProjectNumber()
+      if (result?.success && result.projectNumber) {
+        setNewProject((prev) => ({ ...prev, project_number: result.projectNumber }))
+      }
+    } catch (err) {
+      console.error('Failed to generate project number:', err)
+    } finally {
+      setIsGeneratingNumber(false)
+    }
+  }
+
+  // Regenerate the suggested number (e.g. after an admin edited it).
+  const handleRegenerateNumber = async () => {
+    setIsGeneratingNumber(true)
+    try {
+      const result = await getNextProjectNumber()
+      if (result?.success && result.projectNumber) {
+        setNewProject((prev) => ({ ...prev, project_number: result.projectNumber }))
+        setNumberManuallyEdited(false)
+      }
+    } catch (err) {
+      console.error('Failed to regenerate project number:', err)
+    } finally {
+      setIsGeneratingNumber(false)
+    }
+  }
+
   // Create project
   const handleCreateProject = async () => {
     setIsCreating(true)
     setCreateError(null)
-    
+
+    // Client-side format guard (server re-validates authoritatively).
+    if (newProject.project_number && !isValidProjectNumber(newProject.project_number)) {
+      setCreateError('Project number must use the format PRJ-YYYY-### (e.g. PRJ-2026-001).')
+      setIsCreating(false)
+      return
+    }
     try {
       const result = await createProject({
         name: newProject.name,
@@ -233,28 +290,49 @@ export default function AdminProjectsPage() {
     if (!editingProject) return
     setIsUpdating(true)
     setUpdateError(null)
-    
+
+    const numberChanged = editingProject.project_number !== originalNumber
+
+    // Client-side format guard when the number changed.
+    if (numberChanged && !isValidProjectNumber(editingProject.project_number)) {
+      setUpdateError('Project number must use the format PRJ-YYYY-### (e.g. PRJ-2026-001).')
+      setIsUpdating(false)
+      return
+    }
+
     try {
-      const result = await updateProject(editingProject.id, {
-        name: editingProject.name,
-        project_number: editingProject.project_number,
-        address_line1: editingProject.address_line1,
-        city: editingProject.city,
-        province: editingProject.province,
-        description: editingProject.description,
-        start_date: editingProject.start_date || null,
-        estimated_completion_date: editingProject.estimated_completion_date || null,
-        actual_completion_date: editingProject.actual_completion_date || null,
-        substantial_performance_date: editingProject.substantial_performance_date || null,
-        original_budget_cents: editingProject.original_budget_cents,
-        current_budget_cents: editingProject.current_budget_cents,
-        is_active: editingProject.is_active,
-      })
+      const result = await updateProject(
+        editingProject.id,
+        {
+          name: editingProject.name,
+          project_number: editingProject.project_number,
+          address_line1: editingProject.address_line1,
+          city: editingProject.city,
+          province: editingProject.province,
+          description: editingProject.description,
+          start_date: editingProject.start_date || null,
+          estimated_completion_date: editingProject.estimated_completion_date || null,
+          actual_completion_date: editingProject.actual_completion_date || null,
+          substantial_performance_date: editingProject.substantial_performance_date || null,
+          original_budget_cents: editingProject.original_budget_cents,
+          current_budget_cents: editingProject.current_budget_cents,
+          is_active: editingProject.is_active,
+        },
+        numberChanged
+          ? { confirmNumberChange: Boolean(numberChangeConfirm), reason: numberChangeReason || undefined }
+          : undefined
+      )
 
       if (result?.success) {
         setIsEditModalOpen(false)
         setEditingProject(null)
+        setNumberChangeConfirm(null)
+        setNumberChangeReason('')
         fetchData()
+      } else if ((result as { requiresConfirmation?: boolean })?.requiresConfirmation) {
+        // Surface the confirmation prompt instead of an error.
+        setNumberChangeConfirm({ usageCount: (result as { usageCount?: number }).usageCount || 0 })
+        setUpdateError(null)
       } else {
         setUpdateError(result?.error || 'Failed to update project.')
       }
@@ -314,6 +392,9 @@ export default function AdminProjectsPage() {
   // Open edit modal
   const openEditModal = (project: Project) => {
     setEditingProject({ ...project })
+    setOriginalNumber(project.project_number)
+    setNumberChangeConfirm(null)
+    setNumberChangeReason('')
     setUpdateError(null)
     setIsEditModalOpen(true)
   }
@@ -339,7 +420,7 @@ export default function AdminProjectsPage() {
           <h1 className="text-2xl font-bold">Projects</h1>
           <p className="text-muted-foreground">Manage construction projects and assignments</p>
         </div>
-        <Button onClick={() => setIsCreateModalOpen(true)}>
+        <Button onClick={openCreateModal}>
           <Plus className="h-4 w-4 mr-2" />
           New Project
         </Button>
@@ -543,8 +624,39 @@ export default function AdminProjectsPage() {
               <Input value={newProject.name} onChange={(e) => setNewProject({ ...newProject, name: e.target.value })} />
             </div>
             <div>
-              <Label>Project Number *</Label>
-              <Input value={newProject.project_number} onChange={(e) => setNewProject({ ...newProject, project_number: e.target.value })} placeholder="PRJ-2024-001" />
+              <div className="flex items-center justify-between">
+                <Label>Project Number *</Label>
+                {canOverrideNumber && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 px-2 text-xs"
+                    onClick={handleRegenerateNumber}
+                    disabled={isGeneratingNumber}
+                  >
+                    <RefreshCw className={`h-3 w-3 mr-1 ${isGeneratingNumber ? 'animate-spin' : ''}`} />
+                    Regenerate
+                  </Button>
+                )}
+              </div>
+              <Input
+                value={isGeneratingNumber && !newProject.project_number ? 'Generating…' : newProject.project_number}
+                onChange={(e) => {
+                  setNumberManuallyEdited(true)
+                  setNewProject({ ...newProject, project_number: e.target.value })
+                }}
+                placeholder="PRJ-2026-001"
+                readOnly={!canOverrideNumber || isGeneratingNumber}
+                className={!canOverrideNumber ? 'bg-muted' : undefined}
+              />
+              <p className="text-xs text-muted-foreground mt-1">
+                {canOverrideNumber
+                  ? numberManuallyEdited
+                    ? 'Manual override. Must be unique and use the format PRJ-YYYY-###.'
+                    : 'Auto-generated. Admins may edit if required.'
+                  : 'Auto-generated by the system.'}
+              </p>
             </div>
             <div>
               <Label>City</Label>
@@ -618,7 +730,40 @@ export default function AdminProjectsPage() {
                   </div>
                   <div>
                     <Label>Project Number *</Label>
-                    <Input value={editingProject.project_number} onChange={(e) => setEditingProject({ ...editingProject, project_number: e.target.value })} />
+                    <Input
+                      value={editingProject.project_number}
+                      onChange={(e) => {
+                        setEditingProject({ ...editingProject, project_number: e.target.value })
+                        // Re-arm confirmation whenever the value changes.
+                        setNumberChangeConfirm(null)
+                      }}
+                      readOnly={!canOverrideNumber}
+                      className={!canOverrideNumber ? 'bg-muted' : undefined}
+                    />
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {canOverrideNumber
+                        ? 'Locked after creation. Changing it on an in-use project requires confirmation and is audit-logged.'
+                        : 'Project number is read-only.'}
+                    </p>
+                    {numberChangeConfirm && (
+                      <div className="mt-2 p-3 bg-amber-50 border border-amber-200 rounded space-y-2">
+                        <div className="flex items-start gap-2 text-amber-800 text-sm">
+                          <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
+                          <span>
+                            {`This project has ${numberChangeConfirm.usageCount} related record(s). Confirm the change and provide a reason for the audit log.`}
+                          </span>
+                        </div>
+                        <Input
+                          value={numberChangeReason}
+                          onChange={(e) => setNumberChangeReason(e.target.value)}
+                          placeholder="Reason for changing the project number"
+                          className="bg-background"
+                        />
+                        <p className="text-xs text-amber-700">
+                          {`Click "Save Changes" again to confirm. Old number "${originalNumber}" will be preserved in the audit log.`}
+                        </p>
+                      </div>
+                    )}
                   </div>
                   <div>
                     <Label>Address</Label>
