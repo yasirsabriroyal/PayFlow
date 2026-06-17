@@ -151,25 +151,55 @@ const COMPLIANCE_UPLOAD_TYPES = [
   'safety_certification',
 ] as const
 
+const COMPLIANCE_ALLOWED_MIME = ['application/pdf', 'image/jpeg', 'image/png'] as const
+const COMPLIANCE_MAX_SIZE_BYTES = 10 * 1024 * 1024 // 10 MB
+// Path prefix the client must use; enforced server-side so a token can't be
+// reused to write a compliance row pointing at an arbitrary blob path.
+const COMPLIANCE_PATH_PREFIX = 'users/'
+
+interface SaveComplianceDocumentInput {
+  documentType: string
+  pathname: string
+  fileName: string
+  fileSize: number
+  fileType: string
+  expiryDate?: string | null
+}
+
 /**
- * Contractor self-service upload of a compliance document (insurance, license,
- * safety cert, WCB) with an optional expiry date. Inserts a new pending
- * document for admin verification. Scoped by auth_user_id (IDOR-safe).
+ * Persist metadata for a contractor compliance document AFTER the file has been
+ * uploaded directly to Vercel Blob by the client (via `/api/compliance/upload-token`).
+ *
+ * This is intentionally lightweight: it receives only the resulting blob
+ * pathname plus metadata — never the file bytes — so it is not subject to the
+ * 1 MB Server Action body limit. Inserts a `pending` document for admin
+ * verification; it never auto-approves. Scoped by auth_user_id (IDOR-safe):
+ * the row is always linked to the caller's own contractor record, and the blob
+ * path must live under that user's namespace.
  */
-export async function uploadComplianceDocument(formData: FormData) {
+export async function saveComplianceDocument(input: SaveComplianceDocumentInput) {
   try {
     const supabase = await createClient()
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return { success: false, error: 'Unauthorized' }
 
-    const documentType = formData.get('documentType') as string
+    const { documentType, pathname, fileName, fileSize, fileType } = input
+    const expiry = input.expiryDate || null
+
     if (!COMPLIANCE_UPLOAD_TYPES.includes(documentType as (typeof COMPLIANCE_UPLOAD_TYPES)[number])) {
       return { success: false, error: 'Invalid document type' }
     }
-
-    const file = formData.get('file') as File | null
-    if (!file || file.size === 0) {
-      return { success: false, error: 'A file is required' }
+    if (!pathname || !fileName) {
+      return { success: false, error: 'Upload did not complete. Please try again.' }
+    }
+    if (!COMPLIANCE_ALLOWED_MIME.includes(fileType as (typeof COMPLIANCE_ALLOWED_MIME)[number])) {
+      return { success: false, error: 'Unsupported file type. Use PDF, JPG, or PNG.' }
+    }
+    if (!fileSize || fileSize <= 0) {
+      return { success: false, error: 'File is empty.' }
+    }
+    if (fileSize > COMPLIANCE_MAX_SIZE_BYTES) {
+      return { success: false, error: 'File exceeds the 10 MB limit.' }
     }
 
     const admin = getSupabaseAdmin()
@@ -181,25 +211,26 @@ export async function uploadComplianceDocument(formData: FormData) {
 
     if (!contractor) return { success: false, error: 'Contractor profile not found' }
 
-    const expiry = (formData.get('expiryDate') as string) || null
-    const timestamp = Date.now()
-    const cleanName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_')
-    const pathname = `users/${user.id}/compliance/${timestamp}-${cleanName}`
-    const blob = await put(pathname, file, { access: 'private' })
+    // Defense-in-depth: the uploaded blob must live under this user's own
+    // namespace, so a leaked/reused token can't attach someone else's file.
+    const expectedPrefix = `${COMPLIANCE_PATH_PREFIX}${user.id}/compliance/`
+    if (!pathname.startsWith(expectedPrefix)) {
+      return { success: false, error: 'Invalid upload path.' }
+    }
 
     const { error: insertError } = await admin.from('vendor_kyc_documents').insert({
       contractor_id: contractor.id,
       document_type: documentType,
-      document_url: blob.pathname,
-      file_name: file.name,
-      file_size_bytes: file.size,
-      mime_type: file.type,
+      document_url: pathname,
+      file_name: fileName,
+      file_size_bytes: fileSize,
+      mime_type: fileType,
       status: 'pending',
       expiry_date: expiry,
     })
 
     if (insertError) {
-      console.error('uploadComplianceDocument insert error:', insertError)
+      console.error('saveComplianceDocument insert error:', insertError)
       return { success: false, error: insertError.message }
     }
 
@@ -207,7 +238,7 @@ export async function uploadComplianceDocument(formData: FormData) {
     revalidatePath('/vendor/portal')
     return { success: true }
   } catch (err) {
-    console.error('uploadComplianceDocument error:', err)
+    console.error('saveComplianceDocument error:', err)
     return { success: false, error: 'An unexpected error occurred' }
   }
 }

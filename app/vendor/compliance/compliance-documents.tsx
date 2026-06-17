@@ -22,10 +22,35 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { upload } from '@vercel/blob/client'
 import { useToast } from '@/hooks/use-toast'
 import { getContractorCompliance } from '@/lib/actions/vendor-portal'
 import type { ComplianceItem } from '@/lib/compliance/constants'
-import { uploadComplianceDocument } from '@/lib/actions/vendor-kyc'
+import { saveComplianceDocument } from '@/lib/actions/vendor-kyc'
+
+// Allowed file types & size — kept in sync with the upload-token route and the
+// saveComplianceDocument server action.
+const MAX_FILE_SIZE = 10 * 1024 * 1024 // 10 MB
+const ALLOWED_EXTENSIONS = ['.pdf', '.jpg', '.jpeg', '.png']
+const ALLOWED_MIME = ['application/pdf', 'image/jpeg', 'image/png']
+
+// Validate a single file by MIME type (with an extension fallback) and size.
+// Returns an error message or null when the file is acceptable.
+function validateComplianceFile(file: File): string | null {
+  const lowerName = file.name.toLowerCase()
+  const extOk = ALLOWED_EXTENSIONS.some((ext) => lowerName.endsWith(ext))
+  const mimeOk = file.type ? ALLOWED_MIME.includes(file.type) : false
+  if (!extOk && !mimeOk) {
+    return 'Unsupported file type. Use PDF, JPG, or PNG.'
+  }
+  if (file.size === 0) {
+    return 'File is empty.'
+  }
+  if (file.size > MAX_FILE_SIZE) {
+    return 'File exceeds the 10 MB limit.'
+  }
+  return null
+}
 
 const STATUS_META: Record<
   ComplianceItem['status'],
@@ -68,22 +93,55 @@ export function ComplianceDocuments() {
 
   const handleUpload = async () => {
     if (!active || !file) return
-    setSubmitting(true)
-    const fd = new FormData()
-    fd.append('documentType', active.documentType)
-    fd.append('file', file)
-    if (expiryDate) fd.append('expiryDate', expiryDate)
 
-    const res = await uploadComplianceDocument(fd)
-    if (res.success) {
-      toast({ title: 'Document uploaded', description: `${active.label} submitted for verification.` })
-      setDialogOpen(false)
-      setActive(null)
-      await load()
-    } else {
-      toast({ title: 'Upload failed', description: res.error || 'Please try again.', variant: 'destructive' })
+    // Validate before doing any work so we never start an upload we can't finish.
+    const validationError = validateComplianceFile(file)
+    if (validationError) {
+      toast({ title: 'Invalid file', description: validationError, variant: 'destructive' })
+      return
     }
-    setSubmitting(false)
+
+    setSubmitting(true)
+    try {
+      // 1. Upload the file directly to Vercel Blob, bypassing the 1 MB Server
+      //    Action body limit. The token route scopes the path to this user.
+      const cleanName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_')
+      const blob = await upload(`compliance/${Date.now()}-${cleanName}`, file, {
+        access: 'private',
+        handleUploadUrl: '/api/compliance/upload-token',
+      })
+
+      // 2. Persist only the metadata (no bytes) via a lightweight Server Action.
+      const res = await saveComplianceDocument({
+        documentType: active.documentType,
+        pathname: blob.pathname,
+        fileName: file.name,
+        fileSize: file.size,
+        fileType: file.type,
+        expiryDate: expiryDate || null,
+      })
+
+      if (res.success) {
+        toast({ title: 'Document uploaded', description: `${active.label} submitted for verification.` })
+        setDialogOpen(false)
+        setActive(null)
+        setFile(null)
+        setExpiryDate('')
+        await load()
+      } else {
+        toast({ title: 'Upload failed', description: res.error || 'Please try again.', variant: 'destructive' })
+      }
+    } catch (err) {
+      console.error('[v0] Compliance upload error:', err)
+      toast({
+        title: 'Upload failed',
+        description: 'We could not upload your document. Please check the file and try again.',
+        variant: 'destructive',
+      })
+    } finally {
+      // Always clear the loading state so the modal never hangs on "Uploading...".
+      setSubmitting(false)
+    }
   }
 
   const expiringOrExpired = items.filter((i) => i.status === 'expiring' || i.status === 'expired')
@@ -185,8 +243,21 @@ export function ComplianceDocuments() {
                 id="complianceFile"
                 type="file"
                 accept=".pdf,.jpg,.jpeg,.png"
-                onChange={(e) => setFile(e.target.files?.[0] || null)}
+                onChange={(e) => {
+                  const selected = e.target.files?.[0] || null
+                  if (selected) {
+                    const validationError = validateComplianceFile(selected)
+                    if (validationError) {
+                      toast({ title: 'Invalid file', description: validationError, variant: 'destructive' })
+                      setFile(null)
+                      e.target.value = ''
+                      return
+                    }
+                  }
+                  setFile(selected)
+                }}
               />
+              <p className="text-xs text-muted-foreground">PDF, JPG, or PNG. Max 10 MB.</p>
             </div>
             <div className="space-y-2">
               <Label htmlFor="expiryDate">Expiry Date (optional)</Label>
