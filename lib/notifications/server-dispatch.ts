@@ -21,6 +21,7 @@ import { renderBrandedEmail } from '@/lib/email/render-email'
 import type { EmailDetailRow } from '@/emails/notification-email'
 import { resolveActiveOrgId } from '@/lib/tenancy'
 import { resolveRenderedTemplate } from '@/lib/email/templates/resolve'
+import { getEmailBranding } from '@/lib/branding/get-active-branding'
 
 /** Split a notification body into paragraphs for the branded renderer. */
 function splitParagraphs(body: string): string[] {
@@ -419,12 +420,17 @@ export interface ContractorInviteArgs {
   recipient: {
     /** contractors.id — used for the audit trail on notification_logs. */
     contractorId?: string
+    /** Display name used in the greeting (contact name, falling back to company). */
     name: string
     email?: string
     phone?: string
   }
-  /** Tenant company/trading name (used for greeting + merge fields). */
-  companyName: string
+  /**
+   * The invitee's own company name (the contractor/vendor being invited).
+   * This is NEVER used as the inviting company — the inviting company always
+   * comes from tenant branding (`getEmailBranding`). Surfaced as `{{vendor_name}}`.
+   */
+  vendorCompanyName: string
   /** Secure, tokenized acceptance URL. The raw token is never used elsewhere. */
   inviteUrl: string
   /** ISO expiry timestamp, if available. */
@@ -458,6 +464,13 @@ export async function sendContractorInviteEmail(
   }
 
   const orgId = await resolveActiveOrgId(args.organizationId)
+
+  // The inviting company is ALWAYS the tenant (from branding settings) — never
+  // the contractor's own company. This is the single source of truth for "who
+  // is inviting" and matches the header/logo rendered by the email shell.
+  const branding = await getEmailBranding(orgId)
+  const invitingCompany = branding.companyName
+
   const expiryLabel = args.expiresAt
     ? new Date(args.expiresAt).toLocaleDateString('en-CA', {
         year: 'numeric',
@@ -467,15 +480,16 @@ export async function sendContractorInviteEmail(
     : undefined
 
   // Resolve tenant-editable copy (org override merged over system defaults).
+  // company_name = the inviting tenant; vendor_name = the invited contractor.
   const rendered = await resolveRenderedTemplate('contractor_invite', {
-    company_name: args.companyName,
+    company_name: invitingCompany,
     recipient_name: args.recipient.name,
-    vendor_name: args.recipient.name,
+    vendor_name: args.vendorCompanyName,
   }, orgId)
 
   // System-controlled detail rows shown in the invitation (no sensitive data).
   const details: EmailDetailRow[] = [
-    { label: 'Invited By', value: args.companyName, strong: true },
+    { label: 'Invited By', value: invitingCompany, strong: true },
     { label: 'Role', value: args.roleLabel || 'Vendor / Contractor' },
   ]
   if (args.projectName) {
@@ -485,7 +499,7 @@ export async function sendContractorInviteEmail(
     details.push({ label: 'Invitation Expires', value: expiryLabel, strong: true })
   }
 
-  const title = `You've been invited to join ${args.companyName} on PayFlow`
+  const title = `You've been invited to join ${invitingCompany} on PayFlow`
   const subject = rendered.subject || title
   // Explain what PayFlow is used for, alongside the tenant-editable opening.
   const contextLine =
@@ -504,6 +518,9 @@ export async function sendContractorInviteEmail(
       ctaLabel: 'Accept Invitation',
       ctaUrl: args.inviteUrl,
       preview: subject,
+      // Reuse the already-resolved tenant branding so the header, title, and
+      // "Invited By" all reflect the SAME inviting company.
+      branding,
       orgId,
     })
 

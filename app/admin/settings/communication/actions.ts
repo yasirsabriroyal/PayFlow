@@ -14,6 +14,7 @@ import {
   resolveTemplateSlots,
   resolveRenderedTemplate,
   sanitizeSlotText,
+  normalizeMergeTokens,
 } from '@/lib/email/templates/resolve'
 import {
   getTemplateDefinition,
@@ -238,12 +239,15 @@ export async function saveTemplate(rawKey: string, slots: Partial<TemplateSlots>
     const orgId = await resolveActiveOrgId(null)
     const updatedBy = await resolveInternalUserId(userData.id, supabase)
 
+    // Normalize malformed merge tokens (e.g. `{company_name}}`) to the canonical
+    // `{{company_name}}` BEFORE sanitizing/persisting, so a typo can never be
+    // saved in a state that ships a raw placeholder to a customer email.
     const clean = {
-      subject: sanitizeSlotText(slots.subject),
-      opening: sanitizeSlotText(slots.opening),
-      closing: sanitizeSlotText(slots.closing),
-      help_text: sanitizeSlotText(slots.help),
-      notes: sanitizeSlotText(slots.notes),
+      subject: sanitizeSlotText(normalizeMergeTokens(slots.subject)),
+      opening: sanitizeSlotText(normalizeMergeTokens(slots.opening)),
+      closing: sanitizeSlotText(normalizeMergeTokens(slots.closing)),
+      help_text: sanitizeSlotText(normalizeMergeTokens(slots.help)),
+      notes: sanitizeSlotText(normalizeMergeTokens(slots.notes)),
     }
 
     const { error } = await supabase

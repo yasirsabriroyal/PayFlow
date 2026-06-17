@@ -23,10 +23,38 @@ export function sanitizeSlotText(input: string | null | undefined): string {
     .trim()
 }
 
+/**
+ * Repair malformed merge tokens so a single-brace typo can never ship a raw,
+ * unresolved placeholder into a customer email. Normalizes any of `{token}`,
+ * `{token}}`, or `{{token}` into the canonical `{{token}}` form. Only word-like
+ * tokens (letters/digits/underscore) are touched, so ordinary prose with braces
+ * is left alone in practice for our template copy.
+ *
+ * Root cause this guards against: a saved subject like
+ * "You Are Invited to Join {company_name}} on PayFLow" — a single opening brace
+ * the `{{…}}`-only substitution engine could not match.
+ */
+export function normalizeMergeTokens(text: string | null | undefined): string {
+  if (!text) return ''
+  return (
+    text
+      // Collapse 1-or-2 braces on each side down to exactly two around a token.
+      .replace(/\{{1,2}\s*([a-z0-9_]+)\s*\}{1,2}/gi, '{{$1}}')
+  )
+}
+
+/** True when the text still contains a malformed (non-`{{…}}`) brace token. */
+export function hasMalformedMergeTokens(text: string | null | undefined): boolean {
+  if (!text) return false
+  return normalizeMergeTokens(text) !== text
+}
+
 /** Replace known {{tokens}} with values and strip any remaining unresolved tokens. */
 export function applyMergeFields(text: string, vars: Record<string, string | undefined>): string {
   if (!text) return ''
-  return text
+  // Defensive: repair malformed braces before substitution so a stored typo
+  // never leaks a literal placeholder into a sent email.
+  return normalizeMergeTokens(text)
     .replace(/\{\{\s*([a-z0-9_]+)\s*\}\}/gi, (_m, token: string) => {
       const v = vars[token.toLowerCase()]
       return v !== undefined && v !== null ? String(v) : ''
