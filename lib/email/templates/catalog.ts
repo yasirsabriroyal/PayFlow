@@ -126,11 +126,11 @@ export const TEMPLATE_CATALOG: Record<TemplateKey, TemplateDefinition> = {
     category: 'Onboarding',
     ctaLabel: 'Accept Invitation',
     defaults: {
-      subject: 'Welcome to {{company_name}} | Complete Your Account Setup',
+      subject: 'You have been invited to the {{company_name}} Contractor Portal',
       opening:
-        '{{company_name}} has invited you to submit invoices and track payments through their secure portal. Click below to set up your account.',
+        'You have been invited to submit invoices and track payments through the {{company_name}} secure contractor portal. Click the button below to set up your account and get started.',
       closing: 'We look forward to working with you.',
-      help: 'Need help? Contact our accounts payable team and we will be happy to assist.',
+      help: 'Need help getting set up? Reply to this email and we will be happy to assist.',
       notes: '',
     },
     mergeFields: [...COMMON_FIELDS, { token: '{{vendor_name}}', description: 'Invited vendor name' }],
