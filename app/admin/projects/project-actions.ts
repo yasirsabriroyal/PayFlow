@@ -10,12 +10,72 @@ import { revalidatePath } from 'next/cache'
 import { createClient } from '@supabase/supabase-js'
 import { withPermission } from '@/lib/permissions'
 import { PERMISSIONS } from '@/lib/permissions/constants'
+import {
+  computeNextProjectNumber,
+  isValidProjectNumber,
+} from '@/lib/projects/project-number'
 
 function getSupabaseAdmin() {
   return createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   )
+}
+
+// Tables that, if they reference a project, mean the project is "in use" and
+// its number must not be changed without explicit admin confirmation.
+const PROJECT_USAGE_TABLES = [
+  'invoices',
+  'payment_certificates',
+  'payment_requests',
+  'project_contractors',
+  'holdback_ledgers',
+  'change_orders',
+  'lien_waivers',
+] as const
+
+/**
+ * Fetch every existing project number. Kept as a helper so that, when a
+ * tenant/organization column is later added to `projects`, scoping can be
+ * applied in one place.
+ */
+async function fetchExistingProjectNumbers(
+  supabase: ReturnType<typeof getSupabaseAdmin>,
+): Promise<string[]> {
+  const { data, error } = await supabase.from('projects').select('project_number')
+  if (error) {
+    console.error('[v0] fetchExistingProjectNumbers error:', error)
+    return []
+  }
+  return (data || []).map((r) => r.project_number).filter(Boolean) as string[]
+}
+
+/** Returns the next system-generated project number for the current year. */
+export async function getNextProjectNumber() {
+  return withPermission(PERMISSIONS.PROJECTS.VIEW_PROJECTS, async () => {
+    const supabase = getSupabaseAdmin()
+    const existing = await fetchExistingProjectNumbers(supabase)
+    const year = new Date().getFullYear()
+    return { success: true, projectNumber: computeNextProjectNumber(existing, year) }
+  })
+}
+
+/** Count how many records across project-related tables reference a project. */
+async function countProjectUsage(
+  supabase: ReturnType<typeof getSupabaseAdmin>,
+  projectId: string,
+): Promise<number> {
+  let total = 0
+  for (const table of PROJECT_USAGE_TABLES) {
+    const { count, error } = await supabase
+      .from(table)
+      .select('id', { count: 'exact', head: true })
+      .eq('project_id', projectId)
+    if (!error && typeof count === 'number') {
+      total += count
+    }
+  }
+  return total
 }
 
 export async function getProjects() {
@@ -289,7 +349,7 @@ export async function removeProjectAssignment(assignmentId: string) {
 
 export async function createProject(input: {
   name: string
-  project_number: string
+  project_number?: string
   address_line1?: string
   city?: string
   province?: string
@@ -298,14 +358,46 @@ export async function createProject(input: {
   estimated_completion_date?: string
   original_budget_cents: number
 }) {
-  return withPermission(PERMISSIONS.PROJECTS.CREATE_PROJECTS, async () => {
+  return withPermission(PERMISSIONS.PROJECTS.CREATE_PROJECTS, async (user) => {
     const supabase = getSupabaseAdmin()
-    
+
+    const year = new Date().getFullYear()
+    const existing = await fetchExistingProjectNumbers(supabase)
+
+    // Determine whether the admin manually supplied a number (override) or we
+    // auto-generate the next available one.
+    const requested = input.project_number?.trim()
+    const isManualOverride = Boolean(requested)
+    let projectNumber = requested || computeNextProjectNumber(existing, year)
+
+    if (isManualOverride) {
+      // Server-side format validation (never trust the client).
+      if (!isValidProjectNumber(projectNumber)) {
+        return {
+          success: false,
+          error: 'Project number must use the format PRJ-YYYY-### (e.g. PRJ-2026-001).',
+        }
+      }
+      // Server-side duplicate check in addition to the DB unique constraint.
+      if (existing.includes(projectNumber)) {
+        return {
+          success: false,
+          error: `Project number ${projectNumber} is already in use. Choose a unique number.`,
+        }
+      }
+    } else {
+      // Defensive: if a race produced a collision, advance to the next free one.
+      while (existing.includes(projectNumber)) {
+        existing.push(projectNumber)
+        projectNumber = computeNextProjectNumber(existing, year)
+      }
+    }
+
     const { data, error } = await supabase
       .from('projects')
       .insert({
         name: input.name,
-        project_number: input.project_number,
+        project_number: projectNumber,
         address_line1: input.address_line1 || '',
         city: input.city || '',
         province: input.province || 'ON',
@@ -322,8 +414,28 @@ export async function createProject(input: {
       .single()
 
     if (error) {
+      // Unique-violation safety net (Postgres code 23505).
+      if ((error as { code?: string }).code === '23505') {
+        return {
+          success: false,
+          error: `Project number ${projectNumber} is already in use. Choose a unique number.`,
+        }
+      }
       console.error('[v0] createProject error:', error)
       return { success: false, error: error.message }
+    }
+
+    // Audit a manual override at creation time.
+    if (isManualOverride && data) {
+      await supabase.from('audit_logs').insert({
+        action: 'create',
+        entity_type: 'projects',
+        entity_id: data.id,
+        user_id: user.id,
+        user_email: user.email ?? null,
+        description: `Project created with manually overridden project number ${projectNumber}.`,
+        new_values: { project_number: projectNumber, manual_override: true },
+      })
     }
 
     revalidatePath('/admin/projects')
@@ -347,16 +459,74 @@ export async function updateProject(
     original_budget_cents?: number
     current_budget_cents?: number
     is_active?: boolean
-  }
+  },
+  options?: { confirmNumberChange?: boolean; reason?: string }
 ) {
-  return withPermission(PERMISSIONS.PROJECTS.EDIT_PROJECTS, async () => {
+  return withPermission(PERMISSIONS.PROJECTS.EDIT_PROJECTS, async (user) => {
     const supabase = getSupabaseAdmin()
-    
+
     // Filter out undefined values
     const updateData = Object.fromEntries(
-      Object.entries(input).filter(([_, v]) => v !== undefined)
+      Object.entries(input).filter(([, v]) => v !== undefined)
     )
-    
+
+    // Special handling when the project number is being changed.
+    let numberChange: { from: string; to: string } | null = null
+    if (typeof input.project_number === 'string') {
+      const { data: current, error: currentError } = await supabase
+        .from('projects')
+        .select('project_number')
+        .eq('id', id)
+        .single()
+
+      if (currentError || !current) {
+        return { success: false, error: 'Project not found' }
+      }
+
+      const nextNumber = input.project_number.trim()
+
+      if (nextNumber !== current.project_number) {
+        // Format validation.
+        if (!isValidProjectNumber(nextNumber)) {
+          return {
+            success: false,
+            error: 'Project number must use the format PRJ-YYYY-### (e.g. PRJ-2026-001).',
+          }
+        }
+
+        // Uniqueness validation (in addition to the DB unique constraint).
+        const { data: dupe } = await supabase
+          .from('projects')
+          .select('id')
+          .eq('project_number', nextNumber)
+          .neq('id', id)
+          .maybeSingle()
+        if (dupe) {
+          return {
+            success: false,
+            error: `Project number ${nextNumber} is already in use. Choose a unique number.`,
+          }
+        }
+
+        // If the project is already in use, require explicit confirmation.
+        const usage = await countProjectUsage(supabase, id)
+        if (usage > 0 && !options?.confirmNumberChange) {
+          return {
+            success: false,
+            requiresConfirmation: true,
+            usageCount: usage,
+            error: `This project has ${usage} related record(s) (invoices, payments, contractors, etc.). Changing its number requires confirmation.`,
+          }
+        }
+
+        numberChange = { from: current.project_number, to: nextNumber }
+        updateData.project_number = nextNumber
+      } else {
+        // No actual change; avoid a no-op write to the column.
+        delete updateData.project_number
+      }
+    }
+
     const { data, error } = await supabase
       .from('projects')
       .update(updateData)
@@ -365,8 +535,30 @@ export async function updateProject(
       .single()
 
     if (error) {
+      if ((error as { code?: string }).code === '23505') {
+        return {
+          success: false,
+          error: 'Project number is already in use. Choose a unique number.',
+        }
+      }
       console.error('[v0] updateProject error:', error)
       return { success: false, error: error.message }
+    }
+
+    // Audit the project-number change with old/new values and reason.
+    if (numberChange) {
+      await supabase.from('audit_logs').insert({
+        action: 'update',
+        entity_type: 'projects',
+        entity_id: id,
+        user_id: user.id,
+        user_email: user.email ?? null,
+        description: `Project number changed from ${numberChange.from} to ${numberChange.to}.${
+          options?.reason ? ` Reason: ${options.reason}` : ''
+        }`,
+        old_values: { project_number: numberChange.from },
+        new_values: { project_number: numberChange.to, reason: options?.reason ?? null },
+      })
     }
 
     revalidatePath('/admin/projects')
