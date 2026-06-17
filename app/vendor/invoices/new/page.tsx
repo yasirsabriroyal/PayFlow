@@ -18,7 +18,7 @@ import {
 } from '@/components/ui/select'
 import Link from 'next/link'
 import { useToast } from '@/hooks/use-toast'
-import { getVendorProjects, submitVendorInvoice, getProjectTaxRate, type ProjectTaxRate } from '@/lib/actions/vendor-invoices'
+import { getVendorProjects, submitVendorInvoice, getProjectTaxRate, getContractorAccountStatus, type ProjectTaxRate } from '@/lib/actions/vendor-invoices'
 
 // Removed mockProjects
 
@@ -152,7 +152,27 @@ export default function SubmitInvoicePage() {
   }
 
   const [projects, setProjects] = useState<{ id: string, name: string, project_number: string }[]>([])
-  
+
+  // Account status gate: only `active` contractors may submit invoices. We load
+  // this up front so a pending/suspended contractor sees a clear explanation
+  // instead of filling out the form and hitting a generic upload error.
+  const [accountStatus, setAccountStatus] = useState<'active' | 'pending_kyc' | 'suspended' | 'inactive' | null>(null)
+  const [statusLoading, setStatusLoading] = useState(true)
+
+  useEffect(() => {
+    let cancelled = false
+    getContractorAccountStatus()
+      .then((res) => {
+        if (!cancelled) setAccountStatus(res.success ? res.status : null)
+      })
+      .finally(() => {
+        if (!cancelled) setStatusLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
   // Load projects
   useEffect(() => {
     async function load() {
@@ -354,6 +374,54 @@ export default function SubmitInvoicePage() {
               setUploadProgress([])
             }}>
               Submit Another
+            </Button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // While we confirm the contractor's account status, show a spinner so we
+  // never flash the form to someone who isn't allowed to submit invoices.
+  if (statusLoading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center p-4">
+        <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" aria-label="Loading" />
+      </div>
+    )
+  }
+
+  // Gate: only `active` contractors may submit invoices. Anyone else gets a
+  // clear explanation and a path forward instead of a misleading upload error.
+  if (accountStatus !== 'active') {
+    const isPending = accountStatus === 'pending_kyc'
+    const isSuspended = accountStatus === 'suspended'
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center p-4">
+        <div className="max-w-md w-full text-center space-y-6">
+          <div className="w-16 h-16 bg-warning/10 rounded-full flex items-center justify-center mx-auto">
+            <FileText className="w-8 h-8 text-warning" />
+          </div>
+          <div>
+            <h1 className="text-2xl font-semibold text-balance">
+              {isSuspended ? 'Your account is on hold' : 'Verification required'}
+            </h1>
+            <p className="text-muted-foreground mt-2 text-pretty">
+              {isSuspended
+                ? 'Your contractor account is currently suspended, so invoices cannot be submitted. Please contact the accounts payable team to resolve this.'
+                : isPending
+                  ? 'Your account is still being verified. Once your compliance documents have been reviewed and approved, you\u2019ll be able to submit invoices.'
+                  : 'Your account is not active yet, so invoices cannot be submitted. Please complete verification to continue.'}
+            </p>
+          </div>
+          <div className="flex flex-col gap-3">
+            {!isSuspended && (
+              <Button className="w-full" asChild>
+                <Link href="/vendor/compliance">Complete verification</Link>
+              </Button>
+            )}
+            <Button variant="outline" className="w-full" asChild>
+              <Link href="/vendor/portal">Back to Portal</Link>
             </Button>
           </div>
         </div>

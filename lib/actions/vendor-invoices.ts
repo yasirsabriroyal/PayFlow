@@ -6,6 +6,40 @@ import { del } from '@vercel/blob'
 import { applyInvoiceStatusChange } from '@/lib/invoices/status-flow'
 import { resolveInternalUserId } from '@/lib/utils/resolve-user'
 
+/**
+ * Lightweight getter for the signed-in contractor's account status. Used to
+ * gate the "Submit Invoice" page up front: only `active` contractors may
+ * invoice, so we surface a clear message instead of letting them fill out the
+ * whole form and hit a generic upload error at the end. Scoped by
+ * auth_user_id (IDOR-safe).
+ */
+export async function getContractorAccountStatus(): Promise<{
+  success: boolean
+  status: 'active' | 'pending_kyc' | 'suspended' | 'inactive' | null
+  error?: string
+}> {
+  try {
+    const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return { success: false, status: null, error: 'Unauthorized' }
+
+    const adminSupabase = getSupabaseAdmin()
+    const { data: contractor, error } = await adminSupabase
+      .from('contractors')
+      .select('status')
+      .eq('auth_user_id', user.id)
+      .single()
+
+    if (error || !contractor) {
+      return { success: false, status: null, error: 'Contractor profile not found' }
+    }
+    return { success: true, status: contractor.status }
+  } catch (e) {
+    console.error('getContractorAccountStatus error:', e)
+    return { success: false, status: null, error: 'An unexpected error occurred' }
+  }
+}
+
 export async function submitVendorInvoice(formData: FormData) {
   try {
     const supabase = await createClient()
