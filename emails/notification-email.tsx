@@ -181,22 +181,80 @@ export function NotificationEmail({
                 {help}
               </Text>
             ) : null}
-            <Text style={{ fontSize: 12, color: '#64748b', margin: '0 0 4px' }}>
+
+            {/* Company name */}
+            <Text style={{ fontSize: 12, color: '#64748b', margin: '0 0 4px', fontWeight: 600 }}>
               {branding.legalName || branding.companyName}
             </Text>
-            {(branding.address || branding.phone || branding.supportEmail) ? (
-              <Text style={{ fontSize: 11, color: '#94a3b8', margin: '0 0 4px' }}>
-                {[branding.address, branding.phone, branding.supportEmail].filter(Boolean).join('  •  ')}
-              </Text>
-            ) : null}
+
+            {/* Multi-office locations — render each office on its own line */}
+            {branding.offices && branding.offices.length > 0 ? (
+              branding.offices.map((office, i) => {
+                const parts = [
+                  office.address1,
+                  office.address2,
+                  [office.city, office.province].filter(Boolean).join(', '),
+                  office.postalCode,
+                  office.country !== 'Canada' ? office.country : null,
+                ].filter(Boolean)
+                return (
+                  <Text key={office.id || i} style={{ fontSize: 11, color: '#94a3b8', margin: '0 0 2px' }}>
+                    {office.isPrimary ? (
+                      <span style={{ fontWeight: 600, color: '#64748b' }}>{office.officeName}: </span>
+                    ) : (
+                      <span style={{ color: '#94a3b8' }}>{office.officeName}: </span>
+                    )}
+                    {parts.join(', ')}
+                    {office.phone ? `  •  ${office.phone}` : ''}
+                  </Text>
+                )
+              })
+            ) : (
+              /* Fallback: single address from company_settings */
+              (branding.address || branding.phone || branding.supportEmail) ? (
+                <Text style={{ fontSize: 11, color: '#94a3b8', margin: '0 0 4px' }}>
+                  {[branding.address, branding.phone, branding.supportEmail].filter(Boolean).join('  •  ')}
+                </Text>
+              ) : null
+            )}
+
+            {/* Website */}
             {branding.website ? (
-              <Text style={{ fontSize: 11, margin: '0 0 8px' }}>
+              <Text style={{ fontSize: 11, margin: '4px 0 4px' }}>
                 <Link href={branding.website} style={{ color: '#64748b' }}>
                   {branding.website.replace(/^https?:\/\//, '')}
                 </Link>
               </Text>
             ) : null}
 
+            {/* Social links */}
+            {branding.socialLinks && Object.values(branding.socialLinks).some(Boolean) ? (
+              <Text style={{ fontSize: 11, color: '#94a3b8', margin: '4px 0 4px' }}>
+                {[
+                  branding.socialLinks.linkedin ? { label: 'LinkedIn', href: branding.socialLinks.linkedin } : null,
+                  branding.socialLinks.facebook ? { label: 'Facebook', href: branding.socialLinks.facebook } : null,
+                  branding.socialLinks.instagram ? { label: 'Instagram', href: branding.socialLinks.instagram } : null,
+                  branding.socialLinks.twitter ? { label: 'X/Twitter', href: branding.socialLinks.twitter } : null,
+                  branding.socialLinks.youtube ? { label: 'YouTube', href: branding.socialLinks.youtube } : null,
+                ]
+                  .filter(Boolean)
+                  .map((s, i, arr) => (
+                    <span key={s!.label}>
+                      <Link href={s!.href!} style={{ color: '#64748b' }}>{s!.label}</Link>
+                      {i < arr.length - 1 ? '  •  ' : ''}
+                    </span>
+                  ))}
+              </Text>
+            ) : null}
+
+            {/* Footer disclaimer — tenant-configurable legal / confidentiality text */}
+            {branding.footerDisclaimer ? (
+              <Text style={{ fontSize: 10, color: '#94a3b8', margin: '8px 0 0', lineHeight: '15px', borderTop: '1px solid #e2e8f0', paddingTop: 8 }}>
+                {branding.footerDisclaimer}
+              </Text>
+            ) : null}
+
+            {/* SYSTEM-LOCKED: PayFlow attribution */}
             {!branding.whiteLabelEnabled ? (
               <Text style={{ fontSize: 11, color: '#94a3b8', margin: '8px 0 0' }}>
                 Secure payment workflow powered by{' '}

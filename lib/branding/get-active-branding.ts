@@ -12,6 +12,30 @@ export interface BrandingConfig {
   logo_url: string | null
 }
 
+/** A single office location row used in multi-location footers. */
+export interface CompanyOffice {
+  id: string
+  officeName: string
+  address1: string | null
+  address2: string | null
+  city: string | null
+  province: string | null
+  postalCode: string | null
+  country: string | null
+  phone: string | null
+  isPrimary: boolean
+  displayOrder: number
+}
+
+/** Social media links — all optional. */
+export interface SocialLinks {
+  facebook: string | null
+  linkedin: string | null
+  instagram: string | null
+  twitter: string | null
+  youtube: string | null
+}
+
 /**
  * Full branding configuration consumed by the email rendering layer.
  *
@@ -34,7 +58,14 @@ export interface EmailBranding {
   senderDisplayName: string | null
   phone: string | null
   website: string | null
+  /** Single-address fallback (used when no offices are configured). */
   address: string | null
+  /** Multi-location offices — ordered by display_order. */
+  offices: CompanyOffice[]
+  /** Optional legal/confidentiality disclaimer rendered at the bottom of every email footer. */
+  footerDisclaimer: string | null
+  /** Optional social media links rendered in the footer. */
+  socialLinks: SocialLinks
   /** Brand palette. Defaults to the PayFlow slate until tenants can edit colors (Phase 2). */
   primaryColor: string
   accentColor: string
@@ -99,15 +130,38 @@ export const getEmailBranding = cache(async (orgId?: OrganizationId | null): Pro
   const effectiveWhiteLabel = planGrantsWhiteLabel && activeOrg?.whiteLabelEnabled === true
   const supabaseAdmin = getSupabaseAdmin()
 
-  const { data, error } = await supabaseAdmin
-    .from('company_settings')
-    .select(
-      'company_name, legal_name, logo_url, email, phone, website, address, city, province, postal_code, primary_color, accent_color, support_contact, sender_display_name'
-    )
-    .limit(1)
-    .single()
+  const [settingsResult, officesResult] = await Promise.all([
+    supabaseAdmin
+      .from('company_settings')
+      .select(
+        'company_name, legal_name, logo_url, email, phone, website, address, city, province, postal_code, primary_color, accent_color, support_contact, sender_display_name, footer_disclaimer, social_facebook, social_linkedin, social_instagram, social_twitter, social_youtube'
+      )
+      .limit(1)
+      .single(),
+    supabaseAdmin
+      .from('company_offices')
+      .select('id, office_name, address_1, address_2, city, province, postal_code, country, phone, is_primary, display_order')
+      .order('display_order', { ascending: true }),
+  ])
 
-  if (error || !data) {
+  const data = settingsResult.data
+  const officesData = officesResult.data ?? []
+
+  const offices: CompanyOffice[] = officesData.map((o) => ({
+    id: o.id,
+    officeName: o.office_name,
+    address1: o.address_1 ?? null,
+    address2: o.address_2 ?? null,
+    city: o.city ?? null,
+    province: o.province ?? null,
+    postalCode: o.postal_code ?? null,
+    country: o.country ?? null,
+    phone: o.phone ?? null,
+    isPrimary: o.is_primary ?? false,
+    displayOrder: o.display_order ?? 0,
+  }))
+
+  if (settingsResult.error || !data) {
     return {
       companyName: DEFAULT_COMPANY,
       legalName: null,
@@ -118,6 +172,9 @@ export const getEmailBranding = cache(async (orgId?: OrganizationId | null): Pro
       phone: null,
       website: null,
       address: null,
+      offices,
+      footerDisclaimer: null,
+      socialLinks: { facebook: null, linkedin: null, instagram: null, twitter: null, youtube: null },
       primaryColor: DEFAULT_PRIMARY,
       accentColor: DEFAULT_ACCENT,
       whiteLabelEnabled: effectiveWhiteLabel,
@@ -136,6 +193,15 @@ export const getEmailBranding = cache(async (orgId?: OrganizationId | null): Pro
     phone: data.phone ?? null,
     website: data.website ?? null,
     address: addressParts.length ? addressParts.join(', ') : null,
+    offices,
+    footerDisclaimer: data.footer_disclaimer ?? null,
+    socialLinks: {
+      facebook: data.social_facebook ?? null,
+      linkedin: data.social_linkedin ?? null,
+      instagram: data.social_instagram ?? null,
+      twitter: data.social_twitter ?? null,
+      youtube: data.social_youtube ?? null,
+    },
     primaryColor: isValidHex(data.primary_color) ? data.primary_color! : DEFAULT_PRIMARY,
     accentColor: isValidHex(data.accent_color) ? data.accent_color! : DEFAULT_ACCENT,
     // Plan entitlement is the authoritative gate: white-label only takes effect
