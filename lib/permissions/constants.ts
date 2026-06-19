@@ -18,6 +18,7 @@ export const PERMISSION_MODULES = {
   CONTRACTS: 'contracts',
   REPORTING: 'reporting',
   ADMINISTRATION: 'administration',
+  FEEDBACK: 'feedback',
 } as const
 
 export type PermissionModule = typeof PERMISSION_MODULES[keyof typeof PERMISSION_MODULES]
@@ -73,6 +74,12 @@ export const PERMISSIONS = {
     MANAGE_ROLES: 'manage_roles',
     VIEW_SYSTEM_LOGS: 'view_system_logs',
   },
+  FEEDBACK: {
+    SUBMIT_FEEDBACK:   'submit_feedback',
+    VIEW_OWN_FEEDBACK: 'view_own_feedback',
+    VIEW_ALL_FEEDBACK: 'view_all_feedback',
+    MANAGE_FEEDBACK:   'manage_feedback',
+  },
 } as const
 
 // Permission type from all nested values
@@ -85,6 +92,7 @@ export type Permission =
   | typeof PERMISSIONS.CONTRACTS[keyof typeof PERMISSIONS.CONTRACTS]
   | typeof PERMISSIONS.REPORTING[keyof typeof PERMISSIONS.REPORTING]
   | typeof PERMISSIONS.ADMINISTRATION[keyof typeof PERMISSIONS.ADMINISTRATION]
+  | typeof PERMISSIONS.FEEDBACK[keyof typeof PERMISSIONS.FEEDBACK]
 
 // Array of all valid permissions for validation
 export const ALL_PERMISSIONS: Permission[] = [
@@ -96,6 +104,7 @@ export const ALL_PERMISSIONS: Permission[] = [
   ...Object.values(PERMISSIONS.CONTRACTS),
   ...Object.values(PERMISSIONS.REPORTING),
   ...Object.values(PERMISSIONS.ADMINISTRATION),
+  ...Object.values(PERMISSIONS.FEEDBACK),
 ]
 
 // ============================================
@@ -149,6 +158,11 @@ export const PERMISSION_CATALOG: PermissionMetadata[] = [
   { key: PERMISSIONS.ADMINISTRATION.MANAGE_USERS, label: 'Manage Users', description: 'Can add, edit, and deactivate users', module: PERMISSION_MODULES.ADMINISTRATION, isCritical: true },
   { key: PERMISSIONS.ADMINISTRATION.MANAGE_ROLES, label: 'Manage Roles', description: 'Can create and modify roles', module: PERMISSION_MODULES.ADMINISTRATION, isCritical: true },
   { key: PERMISSIONS.ADMINISTRATION.VIEW_SYSTEM_LOGS, label: 'View System Logs', description: 'Can access audit logs and system activity', module: PERMISSION_MODULES.ADMINISTRATION },
+  // Feedback
+  { key: PERMISSIONS.FEEDBACK.SUBMIT_FEEDBACK,   label: 'Submit Feedback',      description: 'Can submit bug reports, feature requests, and suggestions', module: PERMISSION_MODULES.FEEDBACK },
+  { key: PERMISSIONS.FEEDBACK.VIEW_OWN_FEEDBACK, label: 'View Own Feedback',    description: 'Can view their own submitted feedback tickets', module: PERMISSION_MODULES.FEEDBACK },
+  { key: PERMISSIONS.FEEDBACK.VIEW_ALL_FEEDBACK, label: 'View All Feedback',    description: 'Can view all feedback tickets across all users', module: PERMISSION_MODULES.FEEDBACK },
+  { key: PERMISSIONS.FEEDBACK.MANAGE_FEEDBACK,   label: 'Manage Feedback',      description: 'Can update status, assign, comment, and archive any feedback ticket', module: PERMISSION_MODULES.FEEDBACK },
 ]
 
 // Group permissions by module (flat)
@@ -170,6 +184,7 @@ export const MODULE_LABELS: Record<PermissionModule, string> = {
   [PERMISSION_MODULES.CONTRACTS]: 'Contracts',
   [PERMISSION_MODULES.REPORTING]: 'Reporting',
   [PERMISSION_MODULES.ADMINISTRATION]: 'Administration',
+  [PERMISSION_MODULES.FEEDBACK]: 'Feedback Portal',
 }
 
 // Structured permission groups for UI display
@@ -208,6 +223,7 @@ export const ROLE_LABELS: Record<UserRole, string> = {
 // ============================================
 
 export const DEFAULT_ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
+  // admin gets ALL_PERMISSIONS which now includes FEEDBACK
   admin: ALL_PERMISSIONS,
   
   project_manager: [
@@ -228,6 +244,8 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     PERMISSIONS.CONTRACTS.VIEW_CONTRACTS,
     PERMISSIONS.CONTRACTS.UPLOAD_CONTRACTS,
     PERMISSIONS.REPORTING.VIEW_FINANCIAL_REPORTS,
+    PERMISSIONS.FEEDBACK.SUBMIT_FEEDBACK,
+    PERMISSIONS.FEEDBACK.VIEW_OWN_FEEDBACK,
   ],
   
   accountant: [
@@ -246,12 +264,16 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     PERMISSIONS.CONTRACTS.VIEW_CONTRACTS,
     PERMISSIONS.REPORTING.VIEW_FINANCIAL_REPORTS,
     PERMISSIONS.REPORTING.EXPORT_REPORTS,
+    PERMISSIONS.FEEDBACK.SUBMIT_FEEDBACK,
+    PERMISSIONS.FEEDBACK.VIEW_OWN_FEEDBACK,
   ],
   
   contractor: [
     PERMISSIONS.VENDORS.VIEW_VENDORS,
     PERMISSIONS.CONTRACTS.VIEW_CONTRACTS,
     PERMISSIONS.INVOICES.UPLOAD_INVOICE_ATTACHMENT,
+    PERMISSIONS.FEEDBACK.SUBMIT_FEEDBACK,
+    PERMISSIONS.FEEDBACK.VIEW_OWN_FEEDBACK,
   ],
 }
 
