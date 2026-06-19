@@ -21,12 +21,14 @@ import { RoleTabBar } from '@/components/role-tab-bar'
 import {
   getFeedbackTicket,
   addFeedbackComment,
-  FEEDBACK_STATUS_LABELS,
-  FEEDBACK_TYPE_LABELS,
   type FeedbackTicketDetail,
   type FeedbackStatus,
   type FeedbackType,
 } from '@/lib/actions/feedback'
+import {
+  FEEDBACK_STATUS_LABELS,
+  FEEDBACK_TYPE_LABELS,
+} from '@/lib/feedback/constants'
 import Link from 'next/link'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────

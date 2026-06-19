@@ -664,7 +664,7 @@ export async function getFeedbackStats(): Promise<{
   return { total, open, resolved }
 }
 
-// Re-export status/type helpers for UI convenience (sourced from server-free constants)
-export { FEEDBACK_STATUS_LABELS, FEEDBACK_TYPE_LABELS }
+// Note: FEEDBACK_STATUS_LABELS, FEEDBACK_TYPE_LABELS, isTransitionAllowed, and
+// FEEDBACK_ALLOWED_TRANSITIONS must be imported directly from '@/lib/feedback/constants'
+// in UI components — non-async values cannot be exported from a 'use server' file.
 export type { FeedbackStatus, FeedbackType }
-export { FEEDBACK_ALLOWED_TRANSITIONS, isTransitionAllowed } from '@/lib/feedback/constants'
