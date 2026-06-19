@@ -8,7 +8,6 @@
  * Never throws — returns a typed result so callers can handle errors cleanly.
  */
 
-import 'server-only'
 import { getSupabaseAdmin } from '@/lib/supabase/admin'
 import { resolveActiveOrgId } from '@/lib/tenancy'
 import { sendGenericAlert } from '@/lib/notifications/server-dispatch'
