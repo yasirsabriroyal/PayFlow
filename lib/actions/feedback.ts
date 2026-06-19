@@ -10,13 +10,12 @@
 
 import { getSupabaseAdmin } from '@/lib/supabase/admin'
 import { createClient } from '@/lib/supabase/server'
-import { sendGenericAlert } from '@/lib/notifications/server-dispatch'
-import { applyFeedbackStatusChange } from '@/lib/feedback/status-flow'
 import {
   type FeedbackStatus,
   type FeedbackType,
   FEEDBACK_TYPE_LABELS,
   FEEDBACK_STATUS_LABELS,
+  isTransitionAllowed,
 } from '@/lib/feedback/constants'
 
 // Inline org resolver — avoids importing lib/tenancy which has 'import server-only'
@@ -190,6 +189,7 @@ export async function createFeedbackTicket(
 
   if (admins && admins.length > 0) {
     const typeLabel = FEEDBACK_TYPE_LABELS[input.type] ?? input.type
+    const { sendGenericAlert } = await import('@/lib/notifications/server-dispatch')
     for (const admin of admins) {
       await sendGenericAlert({
         recipientUserId: admin.id,
@@ -441,14 +441,92 @@ export async function updateFeedbackStatus(
     return { success: false, error: 'Admin role required.' }
   }
 
-  return applyFeedbackStatusChange({
-    ticketId,
-    newStatus,
-    reason,
-    changedByUserId: profile.id,
-    changedByName:   `${profile.first_name} ${profile.last_name}`.trim(),
-    changedByRole:   profile.role,
+  // Inline status-change logic — status-flow.ts cannot be statically imported here
+  // because it transitively imports server-dispatch.ts which has 'import server-only',
+  // causing module evaluation to abort before any exports are registered.
+  const changedByUserId = profile.id
+  const changedByName   = `${profile.first_name} ${profile.last_name}`.trim()
+  const changedByRole   = profile.role
+  const orgId           = await getOrgId()
+
+  const { data: ticket, error: fetchErr } = await supabase
+    .from('feedback_tickets')
+    .select('id, ticket_number, type, status, title, submitted_by_user_id, submitted_by_name, submitted_by_email')
+    .eq('id', ticketId)
+    .eq('organization_id', orgId)
+    .single()
+
+  if (fetchErr || !ticket) return { success: false, error: 'Feedback ticket not found.' }
+
+  const oldStatus = ticket.status as FeedbackStatus
+
+  if (!isTransitionAllowed(oldStatus, newStatus)) {
+    return {
+      success: false,
+      error: `Cannot transition from "${FEEDBACK_STATUS_LABELS[oldStatus]}" to "${FEEDBACK_STATUS_LABELS[newStatus]}".`,
+    }
+  }
+
+  const { error: updateErr } = await supabase
+    .from('feedback_tickets')
+    .update({
+      status: newStatus,
+      ...(newStatus === 'resolved' || newStatus === 'released'
+        ? { resolved_at: new Date().toISOString(), resolved_by: changedByUserId }
+        : {}),
+    })
+    .eq('id', ticketId)
+
+  if (updateErr) return { success: false, error: 'Failed to update ticket status.' }
+
+  await supabase.from('feedback_status_history').insert({
+    ticket_id:          ticketId,
+    old_status:         oldStatus,
+    new_status:         newStatus,
+    changed_by_user_id: changedByUserId,
+    changed_by_name:    changedByName,
+    changed_by_role:    changedByRole,
+    reason:             reason ?? null,
   })
+
+  await supabase.from('audit_logs').insert({
+    entity_type:  'feedback_ticket',
+    entity_id:    ticketId,
+    action:       'feedback_status_changed' as unknown,
+    user_id:      changedByUserId,
+    user_role:    changedByRole as unknown,
+    description:  `Feedback ${ticket.ticket_number} status changed from ${oldStatus} to ${newStatus}`,
+    old_values:   { status: oldStatus },
+    new_values:   { status: newStatus, reason: reason ?? null },
+  })
+
+  if (ticket.submitted_by_user_id) {
+    const { data: submitter } = await supabase
+      .from('users')
+      .select('first_name, last_name, email, email_notifications_enabled')
+      .eq('id', ticket.submitted_by_user_id)
+      .single()
+
+    if (submitter) {
+      // Dynamic import so the server-only chain never enters the static import graph
+      const { sendGenericAlert } = await import('@/lib/notifications/server-dispatch')
+      await sendGenericAlert({
+        recipientUserId: ticket.submitted_by_user_id,
+        recipient: {
+          id:           ticket.submitted_by_user_id,
+          name:         `${submitter.first_name} ${submitter.last_name}`.trim(),
+          email:        submitter.email ?? ticket.submitted_by_email ?? undefined,
+          emailEnabled: submitter.email_notifications_enabled ?? true,
+        },
+        type:  'feedback_status_changed',
+        title: `Feedback ${ticket.ticket_number} — Status updated`,
+        body:  `Your ${FEEDBACK_TYPE_LABELS[ticket.type as FeedbackType] ?? ticket.type} has been moved to: ${FEEDBACK_STATUS_LABELS[newStatus]}.${reason ? `\n\nNote: ${reason}` : ''}`,
+        link:  `/feedback/${ticket.id}`,
+      })
+    }
+  }
+
+  return { success: true }
 }
 
 // ============================================================
@@ -554,6 +632,7 @@ export async function addFeedbackComment(
         .single()
 
       if (submitter) {
+        const { sendGenericAlert } = await import('@/lib/notifications/server-dispatch')
         await sendGenericAlert({
           recipientUserId: ticket.submitted_by_user_id,
           recipient: {
