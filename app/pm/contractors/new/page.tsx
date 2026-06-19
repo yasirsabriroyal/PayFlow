@@ -1,7 +1,8 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import {
   ArrowLeft,
   Building2,
@@ -13,6 +14,7 @@ import {
   Loader2,
   CheckCircle,
   Wrench,
+  ExternalLink,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -28,21 +30,12 @@ import { useToast } from '@/hooks/use-toast'
 import { createVendor } from '@/app/admin/contractors/actions'
 import { AppHeader } from '@/components/app-header'
 import { useContextualBack } from '@/lib/workflow-navigation'
-
-const trades = [
-  'Electrical',
-  'Plumbing',
-  'HVAC',
-  'Masonry',
-  'Drywall',
-  'Concrete',
-  'Roofing',
-  'Painting',
-  'Carpentry',
-  'Flooring',
-  'Landscaping',
-  'General',
-]
+import {
+  getContractorCategories,
+  getContractorSubcategories,
+  type ContractorCategory,
+  type ContractorSubcategory,
+} from '@/app/admin/settings/contractors/actions'
 
 const provinces = [
   { value: 'AB', label: 'Alberta' },
@@ -66,6 +59,17 @@ export default function PMAddContractorPage() {
   const { goBack } = useContextualBack()
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isSuccess, setIsSuccess] = useState(false)
+  const [categories, setCategories] = useState<ContractorCategory[]>([])
+  const [categoriesLoading, setCategoriesLoading] = useState(true)
+  const [subcategories, setSubcategories] = useState<ContractorSubcategory[]>([])
+  const [subcategoriesLoading, setSubcategoriesLoading] = useState(false)
+
+  useEffect(() => {
+    getContractorCategories().then((result) => {
+      if (result.success) setCategories(result.categories)
+      setCategoriesLoading(false)
+    })
+  }, [])
 
   const [formData, setFormData] = useState({
     company_name: '',
@@ -74,6 +78,7 @@ export default function PMAddContractorPage() {
     email: '',
     phone: '',
     trade: '',
+    trade_subcategory: '',
     address_line1: '',
     city: '',
     province: 'ON',
@@ -88,6 +93,21 @@ export default function PMAddContractorPage() {
 
   const handleChange = (field: string, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }))
+  }
+
+  const handleTradeChange = (value: string) => {
+    setFormData(prev => ({ ...prev, trade: value, trade_subcategory: '' }))
+    const cat = categories.find((c) => c.name === value)
+    if (cat) {
+      setSubcategoriesLoading(true)
+      setSubcategories([])
+      getContractorSubcategories(cat.id).then((result) => {
+        if (result.success) setSubcategories(result.subcategories)
+        setSubcategoriesLoading(false)
+      })
+    } else {
+      setSubcategories([])
+    }
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -115,6 +135,8 @@ export default function PMAddContractorPage() {
         province: formData.province,
         postal_code: formData.postal_code || undefined,
         business_number: formData.gst_hst_number || undefined,
+        trade_category: formData.trade || undefined,
+        trade_subcategory: formData.trade_subcategory || undefined,
       })
 
       if (!result.success) {
@@ -250,18 +272,71 @@ export default function PMAddContractorPage() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="trade">Trade / Specialty *</Label>
-                <Select value={formData.trade} onValueChange={(v) => handleChange('trade', v)}>
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="trade">Trade / Specialty *</Label>
+                  <Link
+                    href="/admin/settings/contractors/categories"
+                    className="text-xs text-muted-foreground hover:text-primary flex items-center gap-1 transition-colors"
+                    tabIndex={-1}
+                  >
+                    <ExternalLink className="w-3 h-3" />
+                    Manage Categories
+                  </Link>
+                </div>
+                <Select value={formData.trade} onValueChange={handleTradeChange}>
                   <SelectTrigger className="h-11">
                     <Wrench className="w-4 h-4 text-muted-foreground mr-2" />
-                    <SelectValue placeholder="Select trade" />
+                    <SelectValue placeholder={categoriesLoading ? 'Loading...' : 'Select trade'} />
                   </SelectTrigger>
                   <SelectContent>
-                    {trades.map((trade) => (
-                      <SelectItem key={trade} value={trade}>
-                        {trade}
-                      </SelectItem>
-                    ))}
+                    {categories.length === 0 && !categoriesLoading ? (
+                      <div className="px-3 py-4 text-sm text-muted-foreground text-center">
+                        No categories found.{' '}
+                        <Link href="/admin/settings/contractors/categories" className="text-primary underline underline-offset-2">
+                          Add categories in Contractor Settings.
+                        </Link>
+                      </div>
+                    ) : (
+                      categories.map((cat) => (
+                        <SelectItem key={cat.id} value={cat.name}>
+                          {cat.name}
+                        </SelectItem>
+                      ))
+                    )}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="trade_subcategory">Subcategory</Label>
+                <Select
+                  value={formData.trade_subcategory}
+                  onValueChange={(v) => handleChange('trade_subcategory', v)}
+                  disabled={!formData.trade || subcategoriesLoading}
+                >
+                  <SelectTrigger className="h-11">
+                    <SelectValue
+                      placeholder={
+                        !formData.trade
+                          ? 'Select a trade first'
+                          : subcategoriesLoading
+                          ? 'Loading...'
+                          : 'Select subcategory (optional)'
+                      }
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {subcategories.length === 0 ? (
+                      <div className="px-3 py-3 text-sm text-muted-foreground text-center">
+                        No subcategories available for this category.
+                      </div>
+                    ) : (
+                      subcategories.map((sub) => (
+                        <SelectItem key={sub.id} value={sub.name}>
+                          {sub.name}
+                        </SelectItem>
+                      ))
+                    )}
                   </SelectContent>
                 </Select>
               </div>

@@ -16,6 +16,7 @@ export interface VendorProfile {
   province: string | null
   postalCode: string | null
   tradeCategory: string | null
+  tradeSubcategory: string | null
   businessNumber: string | null
   isCorporation: boolean
   preferredPaymentMethod: string | null
@@ -38,7 +39,7 @@ export async function getVendorProfile(): Promise<{ success: boolean; profile: V
     const { data: c, error } = await admin
       .from('contractors')
       .select(
-        'id, company_name, contact_name, email, phone, address_line1, address_line2, city, province, postal_code, trade_category, business_number, is_corporation, preferred_payment_method, status, bank_name, bank_account_last4, bank_account_number'
+        'id, company_name, contact_name, email, phone, address_line1, address_line2, city, province, postal_code, trade_category, trade_subcategory, business_number, is_corporation, preferred_payment_method, status, bank_name, bank_account_last4, bank_account_number'
       )
       .eq('auth_user_id', user.id)
       .single()
@@ -64,6 +65,7 @@ export async function getVendorProfile(): Promise<{ success: boolean; profile: V
         province: (c.province as string) ?? null,
         postalCode: (c.postal_code as string) ?? null,
         tradeCategory: (c.trade_category as string) ?? null,
+        tradeSubcategory: (c.trade_subcategory as string) ?? null,
         businessNumber: (c.business_number as string) ?? null,
         isCorporation: Boolean(c.is_corporation),
         preferredPaymentMethod: (c.preferred_payment_method as string) ?? null,
@@ -87,6 +89,7 @@ export interface UpdateVendorProfileInput {
   province: string
   postalCode: string
   tradeCategory: string
+  tradeSubcategory: string
   businessNumber: string
   preferredPaymentMethod: string
 }
@@ -114,6 +117,7 @@ export async function updateVendorProfile(input: UpdateVendorProfileInput) {
         province: input.province,
         postal_code: input.postalCode,
         trade_category: input.tradeCategory || null,
+        trade_subcategory: input.tradeSubcategory || null,
         business_number: input.businessNumber,
         preferred_payment_method: input.preferredPaymentMethod || null,
         updated_at: new Date().toISOString(),

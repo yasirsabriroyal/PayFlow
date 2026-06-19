@@ -7,8 +7,9 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { getCompanySettings, updateCompanySettings } from '@/app/admin/actions'
-import { Building2, CheckCircle, Upload, X, Loader2 } from 'lucide-react'
+import { Building2, CheckCircle, Upload, X, Loader2, Tag, ChevronRight } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import Link from 'next/link'
 
 interface SettingsForm {
   company_name: string
@@ -174,6 +175,23 @@ export default function CompanySettingsPage() {
           <Building2 className="w-6 h-6 text-blue-600" />
           <h1 className="text-2xl font-bold text-gray-900">Company Settings</h1>
         </div>
+
+        {/* Contractor Settings quick-link */}
+        <Link
+          href="/admin/settings/contractors/categories"
+          className="flex items-center justify-between p-4 bg-white border border-gray-200 rounded-xl mb-6 hover:border-primary/40 hover:bg-primary/5 transition-colors group"
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 bg-primary/10 rounded-lg flex items-center justify-center">
+              <Tag className="w-5 h-5 text-primary" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-gray-900">Contractor Categories</p>
+              <p className="text-xs text-gray-500">Add, edit, or deactivate trade categories for contractors</p>
+            </div>
+          </div>
+          <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-primary transition-colors" />
+        </Link>
 
         {loading ? (
           <div className="text-center py-12 text-gray-500">Loading settings…</div>

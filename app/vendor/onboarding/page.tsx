@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { useRouter } from "next/navigation"
 import {
@@ -32,6 +32,13 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Checkbox } from "@/components/ui/checkbox"
+import {
+  getContractorCategories,
+  getContractorSubcategories,
+  type ContractorCategory,
+  type ContractorSubcategory,
+} from "@/app/admin/settings/contractors/actions"
+
 const provinces = [
   { value: "AB", label: "Alberta" },
   { value: "BC", label: "British Columbia" },
@@ -48,21 +55,6 @@ const provinces = [
   { value: "YT", label: "Yukon" },
 ]
 
-const tradeCategories = [
-  "Electrical",
-  "Plumbing",
-  "HVAC",
-  "Concrete",
-  "Framing",
-  "Roofing",
-  "Drywall",
-  "Painting",
-  "Flooring",
-  "Landscaping",
-  "General Contractor",
-  "Other",
-]
-
 interface FormData {
   // Step 1: Company Profile
   companyName: string
@@ -75,6 +67,7 @@ interface FormData {
   province: string
   postalCode: string
   tradeCategory: string
+  tradeSubcategory: string
   wcbAccountNumber: string
   wcbExpiryDate: string
   isCorporation: boolean
@@ -102,7 +95,16 @@ export default function VendorOnboardingPage() {
   const [currentStep, setCurrentStep] = useState(1)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isComplete, setIsComplete] = useState(false)
+  const [categories, setCategories] = useState<ContractorCategory[]>([])
+  const [subcategories, setSubcategories] = useState<ContractorSubcategory[]>([])
+  const [subcategoriesLoading, setSubcategoriesLoading] = useState(false)
   const router = useRouter()
+
+  useEffect(() => {
+    getContractorCategories().then((result) => {
+      if (result.success) setCategories(result.categories)
+    })
+  }, [])
 
   const [formData, setFormData] = useState<FormData>({
     companyName: "",
@@ -115,6 +117,7 @@ export default function VendorOnboardingPage() {
     province: "",
     postalCode: "",
     tradeCategory: "",
+    tradeSubcategory: "",
     wcbAccountNumber: "",
     wcbExpiryDate: "",
     isCorporation: false,
@@ -131,6 +134,21 @@ export default function VendorOnboardingPage() {
 
   const updateFormData = (field: keyof FormData, value: string | boolean | File | null) => {
     setFormData((prev) => ({ ...prev, [field]: value }))
+  }
+
+  const handleTradeChange = (value: string) => {
+    setFormData((prev) => ({ ...prev, tradeCategory: value, tradeSubcategory: "" }))
+    const cat = categories.find((c) => c.name === value)
+    if (cat) {
+      setSubcategoriesLoading(true)
+      setSubcategories([])
+      getContractorSubcategories(cat.id).then((result) => {
+        if (result.success) setSubcategories(result.subcategories)
+        setSubcategoriesLoading(false)
+      })
+    } else {
+      setSubcategories([])
+    }
   }
 
   const handleNextStep = () => {
@@ -403,17 +421,57 @@ export default function VendorOnboardingPage() {
                     <Label htmlFor="tradeCategory">Trade Category *</Label>
                     <Select
                       value={formData.tradeCategory}
-                      onValueChange={(value) => updateFormData("tradeCategory", value)}
+                      onValueChange={handleTradeChange}
                     >
                       <SelectTrigger>
                         <SelectValue placeholder="Select trade" />
                       </SelectTrigger>
                       <SelectContent>
-                        {tradeCategories.map((trade) => (
-                          <SelectItem key={trade} value={trade}>
-                            {trade}
-                          </SelectItem>
-                        ))}
+                        {categories.length === 0 ? (
+                          <div className="px-3 py-4 text-sm text-muted-foreground text-center">
+                            No categories available.
+                          </div>
+                        ) : (
+                          categories.map((cat) => (
+                            <SelectItem key={cat.id} value={cat.name}>
+                              {cat.name}
+                            </SelectItem>
+                          ))
+                        )}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="tradeSubcategory">Subcategory</Label>
+                    <Select
+                      value={formData.tradeSubcategory}
+                      onValueChange={(value) => updateFormData("tradeSubcategory", value)}
+                      disabled={!formData.tradeCategory || subcategoriesLoading}
+                    >
+                      <SelectTrigger>
+                        <SelectValue
+                          placeholder={
+                            !formData.tradeCategory
+                              ? "Select a trade first"
+                              : subcategoriesLoading
+                              ? "Loading..."
+                              : "Select subcategory (optional)"
+                          }
+                        />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {subcategories.length === 0 && !subcategoriesLoading ? (
+                          <div className="px-3 py-3 text-sm text-muted-foreground text-center">
+                            No subcategories available for this category.
+                          </div>
+                        ) : (
+                          subcategories.map((sub) => (
+                            <SelectItem key={sub.id} value={sub.name}>
+                              {sub.name}
+                            </SelectItem>
+                          ))
+                        )}
                       </SelectContent>
                     </Select>
                   </div>
