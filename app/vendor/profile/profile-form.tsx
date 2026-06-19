@@ -17,7 +17,12 @@ import {
 import { useToast } from '@/hooks/use-toast'
 import { updateVendorProfile, type VendorProfile } from '@/lib/actions/vendor-profile'
 import { BankingChangeDialog } from './banking-change-dialog'
-import { getContractorCategories, type ContractorCategory } from '@/app/admin/settings/contractors/actions'
+import {
+  getContractorCategories,
+  getContractorSubcategories,
+  type ContractorCategory,
+  type ContractorSubcategory,
+} from '@/app/admin/settings/contractors/actions'
 
 const PROVINCES = [
   { value: 'AB', label: 'Alberta' },
@@ -46,6 +51,8 @@ export function ProfileForm({ profile }: { profile: VendorProfile }) {
   const { toast } = useToast()
   const [saving, setSaving] = useState(false)
   const [categories, setCategories] = useState<ContractorCategory[]>([])
+  const [subcategories, setSubcategories] = useState<ContractorSubcategory[]>([])
+  const [subcategoriesLoading, setSubcategoriesLoading] = useState(false)
 
   useEffect(() => {
     getContractorCategories().then((result) => {
@@ -62,15 +69,38 @@ export function ProfileForm({ profile }: { profile: VendorProfile }) {
     province: profile.province ?? '',
     postalCode: profile.postalCode ?? '',
     tradeCategory: profile.tradeCategory ?? '',
+    tradeSubcategory: profile.tradeSubcategory ?? '',
     businessNumber: profile.businessNumber ?? '',
     preferredPaymentMethod: profile.preferredPaymentMethod ?? '',
   })
 
   const set = (k: keyof typeof form, v: string) => setForm((p) => ({ ...p, [k]: v }))
 
+  // Load subcategories whenever the selected category changes
+  useEffect(() => {
+    if (!form.tradeCategory) {
+      setSubcategories([])
+      return
+    }
+    const cat = categories.find((c) => c.name === form.tradeCategory)
+    if (!cat) return
+    setSubcategoriesLoading(true)
+    getContractorSubcategories(cat.id).then((result) => {
+      if (result.success) setSubcategories(result.subcategories)
+      setSubcategoriesLoading(false)
+    })
+  }, [form.tradeCategory, categories])
+
+  function handleTradeChange(value: string) {
+    setForm((p) => ({ ...p, tradeCategory: value, tradeSubcategory: '' }))
+  }
+
   const handleSave = async () => {
     setSaving(true)
-    const res = await updateVendorProfile(form)
+    const res = await updateVendorProfile({
+      ...form,
+      tradeSubcategory: form.tradeSubcategory ?? '',
+    })
     if (res.success) {
       toast({ title: 'Profile updated', description: 'Your company details have been saved.' })
       router.refresh()
@@ -105,22 +135,55 @@ export function ProfileForm({ profile }: { profile: VendorProfile }) {
             <Input value={profile.email ?? ''} disabled />
           </div>
           <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <Label htmlFor="tradeCategory">Trade Category</Label>
-            </div>
-            <Select value={form.tradeCategory} onValueChange={(v) => set('tradeCategory', v)}>
+            <Label htmlFor="tradeCategory">Trade Category</Label>
+            <Select value={form.tradeCategory} onValueChange={handleTradeChange}>
               <SelectTrigger id="tradeCategory">
                 <SelectValue placeholder="Select trade" />
               </SelectTrigger>
               <SelectContent>
                 {/* Show current value even if it was deactivated (historical display) */}
-                {form.tradeCategory &&
-                  !categories.some((c) => c.name === form.tradeCategory) && (
-                    <SelectItem value={form.tradeCategory}>{form.tradeCategory}</SelectItem>
-                  )}
+                {form.tradeCategory && !categories.some((c) => c.name === form.tradeCategory) && (
+                  <SelectItem value={form.tradeCategory}>{form.tradeCategory}</SelectItem>
+                )}
                 {categories.map((cat) => (
                   <SelectItem key={cat.id} value={cat.name}>{cat.name}</SelectItem>
                 ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="tradeSubcategory">Subcategory</Label>
+            <Select
+              value={form.tradeSubcategory}
+              onValueChange={(v) => set('tradeSubcategory', v)}
+              disabled={!form.tradeCategory || subcategoriesLoading}
+            >
+              <SelectTrigger id="tradeSubcategory">
+                <SelectValue
+                  placeholder={
+                    !form.tradeCategory
+                      ? 'Select a trade first'
+                      : subcategoriesLoading
+                      ? 'Loading...'
+                      : 'Select subcategory (optional)'
+                  }
+                />
+              </SelectTrigger>
+              <SelectContent>
+                {/* Show current historical subcategory if deactivated */}
+                {form.tradeSubcategory && !subcategories.some((s) => s.name === form.tradeSubcategory) && (
+                  <SelectItem value={form.tradeSubcategory}>{form.tradeSubcategory}</SelectItem>
+                )}
+                {subcategories.length === 0 && !subcategoriesLoading ? (
+                  <div className="px-3 py-3 text-sm text-muted-foreground text-center">
+                    No subcategories available for this category.
+                  </div>
+                ) : (
+                  subcategories.map((sub) => (
+                    <SelectItem key={sub.id} value={sub.name}>{sub.name}</SelectItem>
+                  ))
+                )}
               </SelectContent>
             </Select>
           </div>

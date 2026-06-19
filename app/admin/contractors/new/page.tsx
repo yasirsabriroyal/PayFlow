@@ -28,7 +28,12 @@ import {
 } from '@/components/ui/select'
 import { useToast } from '@/hooks/use-toast'
 import { createVendor } from '../actions'
-import { getContractorCategories, type ContractorCategory } from '@/app/admin/settings/contractors/actions'
+import {
+  getContractorCategories,
+  getContractorSubcategories,
+  type ContractorCategory,
+  type ContractorSubcategory,
+} from '@/app/admin/settings/contractors/actions'
 
 const provinces = [
   { value: 'AB', label: 'Alberta' },
@@ -53,6 +58,8 @@ export default function AddContractorPage() {
   const [isSuccess, setIsSuccess] = useState(false)
   const [categories, setCategories] = useState<ContractorCategory[]>([])
   const [categoriesLoading, setCategoriesLoading] = useState(true)
+  const [subcategories, setSubcategories] = useState<ContractorSubcategory[]>([])
+  const [subcategoriesLoading, setSubcategoriesLoading] = useState(false)
 
   useEffect(() => {
     getContractorCategories().then((result) => {
@@ -68,6 +75,7 @@ export default function AddContractorPage() {
     email: '',
     phone: '',
     trade: '',
+    trade_subcategory: '',
     address_line1: '',
     city: '',
     province: 'ON',
@@ -82,6 +90,21 @@ export default function AddContractorPage() {
 
   const handleChange = (field: string, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }))
+  }
+
+  const handleTradeChange = (value: string) => {
+    setFormData(prev => ({ ...prev, trade: value, trade_subcategory: '' }))
+    const cat = categories.find((c) => c.name === value)
+    if (cat) {
+      setSubcategoriesLoading(true)
+      setSubcategories([])
+      getContractorSubcategories(cat.id).then((result) => {
+        if (result.success) setSubcategories(result.subcategories)
+        setSubcategoriesLoading(false)
+      })
+    } else {
+      setSubcategories([])
+    }
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -110,6 +133,8 @@ export default function AddContractorPage() {
         province: formData.province,
         postal_code: formData.postal_code || undefined,
         gst_number: formData.gst_hst_number || undefined,
+        trade_category: formData.trade || undefined,
+        trade_subcategory: formData.trade_subcategory || undefined,
       })
 
       if (!result.success) {
@@ -267,7 +292,7 @@ export default function AddContractorPage() {
                     Manage Categories
                   </Link>
                 </div>
-                <Select value={formData.trade} onValueChange={(v) => handleChange('trade', v)}>
+                <Select value={formData.trade} onValueChange={handleTradeChange}>
                   <SelectTrigger className="h-11">
                     <Wrench className="w-4 h-4 text-muted-foreground mr-2" />
                     <SelectValue placeholder={categoriesLoading ? 'Loading...' : 'Select trade'} />
@@ -284,6 +309,40 @@ export default function AddContractorPage() {
                       categories.map((cat) => (
                         <SelectItem key={cat.id} value={cat.name}>
                           {cat.name}
+                        </SelectItem>
+                      ))
+                    )}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="trade_subcategory">Subcategory</Label>
+                <Select
+                  value={formData.trade_subcategory}
+                  onValueChange={(v) => handleChange('trade_subcategory', v)}
+                  disabled={!formData.trade || subcategoriesLoading}
+                >
+                  <SelectTrigger className="h-11">
+                    <SelectValue
+                      placeholder={
+                        !formData.trade
+                          ? 'Select a trade first'
+                          : subcategoriesLoading
+                          ? 'Loading...'
+                          : 'Select subcategory (optional)'
+                      }
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {subcategories.length === 0 ? (
+                      <div className="px-3 py-3 text-sm text-muted-foreground text-center">
+                        No subcategories available for this category.
+                      </div>
+                    ) : (
+                      subcategories.map((sub) => (
+                        <SelectItem key={sub.id} value={sub.name}>
+                          {sub.name}
                         </SelectItem>
                       ))
                     )}

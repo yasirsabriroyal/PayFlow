@@ -32,7 +32,12 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Checkbox } from "@/components/ui/checkbox"
-import { getContractorCategories, type ContractorCategory } from "@/app/admin/settings/contractors/actions"
+import {
+  getContractorCategories,
+  getContractorSubcategories,
+  type ContractorCategory,
+  type ContractorSubcategory,
+} from "@/app/admin/settings/contractors/actions"
 
 const provinces = [
   { value: "AB", label: "Alberta" },
@@ -62,6 +67,7 @@ interface FormData {
   province: string
   postalCode: string
   tradeCategory: string
+  tradeSubcategory: string
   wcbAccountNumber: string
   wcbExpiryDate: string
   isCorporation: boolean
@@ -90,6 +96,8 @@ export default function VendorOnboardingPage() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isComplete, setIsComplete] = useState(false)
   const [categories, setCategories] = useState<ContractorCategory[]>([])
+  const [subcategories, setSubcategories] = useState<ContractorSubcategory[]>([])
+  const [subcategoriesLoading, setSubcategoriesLoading] = useState(false)
   const router = useRouter()
 
   useEffect(() => {
@@ -109,6 +117,7 @@ export default function VendorOnboardingPage() {
     province: "",
     postalCode: "",
     tradeCategory: "",
+    tradeSubcategory: "",
     wcbAccountNumber: "",
     wcbExpiryDate: "",
     isCorporation: false,

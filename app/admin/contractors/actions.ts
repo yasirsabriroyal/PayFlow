@@ -109,6 +109,8 @@ export interface CreateVendorInput {
   postal_code?: string
   business_number?: string
   gst_number?: string
+  trade_category?: string
+  trade_subcategory?: string
 }
 
 /**
@@ -168,6 +170,8 @@ export const createVendor = secureAction(
         province: input.province || null,
         postal_code: input.postal_code?.trim() || null,
         business_number: input.business_number?.trim() || null,
+        trade_category: input.trade_category?.trim() || null,
+        trade_subcategory: input.trade_subcategory?.trim() || null,
         status: 'pending_kyc',
         created_by: userData?.id,
       })
@@ -219,6 +223,8 @@ export interface UpdateVendorInput {
   business_number?: string
   status?: 'active' | 'pending_kyc' | 'suspended' | 'inactive'
   wcb_clearance_expiry?: string
+  trade_category?: string
+  trade_subcategory?: string
 }
 
 /**
@@ -267,7 +273,9 @@ export const updateVendor = secureAction(
     if (input.business_number !== undefined) updates.business_number = input.business_number?.trim() || null
     if (input.status !== undefined) updates.status = input.status
     if (input.wcb_clearance_expiry !== undefined) updates.wcb_clearance_expiry = input.wcb_clearance_expiry || null
-    
+    if (input.trade_category !== undefined) updates.trade_category = input.trade_category?.trim() || null
+    if (input.trade_subcategory !== undefined) updates.trade_subcategory = input.trade_subcategory?.trim() || null
+
     updates.updated_at = new Date().toISOString()
     
     // Update vendor
