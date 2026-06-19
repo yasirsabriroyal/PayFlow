@@ -9,8 +9,20 @@
  */
 
 import { getSupabaseAdmin } from '@/lib/supabase/admin'
-import { resolveActiveOrgId } from '@/lib/tenancy'
 import { sendGenericAlert } from '@/lib/notifications/server-dispatch'
+
+// Inline org resolver — avoids importing lib/tenancy which has 'import server-only'
+async function resolveOrgId(hint?: string | null): Promise<string> {
+  if (hint?.trim()) return hint
+  const supabase = getSupabaseAdmin()
+  const { data } = await supabase
+    .from('organizations')
+    .select('id')
+    .eq('is_default', true)
+    .limit(1)
+    .single()
+  return data?.id ?? 'default'
+}
 import {
   type FeedbackStatus,
   type FeedbackType,
@@ -51,7 +63,7 @@ export async function applyFeedbackStatusChange(
   input: ApplyFeedbackStatusChangeInput
 ): Promise<ApplyFeedbackStatusChangeResult> {
   const supabase = getSupabaseAdmin()
-  const orgId = await resolveActiveOrgId(input.organizationId)
+  const orgId = await resolveOrgId(input.organizationId)
 
   // 1. Load ticket
   const { data: ticket, error: fetchErr } = await supabase

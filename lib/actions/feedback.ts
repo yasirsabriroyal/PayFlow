@@ -10,7 +10,6 @@
 
 import { getSupabaseAdmin } from '@/lib/supabase/admin'
 import { createClient } from '@/lib/supabase/server'
-import { resolveActiveOrgId } from '@/lib/tenancy'
 import { sendGenericAlert } from '@/lib/notifications/server-dispatch'
 import { applyFeedbackStatusChange } from '@/lib/feedback/status-flow'
 import {
@@ -19,6 +18,19 @@ import {
   FEEDBACK_TYPE_LABELS,
   FEEDBACK_STATUS_LABELS,
 } from '@/lib/feedback/constants'
+
+// Inline org resolver — avoids importing lib/tenancy which has 'import server-only'
+// at the top level, causing module evaluation to fail in RSC rendering contexts.
+async function getOrgId(): Promise<string> {
+  const supabase = getSupabaseAdmin()
+  const { data } = await supabase
+    .from('organizations')
+    .select('id')
+    .eq('is_default', true)
+    .limit(1)
+    .single()
+  return data?.id ?? 'default'
+}
 
 // ============================================================
 // Shared types
@@ -127,7 +139,7 @@ export async function createFeedbackTicket(
 ): Promise<{ success: boolean; ticketId?: string; ticketNumber?: string; error?: string }> {
   const supabase = getSupabaseAdmin()
   const authClient = await createClient()
-  const orgId = await resolveActiveOrgId()
+  const orgId = await getOrgId()
 
   const { data: { user: authUser } } = await authClient.auth.getUser()
   if (!authUser) return { success: false, error: 'Not authenticated.' }
@@ -208,7 +220,7 @@ export async function getFeedbackTickets(
 ): Promise<FeedbackListResult> {
   const supabase = getSupabaseAdmin()
   const authClient = await createClient()
-  const orgId = await resolveActiveOrgId()
+  const orgId = await getOrgId()
 
   const { data: { user: authUser } } = await authClient.auth.getUser()
   if (!authUser) return { tickets: [], total: 0, page: 1, perPage: 20, totalPages: 0 }
@@ -294,7 +306,7 @@ export async function getFeedbackTicket(
 ): Promise<FeedbackTicketDetail | null> {
   const supabase = getSupabaseAdmin()
   const authClient = await createClient()
-  const orgId = await resolveActiveOrgId()
+  const orgId = await getOrgId()
 
   const { data: { user: authUser } } = await authClient.auth.getUser()
   if (!authUser) return null
@@ -449,7 +461,7 @@ export async function assignFeedbackTicket(
 ): Promise<{ success: boolean; error?: string }> {
   const supabase = getSupabaseAdmin()
   const authClient = await createClient()
-  const orgId = await resolveActiveOrgId()
+  const orgId = await getOrgId()
 
   const { data: { user: authUser } } = await authClient.auth.getUser()
   if (!authUser) return { success: false, error: 'Not authenticated.' }
@@ -485,7 +497,7 @@ export async function addFeedbackComment(
 ): Promise<{ success: boolean; commentId?: string; error?: string }> {
   const supabase = getSupabaseAdmin()
   const authClient = await createClient()
-  const orgId = await resolveActiveOrgId()
+  const orgId = await getOrgId()
 
   const { data: { user: authUser } } = await authClient.auth.getUser()
   if (!authUser) return { success: false, error: 'Not authenticated.' }
@@ -575,7 +587,7 @@ export async function uploadFeedbackAttachment(
 ): Promise<{ success: boolean; error?: string }> {
   const supabase = getSupabaseAdmin()
   const authClient = await createClient()
-  const orgId = await resolveActiveOrgId()
+  const orgId = await getOrgId()
 
   const { data: { user: authUser } } = await authClient.auth.getUser()
   if (!authUser) return { success: false, error: 'Not authenticated.' }
@@ -633,7 +645,7 @@ export async function getFeedbackStats(): Promise<{
 }> {
   const supabase = getSupabaseAdmin()
   const authClient = await createClient()
-  const orgId = await resolveActiveOrgId()
+  const orgId = await getOrgId()
 
   const { data: { user: authUser } } = await authClient.auth.getUser()
   if (!authUser) return { total: 0, open: 0, resolved: 0 }
