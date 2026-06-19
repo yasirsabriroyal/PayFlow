@@ -23,7 +23,8 @@ import {
 } from '@/components/ui/select'
 import { AppHeader } from '@/components/app-header'
 import { RoleTabBar } from '@/components/role-tab-bar'
-import { createFeedbackTicket, type FeedbackType } from '@/lib/actions/feedback'
+import { createFeedbackTicket } from '@/lib/actions/feedback'
+import { type FeedbackType } from '@/lib/feedback/constants'
 import Link from 'next/link'
 
 // ─── Constants ───────────────────────────────────────────────────────────────

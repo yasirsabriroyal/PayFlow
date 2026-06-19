@@ -9,7 +9,6 @@
  */
 
 import { getSupabaseAdmin } from '@/lib/supabase/admin'
-import { createClient } from '@/lib/supabase/server'
 import {
   type FeedbackStatus,
   type FeedbackType,
@@ -137,6 +136,7 @@ export async function createFeedbackTicket(
   input: CreateFeedbackInput
 ): Promise<{ success: boolean; ticketId?: string; ticketNumber?: string; error?: string }> {
   const supabase = getSupabaseAdmin()
+  const { createClient } = await import('@/lib/supabase/server')
   const authClient = await createClient()
   const orgId = await getOrgId()
 
@@ -219,6 +219,7 @@ export async function getFeedbackTickets(
   viewAll = false
 ): Promise<FeedbackListResult> {
   const supabase = getSupabaseAdmin()
+  const { createClient } = await import('@/lib/supabase/server')
   const authClient = await createClient()
   const orgId = await getOrgId()
 
@@ -305,6 +306,7 @@ export async function getFeedbackTicket(
   isAdmin = false
 ): Promise<FeedbackTicketDetail | null> {
   const supabase = getSupabaseAdmin()
+  const { createClient } = await import('@/lib/supabase/server')
   const authClient = await createClient()
   const orgId = await getOrgId()
 
@@ -426,6 +428,7 @@ export async function updateFeedbackStatus(
   reason?:   string
 ): Promise<{ success: boolean; error?: string }> {
   const supabase = getSupabaseAdmin()
+  const { createClient } = await import('@/lib/supabase/server')
   const authClient = await createClient()
 
   const { data: { user: authUser } } = await authClient.auth.getUser()
@@ -538,6 +541,7 @@ export async function assignFeedbackTicket(
   assignedToUserId: string | null
 ): Promise<{ success: boolean; error?: string }> {
   const supabase = getSupabaseAdmin()
+  const { createClient } = await import('@/lib/supabase/server')
   const authClient = await createClient()
   const orgId = await getOrgId()
 
@@ -574,6 +578,7 @@ export async function addFeedbackComment(
   isInternal: boolean = false
 ): Promise<{ success: boolean; commentId?: string; error?: string }> {
   const supabase = getSupabaseAdmin()
+  const { createClient } = await import('@/lib/supabase/server')
   const authClient = await createClient()
   const orgId = await getOrgId()
 
@@ -665,6 +670,7 @@ export async function uploadFeedbackAttachment(
   fileSizeBytes?: number
 ): Promise<{ success: boolean; error?: string }> {
   const supabase = getSupabaseAdmin()
+  const { createClient } = await import('@/lib/supabase/server')
   const authClient = await createClient()
   const orgId = await getOrgId()
 
@@ -723,6 +729,7 @@ export async function getFeedbackStats(): Promise<{
   resolved: number
 }> {
   const supabase = getSupabaseAdmin()
+  const { createClient } = await import('@/lib/supabase/server')
   const authClient = await createClient()
   const orgId = await getOrgId()
 
@@ -755,7 +762,7 @@ export async function getFeedbackStats(): Promise<{
   return { total, open, resolved }
 }
 
-// Note: FEEDBACK_STATUS_LABELS, FEEDBACK_TYPE_LABELS, isTransitionAllowed, and
-// FEEDBACK_ALLOWED_TRANSITIONS must be imported directly from '@/lib/feedback/constants'
-// in UI components — non-async values cannot be exported from a 'use server' file.
-export type { FeedbackStatus, FeedbackType }
+// Types and labels must be imported directly from '@/lib/feedback/constants'.
+// Do NOT add any export type {} re-exports here — Next.js 'use server' files
+// cannot export type aliases without the Turbopack actions compiler treating
+// them as callable server functions, causing runtime ReferenceErrors.
