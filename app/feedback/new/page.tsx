@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useState, useTransition, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   Bug,
@@ -9,6 +9,8 @@ import {
   MessageSquare,
   ArrowLeft,
   Send,
+  Paperclip,
+  X,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -90,6 +92,24 @@ export default function NewFeedbackPage() {
   const [businessReason, setBusinessReason] = useState('')
   const [desiredOutcome, setDesiredOutcome] = useState('')
 
+  // Attachments
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [attachments, setAttachments] = useState<File[]>([])
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? [])
+    setAttachments((prev) => {
+      const existing = new Set(prev.map((f) => f.name + f.size))
+      return [...prev, ...files.filter((f) => !existing.has(f.name + f.size))]
+    })
+    // Reset input so the same file can be re-added after removal
+    e.target.value = ''
+  }
+
+  const removeAttachment = (index: number) => {
+    setAttachments((prev) => prev.filter((_, i) => i !== index))
+  }
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     setError(null)
@@ -112,7 +132,19 @@ export default function NewFeedbackPage() {
         desired_outcome:     type === 'feature_request' ? desiredOutcome.trim()   || undefined : undefined,
       })
 
-      if (result.success && result.ticketNumber) {
+      if (result.success && result.ticketId && result.ticketNumber) {
+        // Upload any selected attachments now that we have a ticket ID
+        if (attachments.length > 0) {
+          await Promise.allSettled(
+            attachments.map((file) => {
+              const fd = new FormData()
+              fd.append('file', file)
+              fd.append('ticket_id', result.ticketId!)
+              return fetch('/api/feedback/upload', { method: 'POST', body: fd })
+            })
+          )
+        }
+
         setSuccessTicket(result.ticketNumber)
         // Redirect to My Feedback after a brief moment
         setTimeout(() => router.push('/feedback'), 2000)
@@ -236,6 +268,58 @@ export default function NewFeedbackPage() {
                 </SelectContent>
               </Select>
             </div>
+          </div>
+
+          {/* Attachments */}
+          <div className="space-y-2">
+            <Label className="text-sm font-medium text-muted-foreground">
+              Attachments <span className="text-muted-foreground text-xs font-normal">(optional — PDF, PNG, JPEG, max 10MB each)</span>
+            </Label>
+
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".pdf,.png,.jpg,.jpeg,.gif,.webp"
+              multiple
+              className="hidden"
+              onChange={handleFileChange}
+            />
+
+            {attachments.length > 0 && (
+              <div className="space-y-1.5">
+                {attachments.map((file, i) => (
+                  <div
+                    key={`${file.name}-${file.size}`}
+                    className="flex items-center gap-2 px-3 py-2 rounded-lg bg-muted/40 border border-border text-sm"
+                  >
+                    <Paperclip className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
+                    <span className="flex-1 truncate text-foreground">{file.name}</span>
+                    <span className="text-xs text-muted-foreground flex-shrink-0">
+                      {(file.size / 1024).toFixed(0)} KB
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => removeAttachment(i)}
+                      className="text-muted-foreground hover:text-destructive transition-colors flex-shrink-0"
+                      aria-label={`Remove ${file.name}`}
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => fileInputRef.current?.click()}
+              className="gap-2"
+            >
+              <Paperclip className="w-3.5 h-3.5" />
+              {attachments.length === 0 ? 'Add attachment' : 'Add another'}
+            </Button>
           </div>
 
           {/* Bug-specific fields */}

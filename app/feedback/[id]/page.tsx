@@ -275,21 +275,32 @@ export default function FeedbackTicketPage() {
               <div className="bg-card border border-border rounded-xl p-5">
                 <h2 className="text-sm font-semibold mb-3 flex items-center gap-2">
                   <Paperclip className="w-4 h-4 text-muted-foreground" />
-                  Attachments
+                  Attachments ({ticket.attachments.length})
                 </h2>
                 <div className="space-y-2">
                   {ticket.attachments.map((att) => (
-                    <a
+                    <div
                       key={att.id}
-                      href={att.file_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex items-center gap-3 p-2.5 rounded-lg border border-border hover:bg-muted/40 transition-colors text-sm"
+                      className="flex items-center gap-3 p-2.5 rounded-lg border border-border text-sm"
                     >
                       <Paperclip className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-                      <span className="flex-1 truncate">{att.file_name}</span>
-                      <ChevronRight className="w-4 h-4 text-muted-foreground" />
-                    </a>
+                      <span className="flex-1 truncate text-foreground">{att.file_name}</span>
+                      <a
+                        href={`/api/feedback/attachments/${att.id}?inline=1`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs text-primary hover:underline flex-shrink-0"
+                      >
+                        View
+                      </a>
+                      <a
+                        href={`/api/feedback/attachments/${att.id}`}
+                        className="text-xs text-muted-foreground hover:text-foreground flex-shrink-0"
+                        download
+                      >
+                        <ChevronRight className="w-4 h-4" />
+                      </a>
+                    </div>
                   ))}
                 </div>
               </div>

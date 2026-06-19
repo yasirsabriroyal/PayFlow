@@ -204,7 +204,7 @@ export default function AdminFeedbackDetailPage() {
     })
   }
 
-  // ─── Loading ────────────────────────────────────────────────────────────────
+  // ─── Loading ─────────────────────────────────────────────────────────────��──
 
   if (loading) {
     return (
@@ -485,16 +485,16 @@ export default function AdminFeedbackDetailPage() {
               {activeTab === 'attachments' && (
                 <div className="p-5">
                   {ticket.attachments.length === 0 ? (
-                    <p className="text-sm text-muted-foreground py-6 text-center">No attachments on this ticket.</p>
+                    <div className="py-10 text-center text-sm text-muted-foreground">
+                      <Paperclip className="w-8 h-8 mx-auto mb-2 text-muted-foreground/40" />
+                      No attachments on this ticket.
+                    </div>
                   ) : (
                     <div className="space-y-2">
                       {ticket.attachments.map((a) => (
-                        <a
+                        <div
                           key={a.id}
-                          href={a.file_url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="flex items-center gap-3 p-3 rounded-lg border border-border hover:bg-muted/40 transition-colors"
+                          className="flex items-center gap-3 p-3 rounded-lg border border-border bg-muted/20"
                         >
                           <Paperclip className="w-4 h-4 text-muted-foreground flex-shrink-0" />
                           <span className="text-sm font-medium flex-1 min-w-0 truncate">{a.file_name}</span>
@@ -503,7 +503,22 @@ export default function AdminFeedbackDetailPage() {
                               {formatFileSize(a.file_size_bytes)}
                             </span>
                           )}
-                        </a>
+                          <a
+                            href={`/api/feedback/attachments/${a.id}?inline=1`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-xs text-primary hover:underline flex-shrink-0 ml-2"
+                          >
+                            View
+                          </a>
+                          <a
+                            href={`/api/feedback/attachments/${a.id}`}
+                            className="text-xs text-muted-foreground hover:text-foreground flex-shrink-0"
+                            download={a.file_name}
+                          >
+                            Download
+                          </a>
+                        </div>
                       ))}
                     </div>
                   )}
