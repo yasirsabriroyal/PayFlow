@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { useRouter } from "next/navigation"
 import {
@@ -32,6 +32,8 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Checkbox } from "@/components/ui/checkbox"
+import { getContractorCategories, type ContractorCategory } from "@/app/admin/settings/contractors/actions"
+
 const provinces = [
   { value: "AB", label: "Alberta" },
   { value: "BC", label: "British Columbia" },
@@ -46,21 +48,6 @@ const provinces = [
   { value: "QC", label: "Quebec" },
   { value: "SK", label: "Saskatchewan" },
   { value: "YT", label: "Yukon" },
-]
-
-const tradeCategories = [
-  "Electrical",
-  "Plumbing",
-  "HVAC",
-  "Concrete",
-  "Framing",
-  "Roofing",
-  "Drywall",
-  "Painting",
-  "Flooring",
-  "Landscaping",
-  "General Contractor",
-  "Other",
 ]
 
 interface FormData {
@@ -102,7 +89,14 @@ export default function VendorOnboardingPage() {
   const [currentStep, setCurrentStep] = useState(1)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isComplete, setIsComplete] = useState(false)
+  const [categories, setCategories] = useState<ContractorCategory[]>([])
   const router = useRouter()
+
+  useEffect(() => {
+    getContractorCategories().then((result) => {
+      if (result.success) setCategories(result.categories)
+    })
+  }, [])
 
   const [formData, setFormData] = useState<FormData>({
     companyName: "",
@@ -409,11 +403,17 @@ export default function VendorOnboardingPage() {
                         <SelectValue placeholder="Select trade" />
                       </SelectTrigger>
                       <SelectContent>
-                        {tradeCategories.map((trade) => (
-                          <SelectItem key={trade} value={trade}>
-                            {trade}
-                          </SelectItem>
-                        ))}
+                        {categories.length === 0 ? (
+                          <div className="px-3 py-4 text-sm text-muted-foreground text-center">
+                            No categories available.
+                          </div>
+                        ) : (
+                          categories.map((cat) => (
+                            <SelectItem key={cat.id} value={cat.name}>
+                              {cat.name}
+                            </SelectItem>
+                          ))
+                        )}
                       </SelectContent>
                     </Select>
                   </div>

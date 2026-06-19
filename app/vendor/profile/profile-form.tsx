@@ -1,7 +1,8 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import { Building2, User, MapPin, CreditCard, Save, Loader2, Lock } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -16,6 +17,7 @@ import {
 import { useToast } from '@/hooks/use-toast'
 import { updateVendorProfile, type VendorProfile } from '@/lib/actions/vendor-profile'
 import { BankingChangeDialog } from './banking-change-dialog'
+import { getContractorCategories, type ContractorCategory } from '@/app/admin/settings/contractors/actions'
 
 const PROVINCES = [
   { value: 'AB', label: 'Alberta' },
@@ -33,11 +35,6 @@ const PROVINCES = [
   { value: 'YT', label: 'Yukon' },
 ]
 
-const TRADE_CATEGORIES = [
-  'Electrical', 'Plumbing', 'HVAC', 'Concrete', 'Framing', 'Roofing',
-  'Drywall', 'Painting', 'Flooring', 'Landscaping', 'General Contractor', 'Other',
-]
-
 const PAYMENT_METHODS = [
   { value: 'eft', label: 'EFT / Direct Deposit' },
   { value: 'cheque', label: 'Cheque' },
@@ -48,6 +45,14 @@ export function ProfileForm({ profile }: { profile: VendorProfile }) {
   const router = useRouter()
   const { toast } = useToast()
   const [saving, setSaving] = useState(false)
+  const [categories, setCategories] = useState<ContractorCategory[]>([])
+
+  useEffect(() => {
+    getContractorCategories().then((result) => {
+      if (result.success) setCategories(result.categories)
+    })
+  }, [])
+
   const [form, setForm] = useState({
     contactName: profile.contactName ?? '',
     phone: profile.phone ?? '',
@@ -100,14 +105,21 @@ export function ProfileForm({ profile }: { profile: VendorProfile }) {
             <Input value={profile.email ?? ''} disabled />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="tradeCategory">Trade Category</Label>
+            <div className="flex items-center justify-between">
+              <Label htmlFor="tradeCategory">Trade Category</Label>
+            </div>
             <Select value={form.tradeCategory} onValueChange={(v) => set('tradeCategory', v)}>
               <SelectTrigger id="tradeCategory">
                 <SelectValue placeholder="Select trade" />
               </SelectTrigger>
               <SelectContent>
-                {TRADE_CATEGORIES.map((t) => (
-                  <SelectItem key={t} value={t}>{t}</SelectItem>
+                {/* Show current value even if it was deactivated (historical display) */}
+                {form.tradeCategory &&
+                  !categories.some((c) => c.name === form.tradeCategory) && (
+                    <SelectItem value={form.tradeCategory}>{form.tradeCategory}</SelectItem>
+                  )}
+                {categories.map((cat) => (
+                  <SelectItem key={cat.id} value={cat.name}>{cat.name}</SelectItem>
                 ))}
               </SelectContent>
             </Select>

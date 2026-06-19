@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
@@ -14,6 +14,7 @@ import {
   Loader2,
   CheckCircle,
   Wrench,
+  ExternalLink,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -27,21 +28,7 @@ import {
 } from '@/components/ui/select'
 import { useToast } from '@/hooks/use-toast'
 import { createVendor } from '../actions'
-
-const trades = [
-  'Electrical',
-  'Plumbing',
-  'HVAC',
-  'Masonry',
-  'Drywall',
-  'Concrete',
-  'Roofing',
-  'Painting',
-  'Carpentry',
-  'Flooring',
-  'Landscaping',
-  'General',
-]
+import { getContractorCategories, type ContractorCategory } from '@/app/admin/settings/contractors/actions'
 
 const provinces = [
   { value: 'AB', label: 'Alberta' },
@@ -64,6 +51,15 @@ export default function AddContractorPage() {
   const { toast } = useToast()
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isSuccess, setIsSuccess] = useState(false)
+  const [categories, setCategories] = useState<ContractorCategory[]>([])
+  const [categoriesLoading, setCategoriesLoading] = useState(true)
+
+  useEffect(() => {
+    getContractorCategories().then((result) => {
+      if (result.success) setCategories(result.categories)
+      setCategoriesLoading(false)
+    })
+  }, [])
 
   const [formData, setFormData] = useState({
     company_name: '',
@@ -260,18 +256,37 @@ export default function AddContractorPage() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="trade">Trade / Specialty *</Label>
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="trade">Trade / Specialty *</Label>
+                  <Link
+                    href="/admin/settings/contractors/categories"
+                    className="text-xs text-muted-foreground hover:text-primary flex items-center gap-1 transition-colors"
+                    tabIndex={-1}
+                  >
+                    <ExternalLink className="w-3 h-3" />
+                    Manage Categories
+                  </Link>
+                </div>
                 <Select value={formData.trade} onValueChange={(v) => handleChange('trade', v)}>
                   <SelectTrigger className="h-11">
                     <Wrench className="w-4 h-4 text-muted-foreground mr-2" />
-                    <SelectValue placeholder="Select trade" />
+                    <SelectValue placeholder={categoriesLoading ? 'Loading...' : 'Select trade'} />
                   </SelectTrigger>
                   <SelectContent>
-                    {trades.map((trade) => (
-                      <SelectItem key={trade} value={trade}>
-                        {trade}
-                      </SelectItem>
-                    ))}
+                    {categories.length === 0 && !categoriesLoading ? (
+                      <div className="px-3 py-4 text-sm text-muted-foreground text-center">
+                        No categories found.{' '}
+                        <Link href="/admin/settings/contractors/categories" className="text-primary underline underline-offset-2">
+                          Add categories in Contractor Settings.
+                        </Link>
+                      </div>
+                    ) : (
+                      categories.map((cat) => (
+                        <SelectItem key={cat.id} value={cat.name}>
+                          {cat.name}
+                        </SelectItem>
+                      ))
+                    )}
                   </SelectContent>
                 </Select>
               </div>

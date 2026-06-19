@@ -51,6 +51,7 @@ import { Badge } from "@/components/ui/badge"
 import { MobileNav } from "@/components/layout/mobile-nav"
 import { DataCard, DataCardHeader, DataCardRow } from "@/components/ui/responsive-table"
 import { getVendors } from "./actions"
+import { getContractorCategories } from "@/app/admin/settings/contractors/actions"
 import { usePermissions } from "@/hooks/use-permissions"
 import { useListStatePreservation, useWorkflowNavigation } from "@/lib/workflow-navigation"
 import { AppHeader } from "@/components/app-header"
@@ -67,6 +68,7 @@ interface Contractor {
   city: string
   province: string
   status: ContractorStatus
+  trade_category: string | null
   wcb_clearance_expiry: string | null
   kyc_completed_at: string | null
   created_at: string
@@ -75,17 +77,7 @@ interface Contractor {
 
 
 
-const tradeCategories = [
-  "All Trades",
-  "Electrical",
-  "Plumbing",
-  "HVAC",
-  "Concrete",
-  "Framing",
-  "Roofing",
-  "Drywall",
-  "Painting",
-]
+
 
 function ContractorDirectoryContent() {
   const router = useRouter()
@@ -108,8 +100,18 @@ function ContractorDirectoryContent() {
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState(searchParams.get('q') || "")
   const [statusFilter, setStatusFilter] = useState<string>(searchParams.get('status') || "all")
-  const [tradeFilter, setTradeFilter] = useState<string>(searchParams.get('trade') || "All Trades")
+  const [tradeFilter, setTradeFilter] = useState<string>(searchParams.get('trade') || "all")
   const [copiedId, setCopiedId] = useState<string | null>(null)
+  const [tradeCategories, setTradeCategories] = useState<string[]>([])
+
+  // Load trade categories from DB on mount
+  useEffect(() => {
+    getContractorCategories().then((result) => {
+      if (result.success) {
+        setTradeCategories(result.categories.map((c) => c.name))
+      }
+    })
+  }, [])
   
   // Permission-aware UI state
   const canCreateVendor = hasPermission('create_vendors')
@@ -119,7 +121,7 @@ function ContractorDirectoryContent() {
     const timeoutId = setTimeout(() => {
       const params = new URLSearchParams()
       if (statusFilter && statusFilter !== 'all') params.set('status', statusFilter)
-      if (tradeFilter && tradeFilter !== 'All Trades') params.set('trade', tradeFilter)
+      if (tradeFilter && tradeFilter !== 'all') params.set('trade', tradeFilter)
       if (searchQuery) params.set('q', searchQuery)
       const queryString = params.toString()
       const newUrl = `${pathname}${queryString ? `?${queryString}` : ''}`
@@ -151,6 +153,7 @@ function ContractorDirectoryContent() {
           city: v.city as string || '',
           province: v.province as string || '',
           status: (v.status as ContractorStatus) || 'pending_kyc',
+          trade_category: (v.trade_category as string | null) ?? null,
           wcb_clearance_expiry: v.wcb_clearance_expiry as string | null,
           kyc_completed_at: v.kyc_completed_at as string | null,
           created_at: v.created_at as string,
@@ -242,7 +245,11 @@ function ContractorDirectoryContent() {
     const matchesStatus =
       statusFilter === "all" || contractor.status === statusFilter
 
-    return matchesSearch && matchesStatus
+    const matchesTrade =
+      tradeFilter === "all" ||
+      (contractor.trade_category?.toLowerCase() === tradeFilter.toLowerCase())
+
+    return matchesSearch && matchesStatus && matchesTrade
   })
 
   return (
@@ -395,9 +402,10 @@ function ContractorDirectoryContent() {
               </Select>
               <Select value={tradeFilter} onValueChange={setTradeFilter}>
                 <SelectTrigger className="flex-1 h-11 touch-manipulation">
-                  <SelectValue placeholder="Trade" />
+                  <SelectValue placeholder="All Trades" />
                 </SelectTrigger>
                 <SelectContent>
+                  <SelectItem value="all">All Trades</SelectItem>
                   {tradeCategories.map((trade) => (
                     <SelectItem key={trade} value={trade}>
                       {trade}
