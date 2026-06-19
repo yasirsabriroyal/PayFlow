@@ -11,63 +11,18 @@
 import { getSupabaseAdmin } from '@/lib/supabase/admin'
 import { resolveActiveOrgId } from '@/lib/tenancy'
 import { sendGenericAlert } from '@/lib/notifications/server-dispatch'
+import {
+  type FeedbackStatus,
+  type FeedbackType,
+  FEEDBACK_STATUS_LABELS,
+  FEEDBACK_TYPE_LABELS,
+  FEEDBACK_ALLOWED_TRANSITIONS,
+  isTransitionAllowed,
+} from '@/lib/feedback/constants'
 
-// ============================================================
-// Types
-// ============================================================
-
-export type FeedbackStatus =
-  | 'submitted'
-  | 'under_review'
-  | 'planned'
-  | 'in_progress'
-  | 'resolved'
-  | 'released'
-  | 'declined'
-  | 'archived'
-
-export type FeedbackType =
-  | 'bug_report'
-  | 'feature_request'
-  | 'suggestion'
-  | 'general'
-
-export const FEEDBACK_STATUS_LABELS: Record<FeedbackStatus, string> = {
-  submitted:    'Submitted',
-  under_review: 'Under Review',
-  planned:      'Planned',
-  in_progress:  'In Progress',
-  resolved:     'Resolved',
-  released:     'Released',
-  declined:     'Declined',
-  archived:     'Archived',
-}
-
-export const FEEDBACK_TYPE_LABELS: Record<FeedbackType, string> = {
-  bug_report:      'Bug Report',
-  feature_request: 'Feature Request',
-  suggestion:      'Suggestion',
-  general:         'General Feedback',
-}
-
-// ============================================================
-// Allowed transition map
-// ============================================================
-
-const ALLOWED_TRANSITIONS: Record<FeedbackStatus, FeedbackStatus[]> = {
-  submitted:    ['under_review', 'declined', 'archived'],
-  under_review: ['planned', 'declined', 'resolved', 'archived', 'submitted'],
-  planned:      ['in_progress', 'declined', 'archived'],
-  in_progress:  ['resolved', 'archived'],
-  resolved:     ['released', 'archived'],
-  released:     ['archived'],
-  declined:     ['under_review', 'archived'],
-  archived:     [],
-}
-
-export function isTransitionAllowed(from: FeedbackStatus, to: FeedbackStatus): boolean {
-  return ALLOWED_TRANSITIONS[from]?.includes(to) ?? false
-}
+// Re-export so existing imports from status-flow still work
+export type { FeedbackStatus, FeedbackType }
+export { FEEDBACK_STATUS_LABELS, FEEDBACK_TYPE_LABELS, isTransitionAllowed }
 
 // ============================================================
 // Input / Result types

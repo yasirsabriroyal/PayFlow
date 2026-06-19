@@ -12,13 +12,13 @@ import { getSupabaseAdmin } from '@/lib/supabase/admin'
 import { createClient } from '@/lib/supabase/server'
 import { resolveActiveOrgId } from '@/lib/tenancy'
 import { sendGenericAlert } from '@/lib/notifications/server-dispatch'
+import { applyFeedbackStatusChange } from '@/lib/feedback/status-flow'
 import {
-  applyFeedbackStatusChange,
   type FeedbackStatus,
   type FeedbackType,
   FEEDBACK_TYPE_LABELS,
   FEEDBACK_STATUS_LABELS,
-} from '@/lib/feedback/status-flow'
+} from '@/lib/feedback/constants'
 
 // ============================================================
 // Shared types
@@ -664,6 +664,7 @@ export async function getFeedbackStats(): Promise<{
   return { total, open, resolved }
 }
 
-// Re-export status/type helpers for UI convenience
+// Re-export status/type helpers for UI convenience (sourced from server-free constants)
 export { FEEDBACK_STATUS_LABELS, FEEDBACK_TYPE_LABELS }
 export type { FeedbackStatus, FeedbackType }
+export { FEEDBACK_ALLOWED_TRANSITIONS, isTransitionAllowed } from '@/lib/feedback/constants'
