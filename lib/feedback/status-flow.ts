@@ -10,8 +10,20 @@
 
 import { getSupabaseAdmin } from '@/lib/supabase/admin'
 import { sendGenericAlert } from '@/lib/notifications/server-dispatch'
+import {
+  type FeedbackStatus,
+  type FeedbackType,
+  FEEDBACK_STATUS_LABELS,
+  FEEDBACK_TYPE_LABELS,
+  isTransitionAllowed,
+} from '@/lib/feedback/constants'
+
+// Re-export so existing imports from status-flow still work
+export type { FeedbackStatus, FeedbackType }
+export { FEEDBACK_STATUS_LABELS, FEEDBACK_TYPE_LABELS, isTransitionAllowed }
 
 // Inline org resolver — avoids importing lib/tenancy which has 'import server-only'
+// at the top level, causing module evaluation to abort in RSC rendering contexts.
 async function resolveOrgId(hint?: string | null): Promise<string> {
   if (hint?.trim()) return hint
   const supabase = getSupabaseAdmin()
@@ -23,18 +35,6 @@ async function resolveOrgId(hint?: string | null): Promise<string> {
     .single()
   return data?.id ?? 'default'
 }
-import {
-  type FeedbackStatus,
-  type FeedbackType,
-  FEEDBACK_STATUS_LABELS,
-  FEEDBACK_TYPE_LABELS,
-  FEEDBACK_ALLOWED_TRANSITIONS,
-  isTransitionAllowed,
-} from '@/lib/feedback/constants'
-
-// Re-export so existing imports from status-flow still work
-export type { FeedbackStatus, FeedbackType }
-export { FEEDBACK_STATUS_LABELS, FEEDBACK_TYPE_LABELS, isTransitionAllowed }
 
 // ============================================================
 // Input / Result types
