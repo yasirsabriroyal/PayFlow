@@ -14,6 +14,8 @@ export const ROUTES = {
     settingsPayments: '/admin/settings/payments',
     settingsPermissions: '/admin/settings/permissions',
     setup: '/admin/setup',
+    feedbackInbox: '/admin/feedback',
+    feedbackTicket: (id: string) => `/admin/feedback/${id}`,
   },
   accountant: {
     queue: '/accountant/queue',
@@ -46,5 +48,8 @@ export const ROUTES = {
     project: (id: string) => `/projects/${id}`,
     settings: '/settings',
     unauthorized: '/unauthorized',
+    feedback: '/feedback',
+    feedbackNew: '/feedback/new',
+    feedbackTicket: (id: string) => `/feedback/${id}`,
   },
 }

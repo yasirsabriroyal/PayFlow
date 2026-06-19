@@ -19,29 +19,35 @@ const VENDOR_TABS: Tab[] = [
 
 const TAB_MAP: Record<Role, Tab[]> = {
   admin: [
-    { label: 'Dashboard', href: ROUTES.admin.dashboard },
-    { label: 'Invoices', href: ROUTES.admin.invoices },
-    { label: 'Projects', href: ROUTES.admin.projectsList },
+    { label: 'Dashboard',   href: ROUTES.admin.dashboard },
+    { label: 'Invoices',    href: ROUTES.admin.invoices },
+    { label: 'Projects',    href: ROUTES.admin.projectsList },
     { label: 'Contractors', href: ROUTES.admin.contractors },
-    { label: 'Team', href: ROUTES.admin.team },
-    { label: 'Accounting', href: ROUTES.admin.accounting },
-    { label: 'Settings', href: ROUTES.admin.settings },
+    { label: 'Team',        href: ROUTES.admin.team },
+    { label: 'Accounting',  href: ROUTES.admin.accounting },
+    { label: 'Feedback',    href: ROUTES.admin.feedbackInbox },
+    { label: 'Settings',    href: ROUTES.admin.settings },
   ],
   accountant: [
-    { label: 'Queue', href: ROUTES.accountant.queue },
-    { label: 'Payments', href: ROUTES.accountant.payments },
-    { label: 'Holdbacks', href: ROUTES.accountant.holdbacks },
+    { label: 'Queue',           href: ROUTES.accountant.queue },
+    { label: 'Payments',        href: ROUTES.accountant.payments },
+    { label: 'Holdbacks',       href: ROUTES.accountant.holdbacks },
     { label: 'Banking Changes', href: ROUTES.accountant.bankingChanges },
+    { label: 'Feedback',        href: ROUTES.shared.feedback },
   ],
   project_manager: [
-    { label: 'Dashboard', href: ROUTES.pm.dashboard },
-    { label: 'Invoices', href: ROUTES.pm.invoices },
+    { label: 'Dashboard',   href: ROUTES.pm.dashboard },
+    { label: 'Invoices',    href: ROUTES.pm.invoices },
     { label: 'Certificates', href: ROUTES.pm.certificates },
-    { label: 'Approvals', href: ROUTES.pm.approvals },
-    { label: 'Projects', href: ROUTES.pm.projects },
+    { label: 'Approvals',   href: ROUTES.pm.approvals },
+    { label: 'Projects',    href: ROUTES.pm.projects },
     { label: 'Contractors', href: ROUTES.pm.contractors },
+    { label: 'Feedback',    href: ROUTES.shared.feedback },
   ],
-  contractor: VENDOR_TABS,
+  contractor: [
+    ...VENDOR_TABS,
+    { label: 'Feedback', href: ROUTES.shared.feedback },
+  ],
 }
 
 interface RoleTabBarProps {

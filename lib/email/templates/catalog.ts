@@ -22,6 +22,8 @@ export type TemplateKey =
   | 'payment_run_confirmation'
   | 'compliance_reminder'
   | 'password_reset'
+  | 'feedback_submitted'
+  | 'feedback_status_changed'
 
 /** The tenant-editable text slots for a template. */
 export interface TemplateSlots {
@@ -363,6 +365,66 @@ export const TEMPLATE_CATALOG: Record<TemplateKey, TemplateDefinition> = {
     },
     mergeFields: COMMON_FIELDS,
     preview: { greeting: 'Hi Jordan,', rows: [] },
+  },
+
+  feedback_submitted: {
+    key: 'feedback_submitted',
+    label: 'Feedback Submitted (Admin)',
+    description: 'Sent to admins when a user submits a new feedback ticket.',
+    category: 'Account',
+    ctaLabel: 'Review Feedback',
+    defaults: {
+      subject: 'New feedback submitted — {{ticket_number}}',
+      opening: 'A new {{type}} has been submitted by {{submitter_name}} and is awaiting your review.',
+      closing: 'Please review the submission and update the status in the Feedback Portal.',
+      help: 'Questions about this submission? Contact the submitter directly via the ticket comments.',
+      notes: '',
+    },
+    mergeFields: [
+      ...COMMON_FIELDS,
+      { token: '{{ticket_number}}', description: 'The generated ticket number (e.g. FB-2026-00001)' },
+      { token: '{{type}}', description: 'Feedback type (bug report, feature request, etc.)' },
+      { token: '{{submitter_name}}', description: 'Name of the user who submitted the feedback' },
+    ],
+    preview: {
+      greeting: 'Hi Admin,',
+      rows: [
+        { label: 'Ticket Number', value: 'FB-2026-00001', strong: true },
+        { label: 'Type', value: 'Bug Report' },
+        { label: 'Submitted By', value: 'Jordan Smith' },
+        { label: 'Title', value: 'Invoice total showing incorrectly' },
+      ],
+    },
+  },
+
+  feedback_status_changed: {
+    key: 'feedback_status_changed',
+    label: 'Feedback Status Update',
+    description: 'Sent to the submitter when an admin updates the status of their ticket.',
+    category: 'Account',
+    ctaLabel: 'View Feedback',
+    defaults: {
+      subject: 'Your feedback {{ticket_number}} has been updated',
+      opening: 'Your {{type}} ({{ticket_number}}) has been updated to: {{new_status}}.',
+      closing: 'You can view the full status history and any comments by visiting your feedback portal.',
+      help: 'Have questions about this update? Reply via the comment section of your ticket.',
+      notes: '',
+    },
+    mergeFields: [
+      ...COMMON_FIELDS,
+      { token: '{{ticket_number}}', description: 'The generated ticket number (e.g. FB-2026-00001)' },
+      { token: '{{type}}', description: 'Feedback type (bug report, feature request, etc.)' },
+      { token: '{{new_status}}', description: 'The new status the ticket has been moved to' },
+    ],
+    preview: {
+      greeting: 'Hi Jordan,',
+      rows: [
+        { label: 'Ticket Number', value: 'FB-2026-00001', strong: true },
+        { label: 'Type', value: 'Feature Request' },
+        { label: 'New Status', value: 'Planned', strong: true },
+        { label: 'Title', value: 'Add dark mode to dashboard' },
+      ],
+    },
   },
 }
 
