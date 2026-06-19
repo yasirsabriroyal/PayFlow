@@ -16,6 +16,7 @@ interface KYCSubmissionData {
   postalCode: string
   
   tradeCategory: string
+  tradeSubcategory: string
   wcbAccountNumber: string
   wcbExpiryDate: string
   isCorporation: boolean
@@ -91,6 +92,7 @@ export async function submitVendorKYC(formData: FormData) {
         business_number: formData.get('businessNumber') as string,
         is_corporation: formData.get('isCorporation') === 'true',
         trade_category: (formData.get('tradeCategory') as string) || null,
+        trade_subcategory: (formData.get('tradeSubcategory') as string) || null,
         preferred_payment_method: (formData.get('paymentMethod') as string) || null,
         
         ...bankColumns,

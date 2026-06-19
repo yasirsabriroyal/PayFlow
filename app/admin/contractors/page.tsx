@@ -23,6 +23,7 @@ import {
   ChevronRight,
   Plus,
   KeyRound,
+  Wrench,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -51,7 +52,11 @@ import { Badge } from "@/components/ui/badge"
 import { MobileNav } from "@/components/layout/mobile-nav"
 import { DataCard, DataCardHeader, DataCardRow } from "@/components/ui/responsive-table"
 import { getVendors } from "./actions"
-import { getContractorCategories } from "@/app/admin/settings/contractors/actions"
+import {
+  getContractorCategories,
+  getContractorSubcategories,
+  type ContractorSubcategory,
+} from "@/app/admin/settings/contractors/actions"
 import { usePermissions } from "@/hooks/use-permissions"
 import { useListStatePreservation, useWorkflowNavigation } from "@/lib/workflow-navigation"
 import { AppHeader } from "@/components/app-header"
@@ -69,6 +74,7 @@ interface Contractor {
   province: string
   status: ContractorStatus
   trade_category: string | null
+  trade_subcategory: string | null
   wcb_clearance_expiry: string | null
   kyc_completed_at: string | null
   created_at: string
@@ -102,16 +108,35 @@ function ContractorDirectoryContent() {
   const [statusFilter, setStatusFilter] = useState<string>(searchParams.get('status') || "all")
   const [tradeFilter, setTradeFilter] = useState<string>(searchParams.get('trade') || "all")
   const [copiedId, setCopiedId] = useState<string | null>(null)
-  const [tradeCategories, setTradeCategories] = useState<string[]>([])
+  const [tradeCategories, setTradeCategories] = useState<{ id: string; name: string }[]>([])
+  const [subcategoryFilter, setSubcategoryFilter] = useState<string>(searchParams.get('subcategory') || "all")
+  const [subcategoryOptions, setSubcategoryOptions] = useState<ContractorSubcategory[]>([])
+  const [subcategoriesLoading, setSubcategoriesLoading] = useState(false)
 
   // Load trade categories from DB on mount
   useEffect(() => {
     getContractorCategories().then((result) => {
       if (result.success) {
-        setTradeCategories(result.categories.map((c) => c.name))
+        setTradeCategories(result.categories.map((c) => ({ id: c.id, name: c.name })))
       }
     })
   }, [])
+
+  // Load subcategory options when trade filter changes
+  useEffect(() => {
+    if (tradeFilter === "all") {
+      setSubcategoryOptions([])
+      setSubcategoryFilter("all")
+      return
+    }
+    const cat = tradeCategories.find((c) => c.name === tradeFilter)
+    if (!cat) return
+    setSubcategoriesLoading(true)
+    getContractorSubcategories(cat.id).then((result) => {
+      if (result.success) setSubcategoryOptions(result.subcategories)
+      setSubcategoriesLoading(false)
+    })
+  }, [tradeFilter, tradeCategories])
   
   // Permission-aware UI state
   const canCreateVendor = hasPermission('create_vendors')
@@ -122,6 +147,7 @@ function ContractorDirectoryContent() {
       const params = new URLSearchParams()
       if (statusFilter && statusFilter !== 'all') params.set('status', statusFilter)
       if (tradeFilter && tradeFilter !== 'all') params.set('trade', tradeFilter)
+      if (subcategoryFilter && subcategoryFilter !== 'all') params.set('subcategory', subcategoryFilter)
       if (searchQuery) params.set('q', searchQuery)
       const queryString = params.toString()
       const newUrl = `${pathname}${queryString ? `?${queryString}` : ''}`
@@ -135,7 +161,7 @@ function ContractorDirectoryContent() {
     
     return () => clearTimeout(timeoutId)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [statusFilter, tradeFilter, searchQuery])
+  }, [statusFilter, tradeFilter, subcategoryFilter, searchQuery])
 
   // Fetch contractors via protected server action
   useEffect(() => {
@@ -154,6 +180,7 @@ function ContractorDirectoryContent() {
           province: v.province as string || '',
           status: (v.status as ContractorStatus) || 'pending_kyc',
           trade_category: (v.trade_category as string | null) ?? null,
+          trade_subcategory: (v.trade_subcategory as string | null) ?? null,
           wcb_clearance_expiry: v.wcb_clearance_expiry as string | null,
           kyc_completed_at: v.kyc_completed_at as string | null,
           created_at: v.created_at as string,
@@ -249,7 +276,11 @@ function ContractorDirectoryContent() {
       tradeFilter === "all" ||
       (contractor.trade_category?.toLowerCase() === tradeFilter.toLowerCase())
 
-    return matchesSearch && matchesStatus && matchesTrade
+    const matchesSubcategory =
+      subcategoryFilter === "all" ||
+      (contractor.trade_subcategory?.toLowerCase() === subcategoryFilter.toLowerCase())
+
+    return matchesSearch && matchesStatus && matchesTrade && matchesSubcategory
   })
 
   return (
@@ -400,19 +431,40 @@ function ContractorDirectoryContent() {
                   <SelectItem value="inactive">Inactive</SelectItem>
                 </SelectContent>
               </Select>
-              <Select value={tradeFilter} onValueChange={setTradeFilter}>
+              <Select value={tradeFilter} onValueChange={(v) => { setTradeFilter(v); setSubcategoryFilter("all") }}>
                 <SelectTrigger className="flex-1 h-11 touch-manipulation">
                   <SelectValue placeholder="All Trades" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Trades</SelectItem>
-                  {tradeCategories.map((trade) => (
-                    <SelectItem key={trade} value={trade}>
-                      {trade}
+                  {tradeCategories.map((cat) => (
+                    <SelectItem key={cat.id} value={cat.name}>
+                      {cat.name}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
+              {tradeFilter !== "all" && (
+                <Select
+                  value={subcategoryFilter}
+                  onValueChange={setSubcategoryFilter}
+                  disabled={subcategoriesLoading}
+                >
+                  <SelectTrigger className="flex-1 h-11 touch-manipulation">
+                    <SelectValue
+                      placeholder={subcategoriesLoading ? "Loading..." : "All Subcategories"}
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Subcategories</SelectItem>
+                    {subcategoryOptions.map((sub) => (
+                      <SelectItem key={sub.id} value={sub.name}>
+                        {sub.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
             </div>
           </div>
 
@@ -453,6 +505,19 @@ function ContractorDirectoryContent() {
                     />
                     
                     <div className="space-y-2 pt-2 border-t border-border">
+                      {contractor.trade_category && (
+                        <div className="flex items-center gap-2 text-sm">
+                          <Wrench className="w-4 h-4 text-muted-foreground shrink-0" />
+                          <span className="font-medium text-foreground">
+                            {contractor.trade_category}
+                            {contractor.trade_subcategory && (
+                              <span className="text-muted-foreground font-normal">
+                                {' \u2192 '}{contractor.trade_subcategory}
+                              </span>
+                            )}
+                          </span>
+                        </div>
+                      )}
                       <div className="flex items-center gap-2 text-sm text-muted-foreground">
                         <MapPin className="w-4 h-4" />
                         <span>{contractor.city}, {contractor.province}</span>
@@ -521,6 +586,7 @@ function ContractorDirectoryContent() {
                   <TableRow className="bg-muted/50">
                     <TableHead className="font-semibold">Company</TableHead>
                     <TableHead className="font-semibold">Contact</TableHead>
+                    <TableHead className="font-semibold">Trade</TableHead>
                     <TableHead className="font-semibold">Location</TableHead>
                     <TableHead className="font-semibold">Compliance</TableHead>
                     <TableHead className="font-semibold">Portal</TableHead>
@@ -531,7 +597,7 @@ function ContractorDirectoryContent() {
                 <TableBody>
                   {loading ? (
                     <TableRow>
-                      <TableCell colSpan={7} className="text-center py-8">
+                      <TableCell colSpan={8} className="text-center py-8">
                         <div className="flex items-center justify-center gap-2 text-muted-foreground">
                           <div className="w-4 h-4 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
                           Loading contractors...
@@ -540,7 +606,7 @@ function ContractorDirectoryContent() {
                     </TableRow>
                   ) : filteredContractors.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={7} className="text-center py-8">
+                      <TableCell colSpan={8} className="text-center py-8">
                         <div className="text-muted-foreground">
                           <Users className="w-8 h-8 mx-auto mb-2 opacity-50" />
                           <p>No contractors found</p>
@@ -574,6 +640,18 @@ function ContractorDirectoryContent() {
                                 {contractor.phone}
                               </p>
                             </div>
+                          </TableCell>
+                          <TableCell>
+                            {contractor.trade_category ? (
+                              <div>
+                                <p className="font-medium text-sm">{contractor.trade_category}</p>
+                                {contractor.trade_subcategory && (
+                                  <p className="text-xs text-muted-foreground">{contractor.trade_subcategory}</p>
+                                )}
+                              </div>
+                            ) : (
+                              <span className="text-muted-foreground text-sm">—</span>
+                            )}
                           </TableCell>
                           <TableCell>
                             <p>

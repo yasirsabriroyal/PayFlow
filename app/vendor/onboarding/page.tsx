@@ -136,6 +136,21 @@ export default function VendorOnboardingPage() {
     setFormData((prev) => ({ ...prev, [field]: value }))
   }
 
+  const handleTradeChange = (value: string) => {
+    setFormData((prev) => ({ ...prev, tradeCategory: value, tradeSubcategory: "" }))
+    const cat = categories.find((c) => c.name === value)
+    if (cat) {
+      setSubcategoriesLoading(true)
+      setSubcategories([])
+      getContractorSubcategories(cat.id).then((result) => {
+        if (result.success) setSubcategories(result.subcategories)
+        setSubcategoriesLoading(false)
+      })
+    } else {
+      setSubcategories([])
+    }
+  }
+
   const handleNextStep = () => {
     if (currentStep < 3) {
       setCurrentStep(currentStep + 1)
@@ -406,7 +421,7 @@ export default function VendorOnboardingPage() {
                     <Label htmlFor="tradeCategory">Trade Category *</Label>
                     <Select
                       value={formData.tradeCategory}
-                      onValueChange={(value) => updateFormData("tradeCategory", value)}
+                      onValueChange={handleTradeChange}
                     >
                       <SelectTrigger>
                         <SelectValue placeholder="Select trade" />
@@ -420,6 +435,40 @@ export default function VendorOnboardingPage() {
                           categories.map((cat) => (
                             <SelectItem key={cat.id} value={cat.name}>
                               {cat.name}
+                            </SelectItem>
+                          ))
+                        )}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="tradeSubcategory">Subcategory</Label>
+                    <Select
+                      value={formData.tradeSubcategory}
+                      onValueChange={(value) => updateFormData("tradeSubcategory", value)}
+                      disabled={!formData.tradeCategory || subcategoriesLoading}
+                    >
+                      <SelectTrigger>
+                        <SelectValue
+                          placeholder={
+                            !formData.tradeCategory
+                              ? "Select a trade first"
+                              : subcategoriesLoading
+                              ? "Loading..."
+                              : "Select subcategory (optional)"
+                          }
+                        />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {subcategories.length === 0 && !subcategoriesLoading ? (
+                          <div className="px-3 py-3 text-sm text-muted-foreground text-center">
+                            No subcategories available for this category.
+                          </div>
+                        ) : (
+                          subcategories.map((sub) => (
+                            <SelectItem key={sub.id} value={sub.name}>
+                              {sub.name}
                             </SelectItem>
                           ))
                         )}

@@ -95,10 +95,6 @@ export default function PMAddContractorPage() {
     setFormData(prev => ({ ...prev, [field]: value }))
   }
 
-  const handleChange = (field: string, value: string) => {
-    setFormData(prev => ({ ...prev, [field]: value }))
-  }
-
   const handleTradeChange = (value: string) => {
     setFormData(prev => ({ ...prev, trade: value, trade_subcategory: '' }))
     const cat = categories.find((c) => c.name === value)
