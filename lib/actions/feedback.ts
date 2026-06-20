@@ -976,14 +976,15 @@ export async function bulkFeedbackAction(
     patch = { status: 'archived' as FeedbackStatus }
   }
 
-  const { error, count } = await supabase
+  const { error, data: updated } = await supabase
     .from('feedback_tickets')
     .update(patch)
     .in('id', ticketIds)
     .eq('organization_id', orgId)
-    .select('id', { count: 'exact', head: true })
+    .select('id')
 
   if (error) return { success: false, affected: 0, error: 'Bulk operation failed.' }
+  const count = updated?.length ?? ticketIds.length
 
   // Write status history rows for status changes
   if (action.type === 'set_status' || action.type === 'archive') {
