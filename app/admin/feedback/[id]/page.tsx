@@ -152,16 +152,19 @@ export default function AdminFeedbackDetailPage() {
   const [priorityPending, setPriorityPending] = useState(false)
 
   const load = useCallback(async () => {
-    const [data, users] = await Promise.all([
-      getFeedbackTicket(params.id, true),
-      getAdminUsersForAssignment(),
-    ])
-    setTicket(data)
-    setAdminUsers(users)
-    if (data) {
-      setAssignee(data.assigned_to ?? 'unassigned')
+    try {
+      const [data, users] = await Promise.all([
+        getFeedbackTicket(params.id, true),
+        getAdminUsersForAssignment(),
+      ])
+      setTicket(data)
+      setAdminUsers(users)
+      if (data) {
+        setAssignee(data.assigned_to ?? 'unassigned')
+      }
+    } finally {
+      setLoading(false)
     }
-    setLoading(false)
   }, [params.id])
 
   useEffect(() => { load() }, [load])

@@ -82,13 +82,16 @@ export default function FeedbackTicketPage() {
   const [userRole, setUserRole] = useState<'admin' | 'accountant' | 'project_manager' | 'contractor'>('contractor')
 
   const load = useCallback(async () => {
-    const data = await getFeedbackTicket(params.id, false)
-    setTicket(data)
-    if (data) {
-      setVoteCount(data.vote_count ?? 0)
-      setUserVoted(data.user_has_voted ?? false)
+    try {
+      const data = await getFeedbackTicket(params.id, false)
+      setTicket(data)
+      if (data) {
+        setVoteCount(data.vote_count ?? 0)
+        setUserVoted(data.user_has_voted ?? false)
+      }
+    } finally {
+      setLoading(false)
     }
-    setLoading(false)
   }, [params.id])
 
   useEffect(() => {

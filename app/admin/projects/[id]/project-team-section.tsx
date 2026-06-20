@@ -69,15 +69,18 @@ export function ProjectTeamSection({ projectId }: { projectId: string }) {
   const [selectedRole, setSelectedRole] = useState('')
 
   const load = async () => {
-    const [teamRes, usersRes, rolesRes] = await Promise.all([
-      getProjectTeam(projectId),
-      getAssignableUsers(),
-      getProjectRolesCatalog(),
-    ])
-    if (teamRes.success) setTeam(teamRes.team as unknown as TeamMember[])
-    if (usersRes.success) setUsers(usersRes.users as AssignableUser[])
-    if (rolesRes.success) setRoles(rolesRes.roles as RoleOption[])
-    setLoading(false)
+    try {
+      const [teamRes, usersRes, rolesRes] = await Promise.all([
+        getProjectTeam(projectId),
+        getAssignableUsers(),
+        getProjectRolesCatalog(),
+      ])
+      if (teamRes.success) setTeam(teamRes.team as unknown as TeamMember[])
+      if (usersRes.success) setUsers(usersRes.users as AssignableUser[])
+      if (rolesRes.success) setRoles(rolesRes.roles as RoleOption[])
+    } finally {
+      setLoading(false)
+    }
   }
 
   useEffect(() => {

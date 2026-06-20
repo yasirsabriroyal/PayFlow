@@ -166,35 +166,37 @@ export default function AdminFeedbackInboxPage() {
 
   const load = useCallback(async (loadStats = false) => {
     setLoading(true)
-    const result = await getFeedbackTickets(
-      {
-        search:     search || undefined,
-        type:       typeFilter    !== 'all' ? typeFilter    : undefined,
-        status:     statusFilter  !== 'all' ? statusFilter  : undefined,
-        modulePage: moduleFilter  !== 'all' ? moduleFilter  : undefined,
-        priority:   priorityFilter !== 'all' ? priorityFilter : undefined,
-        sortBy,
-        sortDir:    sortBy === 'vote_count' ? 'desc' : 'desc',
-      },
-      true
-    )
-    // Client-side sort by vote_count since Supabase join count sort isn't trivial
-    const sorted = sortBy === 'vote_count'
-      ? [...result.tickets].sort((a, b) => (b.vote_count ?? 0) - (a.vote_count ?? 0))
-      : result.tickets
-    setTickets(sorted)
-    setTotal(result.total)
-    if (loadStats) {
-      // Compute stats from an unfiltered fetch
-      const allResult = await getFeedbackTickets({}, true)
-      const all = allResult.tickets
-      setStats({
-        total:    allResult.total,
-        open:     all.filter(t => !['resolved','released','archived','declined'].includes(t.status)).length,
-        resolved: all.filter(t => t.status === 'resolved' || t.status === 'released').length,
-      })
+    try {
+      const result = await getFeedbackTickets(
+        {
+          search:     search || undefined,
+          type:       typeFilter    !== 'all' ? typeFilter    : undefined,
+          status:     statusFilter  !== 'all' ? statusFilter  : undefined,
+          modulePage: moduleFilter  !== 'all' ? moduleFilter  : undefined,
+          priority:   priorityFilter !== 'all' ? priorityFilter : undefined,
+          sortBy,
+          sortDir:    sortBy === 'vote_count' ? 'desc' : 'desc',
+        },
+        true
+      )
+      // Client-side sort by vote_count since Supabase join count sort isn't trivial
+      const sorted = sortBy === 'vote_count'
+        ? [...result.tickets].sort((a, b) => (b.vote_count ?? 0) - (a.vote_count ?? 0))
+        : result.tickets
+      setTickets(sorted)
+      setTotal(result.total)
+      if (loadStats) {
+        const allResult = await getFeedbackTickets({}, true)
+        const all = allResult.tickets
+        setStats({
+          total:    allResult.total,
+          open:     all.filter(t => !['resolved','released','archived','declined'].includes(t.status)).length,
+          resolved: all.filter(t => t.status === 'resolved' || t.status === 'released').length,
+        })
+      }
+    } finally {
+      setLoading(false)
     }
-    setLoading(false)
   }, [search, typeFilter, statusFilter, moduleFilter, priorityFilter, sortBy])
 
   useEffect(() => { load(true) }, []) // eslint-disable-line react-hooks/exhaustive-deps

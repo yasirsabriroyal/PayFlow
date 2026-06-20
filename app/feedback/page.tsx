@@ -74,13 +74,16 @@ export default function MyFeedbackPage() {
 
   const load = useCallback(async () => {
     setLoading(true)
-    const [listResult, statsResult] = await Promise.all([
-      getFeedbackTickets({}, false),
-      getFeedbackStats(),
-    ])
-    setTickets(listResult.tickets)
-    setStats(statsResult)
-    setLoading(false)
+    try {
+      const [listResult, statsResult] = await Promise.all([
+        getFeedbackTickets({}, false),
+        getFeedbackStats(),
+      ])
+      setTickets(listResult.tickets)
+      setStats(statsResult)
+    } finally {
+      setLoading(false)
+    }
   }, [])
 
   useEffect(() => {

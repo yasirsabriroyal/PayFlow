@@ -71,35 +71,37 @@ export default function HoldbackLedgerPage() {
   // Fetch holdbacks from server action on mount
   useEffect(() => {
     const fetchHoldbacksData = async () => {
-      const result = await getHoldbacks()
-      if (result.success) {
-        // Map server response to local type
-        setHoldbacks(result.holdbacks.map((h: Record<string, unknown>) => {
-          const startDateStr = (h.countdown_start_date as string) || (h.created_at as string)
-          const daysHeld = Math.floor((Date.now() - new Date(startDateStr).getTime()) / (1000 * 60 * 60 * 24))
-          const isReleased = h.status === 'released'
-          return {
-            id: h.id as string,
-            project: {
-              name: (h.project as Record<string, unknown>)?.name as string || 'Unknown Project',
-              number: (h.project as Record<string, unknown>)?.project_number as string || '',
-            },
-            contractor: {
-              name: (h.contractor as Record<string, unknown>)?.company_name as string || 'Unknown',
-              id: (h.contractor as Record<string, unknown>)?.id as string || '',
-            },
-            invoiceNumber: (h.invoice as Record<string, unknown>)?.invoice_number as string || '',
-            invoiceDate: startDateStr,
-            holdbackAmount: ((h.holdback_amount_cents as number) || 0) / 100,
-            holdbackDate: startDateStr,
-            daysHeld,
-            status: isReleased ? 'released' : daysHeld >= HOLDBACK_PERIOD ? 'eligible' : 'pending',
-          } as HoldbackRow
-        }))
-      } else {
-        setHoldbacks([])
+      try {
+        const result = await getHoldbacks()
+        if (result.success) {
+          setHoldbacks(result.holdbacks.map((h: Record<string, unknown>) => {
+            const startDateStr = (h.countdown_start_date as string) || (h.created_at as string)
+            const daysHeld = Math.floor((Date.now() - new Date(startDateStr).getTime()) / (1000 * 60 * 60 * 24))
+            const isReleased = h.status === 'released'
+            return {
+              id: h.id as string,
+              project: {
+                name: (h.project as Record<string, unknown>)?.name as string || 'Unknown Project',
+                number: (h.project as Record<string, unknown>)?.project_number as string || '',
+              },
+              contractor: {
+                name: (h.contractor as Record<string, unknown>)?.company_name as string || 'Unknown',
+                id: (h.contractor as Record<string, unknown>)?.id as string || '',
+              },
+              invoiceNumber: (h.invoice as Record<string, unknown>)?.invoice_number as string || '',
+              invoiceDate: startDateStr,
+              holdbackAmount: ((h.holdback_amount_cents as number) || 0) / 100,
+              holdbackDate: startDateStr,
+              daysHeld,
+              status: isReleased ? 'released' : daysHeld >= HOLDBACK_PERIOD ? 'eligible' : 'pending',
+            } as HoldbackRow
+          }))
+        } else {
+          setHoldbacks([])
+        }
+      } finally {
+        setLoading(false)
       }
-      setLoading(false)
     }
     
     fetchHoldbacksData()

@@ -88,30 +88,33 @@ export default function BrandingCenterPage() {
 
   useEffect(() => {
     async function load() {
-      const [result, ent] = await Promise.all([getCompanySettings(), getPlanEntitlements()])
+      try {
+        const [result, ent] = await Promise.all([getCompanySettings(), getPlanEntitlements()])
 
-      // Plan entitlement is authoritative for the white-label opt-in state.
-      let wlEnabled = false
-      if (ent && 'success' in ent && ent.success) {
-        setPlanLabel(ent.planLabel)
-        setWhiteLabelAllowed(ent.whiteLabelAllowed)
-        wlEnabled = ent.whiteLabelEnabled
-      }
+        // Plan entitlement is authoritative for the white-label opt-in state.
+        let wlEnabled = false
+        if (ent && 'success' in ent && ent.success) {
+          setPlanLabel(ent.planLabel)
+          setWhiteLabelAllowed(ent.whiteLabelAllowed)
+          wlEnabled = ent.whiteLabelEnabled
+        }
 
-      if (result && 'settings' in result && result.settings) {
-        const s = result.settings as Record<string, string | boolean | null>
-        setForm({
-          company_name: (s.company_name as string) ?? '',
-          legal_name: (s.legal_name as string) ?? '',
-          sender_display_name: (s.sender_display_name as string) ?? '',
-          support_contact: (s.support_contact as string) ?? '',
-          email: (s.email as string) ?? '',
-          primary_color: (s.primary_color as string) || DEFAULT_PRIMARY,
-          accent_color: (s.accent_color as string) || DEFAULT_ACCENT,
-          white_label_enabled: wlEnabled,
-        })
+        if (result && 'settings' in result && result.settings) {
+          const s = result.settings as Record<string, string | boolean | null>
+          setForm({
+            company_name: (s.company_name as string) ?? '',
+            legal_name: (s.legal_name as string) ?? '',
+            sender_display_name: (s.sender_display_name as string) ?? '',
+            support_contact: (s.support_contact as string) ?? '',
+            email: (s.email as string) ?? '',
+            primary_color: (s.primary_color as string) || DEFAULT_PRIMARY,
+            accent_color: (s.accent_color as string) || DEFAULT_ACCENT,
+            white_label_enabled: wlEnabled,
+          })
+        }
+      } finally {
+        setLoading(false)
       }
-      setLoading(false)
     }
     load()
   }, [])

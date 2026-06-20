@@ -87,20 +87,20 @@ export default function DirectPaymentPage() {
     setMounted(true)
     
     async function loadData() {
-      const [contractorsResult, projectsResult] = await Promise.all([
-        getActiveContractors(),
-        getActiveProjects(),
-      ])
-      
-      if (contractorsResult.success) {
-        setContractors(contractorsResult.contractors)
+      try {
+        const [contractorsResult, projectsResult] = await Promise.all([
+          getActiveContractors(),
+          getActiveProjects(),
+        ])
+        if (contractorsResult.success) {
+          setContractors(contractorsResult.contractors)
+        }
+        if (projectsResult.success) {
+          setProjects(projectsResult.projects)
+        }
+      } finally {
+        setLoading(false)
       }
-      
-      if (projectsResult.success) {
-        setProjects(projectsResult.projects)
-      }
-      
-      setLoading(false)
     }
     
     loadData()

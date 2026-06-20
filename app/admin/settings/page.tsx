@@ -51,26 +51,29 @@ export default function CompanySettingsPage() {
 
   useEffect(() => {
     async function load() {
-      const result = await getCompanySettings()
-      if (result && 'settings' in result && result.settings) {
-        const s = result.settings as Record<string, string>
-        setForm({
-          company_name: s.company_name ?? '',
-          email: s.email ?? '',
-          phone: s.phone ?? '',
-          website: s.website ?? '',
-          address: s.address ?? '',
-          city: s.city ?? '',
-          province: s.province ?? '',
-          postal_code: s.postal_code ?? '',
-          hst_number: s.hst_number ?? '',
-          logo_url: s.logo_url ?? '',
-        })
-        if (s.logo_url) {
-          setLogoPreview(s.logo_url)
+      try {
+        const result = await getCompanySettings()
+        if (result && 'settings' in result && result.settings) {
+          const s = result.settings as Record<string, string>
+          setForm({
+            company_name: s.company_name ?? '',
+            email: s.email ?? '',
+            phone: s.phone ?? '',
+            website: s.website ?? '',
+            address: s.address ?? '',
+            city: s.city ?? '',
+            province: s.province ?? '',
+            postal_code: s.postal_code ?? '',
+            hst_number: s.hst_number ?? '',
+            logo_url: s.logo_url ?? '',
+          })
+          if (s.logo_url) {
+            setLogoPreview(s.logo_url)
+          }
         }
+      } finally {
+        setLoading(false)
       }
-      setLoading(false)
     }
     load()
   }, [])

@@ -57,6 +57,7 @@ export default function PMInvoicesPage() {
 
   useEffect(() => {
     async function loadData() {
+      try {
       const result = await getPMInvoices()
       if (result.success) {
         const raw = result.invoices as unknown as RawInvoice[]
@@ -111,7 +112,9 @@ export default function PMInvoicesPage() {
       } else {
         setError('Failed to load invoices.')
       }
-      setLoading(false)
+      } finally {
+        setLoading(false)
+      }
     }
 
     loadData()

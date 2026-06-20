@@ -143,6 +143,7 @@ function AccountantQueueContent() {
 
   // Reusable loader so inline/batch actions can refresh the list after a mutation
   const loadInvoices = useCallback(async () => {
+    try {
     // Always fetch all invoices for accurate stats
     const result = await getInvoiceQueue({ status: 'all' })
 
@@ -168,7 +169,9 @@ function AccountantQueueContent() {
     } else {
       setAllInvoices([])
     }
-    setLoading(false)
+    } finally {
+      setLoading(false)
+    }
   }, [])
 
   useEffect(() => {

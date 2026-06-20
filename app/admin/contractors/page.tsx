@@ -166,31 +166,32 @@ function ContractorDirectoryContent() {
   // Fetch contractors via protected server action
   useEffect(() => {
     const fetchContractors = async () => {
-      const result = await getVendors()
-      
-      if (result.success && result.vendors.length > 0) {
-        // Map server action response to local Contractor type
-        setContractors(result.vendors.map((v: Record<string, unknown>) => ({
-          id: v.id as string,
-          company_name: v.company_name as string,
-          contact_name: v.contact_name as string || '',
-          email: v.email as string || '',
-          phone: v.phone as string || '',
-          city: v.city as string || '',
-          province: v.province as string || '',
-          status: (v.status as ContractorStatus) || 'pending_kyc',
-          trade_category: (v.trade_category as string | null) ?? null,
-          trade_subcategory: (v.trade_subcategory as string | null) ?? null,
-          wcb_clearance_expiry: v.wcb_clearance_expiry as string | null,
-          kyc_completed_at: v.kyc_completed_at as string | null,
-          created_at: v.created_at as string,
-          auth_user_id: (v.auth_user_id as string | null) ?? null,
-        })))
-      } else {
-        // Reflect the real database (empty state when no contractors exist)
-        setContractors([])
+      try {
+        const result = await getVendors()
+        if (result.success && result.vendors.length > 0) {
+          // Map server action response to local Contractor type
+          setContractors(result.vendors.map((v: Record<string, unknown>) => ({
+            id: v.id as string,
+            company_name: v.company_name as string,
+            contact_name: v.contact_name as string || '',
+            email: v.email as string || '',
+            phone: v.phone as string || '',
+            city: v.city as string || '',
+            province: v.province as string || '',
+            status: (v.status as ContractorStatus) || 'pending_kyc',
+            trade_category: (v.trade_category as string | null) ?? null,
+            trade_subcategory: (v.trade_subcategory as string | null) ?? null,
+            wcb_clearance_expiry: v.wcb_clearance_expiry as string | null,
+            kyc_completed_at: v.kyc_completed_at as string | null,
+            created_at: v.created_at as string,
+            auth_user_id: (v.auth_user_id as string | null) ?? null,
+          })))
+        } else {
+          setContractors([])
+        }
+      } finally {
+        setLoading(false)
       }
-      setLoading(false)
     }
 
     fetchContractors()
