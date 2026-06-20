@@ -38,12 +38,12 @@ import { RoleTabBar } from '@/components/role-tab-bar'
 import {
   getFeedbackTickets,
   type FeedbackTicket,
-  type FeedbackStatus,
-  type FeedbackType,
 } from '@/lib/actions/feedback'
 import {
   FEEDBACK_STATUS_LABELS,
   FEEDBACK_TYPE_LABELS,
+  type FeedbackStatus,
+  type FeedbackType,
 } from '@/lib/feedback/constants'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────

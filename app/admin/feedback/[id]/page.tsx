@@ -40,13 +40,13 @@ import {
   addFeedbackComment,
   getAdminUsersForAssignment,
   type FeedbackTicketDetail,
-  type FeedbackStatus,
-  type FeedbackType,
 } from '@/lib/actions/feedback'
 import {
   FEEDBACK_STATUS_LABELS,
   FEEDBACK_TYPE_LABELS,
   isTransitionAllowed,
+  type FeedbackStatus,
+  type FeedbackType,
 } from '@/lib/feedback/constants'
 import Link from 'next/link'
 
@@ -204,7 +204,7 @@ export default function AdminFeedbackDetailPage() {
     })
   }
 
-  // ─── Loading ─────────────────────────────────────────────────────────────��──
+  // ─── Loading ─────────────────────────────────────────────────────────────���──
 
   if (loading) {
     return (
