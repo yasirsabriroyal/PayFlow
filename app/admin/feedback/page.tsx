@@ -19,7 +19,6 @@ import {
   ArrowUpDown,
   AlertCircle,
   Flag,
-  Trash2,
   X,
   Archive,
 } from 'lucide-react'
