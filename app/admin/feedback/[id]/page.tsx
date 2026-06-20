@@ -43,15 +43,15 @@ import {
   setFeedbackPriority,
   getAdminUsersForAssignment,
   type FeedbackTicketDetail,
-  type FeedbackPriority,
-  FEEDBACK_PRIORITY_LABELS,
 } from '@/lib/actions/feedback'
 import {
   FEEDBACK_STATUS_LABELS,
   FEEDBACK_TYPE_LABELS,
+  FEEDBACK_PRIORITY_LABELS,
   isTransitionAllowed,
   type FeedbackStatus,
   type FeedbackType,
+  type FeedbackPriority,
 } from '@/lib/feedback/constants'
 import Link from 'next/link'
 

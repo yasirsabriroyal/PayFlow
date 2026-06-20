@@ -25,6 +25,8 @@ export type FeedbackType =
   | 'suggestion'
   | 'general'
 
+export type FeedbackPriority = 'low' | 'medium' | 'high' | 'critical'
+
 // ============================================================
 // Labels
 // ============================================================
@@ -38,6 +40,13 @@ export const FEEDBACK_STATUS_LABELS: Record<FeedbackStatus, string> = {
   released:     'Released',
   declined:     'Declined',
   archived:     'Archived',
+}
+
+export const FEEDBACK_PRIORITY_LABELS: Record<FeedbackPriority, string> = {
+  low:      'Low',
+  medium:   'Medium',
+  high:     'High',
+  critical: 'Critical',
 }
 
 export const FEEDBACK_TYPE_LABELS: Record<FeedbackType, string> = {

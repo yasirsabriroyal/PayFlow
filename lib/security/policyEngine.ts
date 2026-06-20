@@ -4,7 +4,8 @@ import {
   PermissionError,
   type AuthenticatedUser,
 } from '@/lib/permissions/auth'
-import { logSecurityEvent, SecurityEventType } from './telemetry'
+import { logSecurityEvent } from './telemetry'
+import { SecurityEventType } from './types'
 
 // ============================================
 // TYPES

@@ -1,5 +1,6 @@
 import { headers } from 'next/headers'
-import { logSecurityEvent, SecurityEventType } from './telemetry'
+import { logSecurityEvent } from './telemetry'
+import { SecurityEventType } from './types'
 
 // ============================================
 // RATE LIMIT CONFIGURATION

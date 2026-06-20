@@ -12,8 +12,10 @@ import { getSupabaseAdmin } from '@/lib/supabase/admin'
 import {
   type FeedbackStatus,
   type FeedbackType,
+  type FeedbackPriority,
   FEEDBACK_TYPE_LABELS,
   FEEDBACK_STATUS_LABELS,
+  FEEDBACK_PRIORITY_LABELS,
   isTransitionAllowed,
 } from '@/lib/feedback/constants'
 
@@ -30,18 +32,7 @@ async function getOrgId(): Promise<string> {
   return data?.id ?? 'default'
 }
 
-// ============================================================
-// Shared types
-// ============================================================
-
-export type FeedbackPriority = 'low' | 'medium' | 'high' | 'critical'
-
-export const FEEDBACK_PRIORITY_LABELS: Record<FeedbackPriority, string> = {
-  low:      'Low',
-  medium:   'Medium',
-  high:     'High',
-  critical: 'Critical',
-}
+// FeedbackPriority and FEEDBACK_PRIORITY_LABELS live in @/lib/feedback/constants
 
 export interface FeedbackTicket {
   id:                         string

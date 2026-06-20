@@ -46,14 +46,14 @@ import {
   getFeedbackTickets,
   bulkFeedbackAction,
   type FeedbackTicket,
-  type FeedbackPriority,
-  FEEDBACK_PRIORITY_LABELS,
 } from '@/lib/actions/feedback'
 import {
   FEEDBACK_STATUS_LABELS,
   FEEDBACK_TYPE_LABELS,
+  FEEDBACK_PRIORITY_LABELS,
   type FeedbackStatus,
   type FeedbackType,
+  type FeedbackPriority,
 } from '@/lib/feedback/constants'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────

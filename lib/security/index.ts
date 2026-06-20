@@ -16,15 +16,20 @@ export {
   type SecureActionOptions,
 } from './secureAction'
 
-// Security telemetry
+// Security telemetry (async functions only — no object/enum exports from 'use server' files)
 export {
   logPermissionDenied,
   logPermissionsModified,
   logSecurityEvent,
   getRecentSecurityEvents,
+} from './telemetry'
+
+// Security types and enums (not 'use server' — safe to export as values)
+export {
   SecurityEventType,
   type SecurityEvent,
-} from './telemetry'
+  type SecurityEventRecord,
+} from './types'
 
 // Re-export core permission types and utilities for convenience
 export {

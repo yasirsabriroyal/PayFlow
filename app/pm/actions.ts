@@ -262,8 +262,10 @@ export async function getPMInvoices() {
   })
 }
 
-// Alias for backwards compatibility
-export const getContractors = getPMContractors
+// Async wrapper alias for backwards compatibility ('use server' files cannot export non-async values)
+export async function getContractors(...args: Parameters<typeof getPMContractors>) {
+  return getPMContractors(...args)
+}
 
 // Type for payment certificate input
 // Holdback is applied at the INVOICE level only — certificates cover the full
