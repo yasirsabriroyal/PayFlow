@@ -155,25 +155,26 @@ export async function withPermission<T>(
   permission: Permission,
   action: (userData: CurrentUser) => Promise<T>
 ): Promise<T | { success: false; error: string }> {
-  const user = await getCurrentUser()
-  
-  if (!user) {
-    return { success: false, error: 'Not authenticated' }
-  }
-  
-  const permitted = await hasPermission(user, permission)
-  
-  if (!permitted) {
-    return { success: false, error: 'Permission denied' }
-  }
-  
   try {
+    const user = await getCurrentUser()
+
+    if (!user) {
+      return { success: false, error: 'Not authenticated' }
+    }
+
+    const permitted = await hasPermission(user, permission)
+
+    if (!permitted) {
+      return { success: false, error: 'Permission denied' }
+    }
+
     // Pass user data to the action and return result directly
     return await action(user)
   } catch (error) {
-    return { 
-      success: false, 
-      error: error instanceof Error ? error.message : 'Unknown error' 
+    console.error('[withPermission] Unexpected error:', error)
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
     }
   }
 }
