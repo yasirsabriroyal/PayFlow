@@ -246,16 +246,21 @@ export async function getFeedbackTickets(
   const from    = (page - 1) * perPage
   const to      = from + perPage - 1
 
-  // Resolve current user profile for vote lookup
+  // Resolve current user profile for role check + vote lookup
   let currentUserProfileId: string | null = null
+  let currentUserRole: string | null = null
   {
     const { data: profile } = await supabase
       .from('users')
-      .select('id')
+      .select('id, role')
       .eq('auth_user_id', authUser.id)
       .single()
     currentUserProfileId = profile?.id ?? null
+    currentUserRole      = profile?.role ?? null
   }
+
+  // Security: only admins may use viewAll=true
+  const effectiveViewAll = viewAll && currentUserRole === 'admin'
 
   let query = supabase
     .from('feedback_tickets')
@@ -263,7 +268,7 @@ export async function getFeedbackTickets(
     .eq('organization_id', orgId)
 
   // Scope to submitter when not admin view
-  if (!viewAll) {
+  if (!effectiveViewAll) {
     if (currentUserProfileId) {
       query = query.eq('submitted_by_user_id', currentUserProfileId)
     }

@@ -25,6 +25,7 @@ import {
   toggleFeedbackVote,
   type FeedbackTicketDetail,
 } from '@/lib/actions/feedback'
+import { createClient } from '@/lib/supabase/client'
 import {
   FEEDBACK_STATUS_LABELS,
   FEEDBACK_TYPE_LABELS,
@@ -78,6 +79,7 @@ export default function FeedbackTicketPage() {
   const [voteCount, setVoteCount] = useState(0)
   const [userVoted, setUserVoted] = useState(false)
   const [votePending, setVotePending] = useState(false)
+  const [userRole, setUserRole] = useState<'admin' | 'accountant' | 'project_manager' | 'contractor'>('contractor')
 
   const load = useCallback(async () => {
     const data = await getFeedbackTicket(params.id, false)
@@ -89,7 +91,15 @@ export default function FeedbackTicketPage() {
     setLoading(false)
   }, [params.id])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => {
+    load()
+    createClient().auth.getUser().then(({ data }) => {
+      const role = data.user?.user_metadata?.role
+      if (role === 'admin' || role === 'accountant' || role === 'project_manager' || role === 'contractor') {
+        setUserRole(role)
+      }
+    })
+  }, [load])
 
   const handlePostComment = () => {
     if (!commentBody.trim()) return
@@ -144,7 +154,7 @@ export default function FeedbackTicketPage() {
   return (
     <div className="min-h-screen bg-background">
       <AppHeader pageTitle={`Ticket ${ticket.ticket_number}`} />
-      <RoleTabBar role="admin" />
+      <RoleTabBar role={userRole} />
 
       <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Back link */}

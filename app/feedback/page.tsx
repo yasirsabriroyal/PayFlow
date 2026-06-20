@@ -31,6 +31,7 @@ import {
   getFeedbackStats,
   type FeedbackTicket,
 } from '@/lib/actions/feedback'
+import { createClient } from '@/lib/supabase/client'
 import {
   FEEDBACK_STATUS_LABELS,
   FEEDBACK_TYPE_LABELS,
@@ -69,6 +70,7 @@ export default function MyFeedbackPage() {
   const [tickets, setTickets] = useState<FeedbackTicket[]>([])
   const [stats, setStats] = useState({ total: 0, open: 0, resolved: 0 })
   const [loading, setLoading] = useState(true)
+  const [userRole, setUserRole] = useState<'admin' | 'accountant' | 'project_manager' | 'contractor'>('contractor')
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -81,12 +83,21 @@ export default function MyFeedbackPage() {
     setLoading(false)
   }, [])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => {
+    load()
+    // Resolve role from auth metadata
+    createClient().auth.getUser().then(({ data }) => {
+      const role = data.user?.user_metadata?.role
+      if (role === 'admin' || role === 'accountant' || role === 'project_manager' || role === 'contractor') {
+        setUserRole(role)
+      }
+    })
+  }, [load])
 
   return (
     <div className="min-h-screen bg-background">
       <AppHeader pageTitle="Feedback" />
-      <RoleTabBar role="admin" />
+      <RoleTabBar role={userRole} />
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Page header */}
