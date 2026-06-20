@@ -34,11 +34,21 @@ async function getOrgId(): Promise<string> {
 // Shared types
 // ============================================================
 
+export type FeedbackPriority = 'low' | 'medium' | 'high' | 'critical'
+
+export const FEEDBACK_PRIORITY_LABELS: Record<FeedbackPriority, string> = {
+  low:      'Low',
+  medium:   'Medium',
+  high:     'High',
+  critical: 'Critical',
+}
+
 export interface FeedbackTicket {
   id:                         string
   ticket_number:              string
   type:                       FeedbackType
   status:                     FeedbackStatus
+  priority:                   FeedbackPriority | null
   title:                      string
   description:                string
   module_page:                string | null
@@ -56,6 +66,8 @@ export interface FeedbackTicket {
   submitted_by_email:         string | null
   created_at:                 string
   updated_at:                 string
+  vote_count:                 number
+  user_has_voted?:            boolean
 }
 
 export interface FeedbackStatusHistory {
@@ -112,12 +124,15 @@ export interface CreateFeedbackInput {
 export interface FeedbackListFilters {
   type?:         FeedbackType | 'all'
   status?:       FeedbackStatus | 'all'
+  priority?:     FeedbackPriority | 'all'
   assignedTo?:   string
   modulePage?:   string
   search?:       string
   submittedBy?:  string  // admin filter
   page?:         number
   perPage?:      number
+  sortBy?:       'created_at' | 'vote_count' | 'updated_at'
+  sortDir?:      'asc' | 'desc'
 }
 
 export interface FeedbackListResult {
@@ -231,35 +246,45 @@ export async function getFeedbackTickets(
   const from    = (page - 1) * perPage
   const to      = from + perPage - 1
 
-  let query = supabase
-    .from('feedback_tickets')
-    .select('*, assigned_user:assigned_to(first_name, last_name)', { count: 'exact' })
-    .eq('organization_id', orgId)
-
-  // Scope to submitter when not admin view
-  if (!viewAll) {
+  // Resolve current user profile for vote lookup
+  let currentUserProfileId: string | null = null
+  {
     const { data: profile } = await supabase
       .from('users')
       .select('id')
       .eq('auth_user_id', authUser.id)
       .single()
-    if (profile) {
-      query = query.eq('submitted_by_user_id', profile.id)
+    currentUserProfileId = profile?.id ?? null
+  }
+
+  let query = supabase
+    .from('feedback_tickets')
+    .select('*, assigned_user:assigned_to(first_name, last_name), feedback_votes(id, user_id)', { count: 'exact' })
+    .eq('organization_id', orgId)
+
+  // Scope to submitter when not admin view
+  if (!viewAll) {
+    if (currentUserProfileId) {
+      query = query.eq('submitted_by_user_id', currentUserProfileId)
     }
   }
 
   // Apply filters
-  if (filters.type && filters.type !== 'all')     query = query.eq('type', filters.type)
-  if (filters.status && filters.status !== 'all') query = query.eq('status', filters.status)
-  if (filters.assignedTo)                         query = query.eq('assigned_to', filters.assignedTo)
-  if (filters.modulePage)                         query = query.eq('module_page', filters.modulePage)
-  if (filters.submittedBy)                        query = query.eq('submitted_by_user_id', filters.submittedBy)
+  if (filters.type && filters.type !== 'all')         query = query.eq('type', filters.type)
+  if (filters.status && filters.status !== 'all')     query = query.eq('status', filters.status)
+  if (filters.priority && filters.priority !== 'all') query = query.eq('priority', filters.priority)
+  if (filters.assignedTo)                             query = query.eq('assigned_to', filters.assignedTo)
+  if (filters.modulePage)                             query = query.eq('module_page', filters.modulePage)
+  if (filters.submittedBy)                            query = query.eq('submitted_by_user_id', filters.submittedBy)
   if (filters.search) {
     query = query.or(`title.ilike.%${filters.search}%,ticket_number.ilike.%${filters.search}%`)
   }
 
+  const sortBy  = filters.sortBy  ?? 'created_at'
+  const sortDir = filters.sortDir ?? 'desc'
+
   const { data, count, error } = await query
-    .order('created_at', { ascending: false })
+    .order(sortBy === 'vote_count' ? 'created_at' : sortBy, { ascending: sortDir === 'asc' })
     .range(from, to)
 
   if (error) {
@@ -268,31 +293,39 @@ export async function getFeedbackTickets(
   }
 
   const total = count ?? 0
-  const tickets: FeedbackTicket[] = (data ?? []).map((row: Record<string, unknown>) => ({
-    id:                         row.id as string,
-    ticket_number:              row.ticket_number as string,
-    type:                       row.type as FeedbackType,
-    status:                     row.status as FeedbackStatus,
-    title:                      row.title as string,
-    description:                row.description as string,
-    module_page:                row.module_page as string | null,
-    steps_to_reproduce:         row.steps_to_reproduce as string | null,
-    expected_result:            row.expected_result as string | null,
-    actual_result:              row.actual_result as string | null,
-    business_reason:            row.business_reason as string | null,
-    desired_outcome:            row.desired_outcome as string | null,
-    assigned_to:                row.assigned_to as string | null,
-    assigned_to_name:           row.assigned_user
-      ? `${(row.assigned_user as Record<string, string>).first_name ?? ''} ${(row.assigned_user as Record<string, string>).last_name ?? ''}`.trim()
-      : null,
-    resolved_at:                row.resolved_at as string | null,
-    submitted_by_user_id:       row.submitted_by_user_id as string | null,
-    submitted_by_contractor_id: row.submitted_by_contractor_id as string | null,
-    submitted_by_name:          row.submitted_by_name as string,
-    submitted_by_email:         row.submitted_by_email as string | null,
-    created_at:                 row.created_at as string,
-    updated_at:                 row.updated_at as string,
-  }))
+  const tickets: FeedbackTicket[] = (data ?? []).map((row: Record<string, unknown>) => {
+    const votes       = (row.feedback_votes as Array<{ id: string; user_id: string }>) ?? []
+    const voteCount   = votes.length
+    const userVoted   = currentUserProfileId ? votes.some(v => v.user_id === currentUserProfileId) : false
+    return {
+      id:                         row.id as string,
+      ticket_number:              row.ticket_number as string,
+      type:                       row.type as FeedbackType,
+      status:                     row.status as FeedbackStatus,
+      priority:                   (row.priority as FeedbackPriority | null) ?? null,
+      title:                      row.title as string,
+      description:                row.description as string,
+      module_page:                row.module_page as string | null,
+      steps_to_reproduce:         row.steps_to_reproduce as string | null,
+      expected_result:            row.expected_result as string | null,
+      actual_result:              row.actual_result as string | null,
+      business_reason:            row.business_reason as string | null,
+      desired_outcome:            row.desired_outcome as string | null,
+      assigned_to:                row.assigned_to as string | null,
+      assigned_to_name:           row.assigned_user
+        ? `${(row.assigned_user as Record<string, string>).first_name ?? ''} ${(row.assigned_user as Record<string, string>).last_name ?? ''}`.trim()
+        : null,
+      resolved_at:                row.resolved_at as string | null,
+      submitted_by_user_id:       row.submitted_by_user_id as string | null,
+      submitted_by_contractor_id: row.submitted_by_contractor_id as string | null,
+      submitted_by_name:          row.submitted_by_name as string,
+      submitted_by_email:         row.submitted_by_email as string | null,
+      created_at:                 row.created_at as string,
+      updated_at:                 row.updated_at as string,
+      vote_count:                 voteCount,
+      user_has_voted:             userVoted,
+    }
+  })
 
   return { tickets, total, page, perPage, totalPages: Math.ceil(total / perPage) }
 }
@@ -373,11 +406,36 @@ export async function getFeedbackTicket(
     created_at:     c.created_at as string,
   })
 
+  // Fetch vote count + whether current user voted
+  const { count: voteCount } = await supabase
+    .from('feedback_votes')
+    .select('*', { count: 'exact', head: true })
+    .eq('ticket_id', ticketId)
+
+  let userHasVoted = false
+  if (authUser) {
+    const { data: profile2 } = await supabase
+      .from('users')
+      .select('id')
+      .eq('auth_user_id', authUser.id)
+      .single()
+    if (profile2) {
+      const { data: myVote } = await supabase
+        .from('feedback_votes')
+        .select('id')
+        .eq('ticket_id', ticketId)
+        .eq('user_id', profile2.id)
+        .single()
+      userHasVoted = !!myVote
+    }
+  }
+
   return {
     id:                         ticket.id,
     ticket_number:              ticket.ticket_number,
     type:                       ticket.type as FeedbackType,
     status:                     ticket.status as FeedbackStatus,
+    priority:                   (ticket.priority as FeedbackPriority | null) ?? null,
     title:                      ticket.title,
     description:                ticket.description,
     module_page:                ticket.module_page,
@@ -394,6 +452,8 @@ export async function getFeedbackTicket(
     submitted_by_email:         ticket.submitted_by_email,
     created_at:                 ticket.created_at,
     updated_at:                 ticket.updated_at,
+    vote_count:                 voteCount ?? 0,
+    user_has_voted:             userHasVoted,
     status_history:             (history ?? []).map((h: Record<string, unknown>) => ({
       id:              h.id as string,
       ticket_id:       h.ticket_id as string,
@@ -621,37 +681,62 @@ export async function addFeedbackComment(
     return { success: false, error: 'Failed to add comment.' }
   }
 
-  // Notify submitter on public admin comment
-  if (!isInternal && profile.role === 'admin') {
-    const { data: ticket } = await supabase
-      .from('feedback_tickets')
-      .select('id, ticket_number, type, title, submitted_by_user_id, submitted_by_email')
-      .eq('id', ticketId)
+  // Fetch ticket for notification routing
+  const { data: ticket } = await supabase
+    .from('feedback_tickets')
+    .select('id, ticket_number, type, title, submitted_by_user_id, submitted_by_email, assigned_to')
+    .eq('id', ticketId)
+    .single()
+
+  const { sendGenericAlert } = await import('@/lib/notifications/server-dispatch')
+
+  // Admin → public comment: notify submitter
+  if (!isInternal && profile.role === 'admin' && ticket?.submitted_by_user_id) {
+    const { data: submitter } = await supabase
+      .from('users')
+      .select('first_name, last_name, email, email_notifications_enabled')
+      .eq('id', ticket.submitted_by_user_id)
       .single()
 
-    if (ticket?.submitted_by_user_id) {
-      const { data: submitter } = await supabase
-        .from('users')
-        .select('first_name, last_name, email, email_notifications_enabled')
-        .eq('id', ticket.submitted_by_user_id)
-        .single()
+    if (submitter) {
+      await sendGenericAlert({
+        recipientUserId: ticket.submitted_by_user_id,
+        recipient: {
+          id:           ticket.submitted_by_user_id,
+          name:         `${submitter.first_name} ${submitter.last_name}`.trim(),
+          email:        submitter.email ?? ticket.submitted_by_email ?? undefined,
+          emailEnabled: submitter.email_notifications_enabled ?? true,
+        },
+        type:  'feedback_commented',
+        title: `New comment on ${ticket.ticket_number}`,
+        body:  `A team member has added a comment to your ${FEEDBACK_TYPE_LABELS[ticket.type as FeedbackType] ?? ticket.type}: "${ticket.title}"`,
+        link:  `/feedback/${ticket.id}`,
+      })
+    }
+  }
 
-      if (submitter) {
-        const { sendGenericAlert } = await import('@/lib/notifications/server-dispatch')
-        await sendGenericAlert({
-          recipientUserId: ticket.submitted_by_user_id,
-          recipient: {
-            id:           ticket.submitted_by_user_id,
-            name:         `${submitter.first_name} ${submitter.last_name}`.trim(),
-            email:        submitter.email ?? ticket.submitted_by_email ?? undefined,
-            emailEnabled: submitter.email_notifications_enabled ?? true,
-          },
-          type:  'feedback_commented',
-          title: `New comment on ${ticket.ticket_number}`,
-          body:  `A team member has added a comment to your ${FEEDBACK_TYPE_LABELS[ticket.type as FeedbackType] ?? ticket.type}: "${ticket.title}"`,
-          link:  `/feedback/${ticket.id}`,
-        })
-      }
+  // Submitter → public comment: notify assigned admin (Phase 2)
+  if (!isInternal && profile.role !== 'admin' && ticket?.assigned_to) {
+    const { data: assignee } = await supabase
+      .from('users')
+      .select('id, first_name, last_name, email, email_notifications_enabled')
+      .eq('id', ticket.assigned_to)
+      .single()
+
+    if (assignee) {
+      await sendGenericAlert({
+        recipientUserId: assignee.id,
+        recipient: {
+          id:           assignee.id,
+          name:         `${assignee.first_name} ${assignee.last_name}`.trim(),
+          email:        assignee.email ?? undefined,
+          emailEnabled: assignee.email_notifications_enabled ?? true,
+        },
+        type:  'feedback_reply',
+        title: `Reply on ${ticket.ticket_number}`,
+        body:  `${profile.first_name} ${profile.last_name} replied on: "${ticket.title}"`,
+        link:  `/admin/feedback/${ticket.id}`,
+      })
     }
   }
 
@@ -760,6 +845,201 @@ export async function getFeedbackStats(): Promise<{
   ).length
 
   return { total, open, resolved }
+}
+
+// ============================================================
+// 10. Toggle Vote on a feedback ticket
+// ============================================================
+
+export async function toggleFeedbackVote(
+  ticketId: string
+): Promise<{ success: boolean; voted: boolean; voteCount: number; error?: string }> {
+  const supabase = getSupabaseAdmin()
+  const { createClient } = await import('@/lib/supabase/server')
+  const authClient = await createClient()
+
+  const { data: { user: authUser } } = await authClient.auth.getUser()
+  if (!authUser) return { success: false, voted: false, voteCount: 0, error: 'Not authenticated.' }
+
+  const { data: profile } = await supabase
+    .from('users')
+    .select('id')
+    .eq('auth_user_id', authUser.id)
+    .single()
+
+  if (!profile) return { success: false, voted: false, voteCount: 0, error: 'User not found.' }
+
+  // Check existing vote
+  const { data: existing } = await supabase
+    .from('feedback_votes')
+    .select('id')
+    .eq('ticket_id', ticketId)
+    .eq('user_id', profile.id)
+    .single()
+
+  if (existing) {
+    // Remove vote
+    await supabase.from('feedback_votes').delete().eq('id', existing.id)
+  } else {
+    // Add vote
+    await supabase.from('feedback_votes').insert({ ticket_id: ticketId, user_id: profile.id })
+  }
+
+  // Return updated count
+  const { count } = await supabase
+    .from('feedback_votes')
+    .select('*', { count: 'exact', head: true })
+    .eq('ticket_id', ticketId)
+
+  return { success: true, voted: !existing, voteCount: count ?? 0 }
+}
+
+// ============================================================
+// 11. Set Priority (admin)
+// ============================================================
+
+export async function setFeedbackPriority(
+  ticketId: string,
+  priority: FeedbackPriority | null
+): Promise<{ success: boolean; error?: string }> {
+  const supabase = getSupabaseAdmin()
+  const { createClient } = await import('@/lib/supabase/server')
+  const authClient = await createClient()
+  const orgId = await getOrgId()
+
+  const { data: { user: authUser } } = await authClient.auth.getUser()
+  if (!authUser) return { success: false, error: 'Not authenticated.' }
+
+  const { data: profile } = await supabase
+    .from('users')
+    .select('role')
+    .eq('auth_user_id', authUser.id)
+    .single()
+
+  if (!profile || profile.role !== 'admin') {
+    return { success: false, error: 'Admin role required.' }
+  }
+
+  const { error } = await supabase
+    .from('feedback_tickets')
+    .update({ priority })
+    .eq('id', ticketId)
+    .eq('organization_id', orgId)
+
+  if (error) return { success: false, error: 'Failed to update priority.' }
+  return { success: true }
+}
+
+// ============================================================
+// 12. Bulk operations (admin)
+// ============================================================
+
+export type BulkFeedbackAction =
+  | { type: 'set_status';   status:   FeedbackStatus }
+  | { type: 'set_priority'; priority: FeedbackPriority | null }
+  | { type: 'assign';       userId:   string | null }
+  | { type: 'archive' }
+
+export async function bulkFeedbackAction(
+  ticketIds: string[],
+  action: BulkFeedbackAction
+): Promise<{ success: boolean; affected: number; error?: string }> {
+  if (!ticketIds.length) return { success: true, affected: 0 }
+
+  const supabase = getSupabaseAdmin()
+  const { createClient } = await import('@/lib/supabase/server')
+  const authClient = await createClient()
+  const orgId = await getOrgId()
+
+  const { data: { user: authUser } } = await authClient.auth.getUser()
+  if (!authUser) return { success: false, affected: 0, error: 'Not authenticated.' }
+
+  const { data: profile } = await supabase
+    .from('users')
+    .select('id, first_name, last_name, role')
+    .eq('auth_user_id', authUser.id)
+    .single()
+
+  if (!profile || profile.role !== 'admin') {
+    return { success: false, affected: 0, error: 'Admin role required.' }
+  }
+
+  let patch: Record<string, unknown> = {}
+
+  if (action.type === 'set_status') {
+    patch = { status: action.status }
+  } else if (action.type === 'set_priority') {
+    patch = { priority: action.priority }
+  } else if (action.type === 'assign') {
+    patch = { assigned_to: action.userId }
+  } else if (action.type === 'archive') {
+    patch = { status: 'archived' as FeedbackStatus }
+  }
+
+  const { error, count } = await supabase
+    .from('feedback_tickets')
+    .update(patch)
+    .in('id', ticketIds)
+    .eq('organization_id', orgId)
+    .select('id', { count: 'exact', head: true })
+
+  if (error) return { success: false, affected: 0, error: 'Bulk operation failed.' }
+
+  // Write status history rows for status changes
+  if (action.type === 'set_status' || action.type === 'archive') {
+    const newStatus = action.type === 'archive' ? 'archived' : (action as { type: 'set_status'; status: FeedbackStatus }).status
+    const { data: tickets } = await supabase
+      .from('feedback_tickets')
+      .select('id, status')
+      .in('id', ticketIds)
+      .eq('organization_id', orgId)
+
+    if (tickets) {
+      await supabase.from('feedback_status_history').insert(
+        tickets.map((t: Record<string, unknown>) => ({
+          ticket_id:          t.id,
+          old_status:         t.status,
+          new_status:         newStatus,
+          changed_by_user_id: profile.id,
+          changed_by_name:    `${profile.first_name} ${profile.last_name}`.trim(),
+          changed_by_role:    profile.role,
+          reason:             'Bulk operation',
+        }))
+      )
+    }
+  }
+
+  return { success: true, affected: count ?? ticketIds.length }
+}
+
+// ============================================================
+// 13. Get unread feedback count for admin nav badge
+// ============================================================
+
+export async function getUnreadFeedbackCount(): Promise<number> {
+  const supabase = getSupabaseAdmin()
+  const { createClient } = await import('@/lib/supabase/server')
+  const authClient = await createClient()
+  const orgId = await getOrgId()
+
+  const { data: { user: authUser } } = await authClient.auth.getUser()
+  if (!authUser) return 0
+
+  const { data: profile } = await supabase
+    .from('users')
+    .select('role')
+    .eq('auth_user_id', authUser.id)
+    .single()
+
+  if (!profile || profile.role !== 'admin') return 0
+
+  const { count } = await supabase
+    .from('feedback_tickets')
+    .select('*', { count: 'exact', head: true })
+    .eq('organization_id', orgId)
+    .eq('status', 'submitted')
+
+  return count ?? 0
 }
 
 // Types and labels must be imported directly from '@/lib/feedback/constants'.

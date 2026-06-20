@@ -21,6 +21,8 @@ import {
   Calendar,
   Tag,
   Layers,
+  ThumbsUp,
+  Flag,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
@@ -38,8 +40,11 @@ import {
   updateFeedbackStatus,
   assignFeedbackTicket,
   addFeedbackComment,
+  setFeedbackPriority,
   getAdminUsersForAssignment,
   type FeedbackTicketDetail,
+  type FeedbackPriority,
+  FEEDBACK_PRIORITY_LABELS,
 } from '@/lib/actions/feedback'
 import {
   FEEDBACK_STATUS_LABELS,
@@ -143,6 +148,9 @@ export default function AdminFeedbackDetailPage() {
   const [commentError, setCommentError]   = useState<string | null>(null)
   const [isPendingComment, startCommentTransition] = useTransition()
 
+  // Priority
+  const [priorityPending, setPriorityPending] = useState(false)
+
   const load = useCallback(async () => {
     const [data, users] = await Promise.all([
       getFeedbackTicket(params.id, true),
@@ -204,7 +212,15 @@ export default function AdminFeedbackDetailPage() {
     })
   }
 
-  // ─── Loading ─────────────────────────────────────────────────────────────���──
+  const handlePriorityChange = async (priority: FeedbackPriority | 'none') => {
+    if (priorityPending) return
+    setPriorityPending(true)
+    await setFeedbackPriority(params.id, priority === 'none' ? null : priority)
+    await load()
+    setPriorityPending(false)
+  }
+
+  // ─── Loading ─────────────────────────────────────────────────────────────����──
 
   if (loading) {
     return (
@@ -291,7 +307,7 @@ export default function AdminFeedbackDetailPage() {
                 </span>
               </div>
 
-              <div className="flex items-center gap-4 text-xs text-muted-foreground border-t border-border pt-4">
+              <div className="flex flex-wrap items-center gap-4 text-xs text-muted-foreground border-t border-border pt-4">
                 <span className="flex items-center gap-1.5">
                   {TYPE_ICON[ticket.type]}
                   {FEEDBACK_TYPE_LABELS[ticket.type]}
@@ -306,6 +322,29 @@ export default function AdminFeedbackDetailPage() {
                   <Calendar className="w-3 h-3" />
                   {formatDateShort(ticket.created_at)}
                 </span>
+                <span className="flex items-center gap-1.5">
+                  <ThumbsUp className="w-3 h-3" />
+                  {ticket.vote_count ?? 0} {ticket.vote_count === 1 ? 'vote' : 'votes'}
+                </span>
+                {/* Priority selector */}
+                <div className="flex items-center gap-1.5 ml-auto">
+                  <Flag className="w-3 h-3" />
+                  <Select
+                    value={ticket.priority ?? 'none'}
+                    onValueChange={(v) => handlePriorityChange(v as FeedbackPriority | 'none')}
+                    disabled={priorityPending}
+                  >
+                    <SelectTrigger className="h-6 text-xs px-2 w-28 border-dashed">
+                      <SelectValue placeholder="Priority" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">No priority</SelectItem>
+                      {(Object.entries(FEEDBACK_PRIORITY_LABELS) as [FeedbackPriority, string][]).map(([val, label]) => (
+                        <SelectItem key={val} value={val}>{label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
             </div>
 

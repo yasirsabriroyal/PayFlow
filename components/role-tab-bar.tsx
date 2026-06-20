@@ -1,8 +1,10 @@
 'use client'
 
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { ROUTES } from '@/lib/navigation'
+import { getUnreadFeedbackCount } from '@/lib/actions/feedback'
 
 type Role = 'admin' | 'accountant' | 'project_manager' | 'contractor'
 
@@ -57,6 +59,13 @@ interface RoleTabBarProps {
 export function RoleTabBar({ role }: RoleTabBarProps) {
   const pathname = usePathname()
   const tabs = TAB_MAP[role]
+  const [unreadFeedback, setUnreadFeedback] = useState(0)
+
+  // Fetch unread feedback count for admin only
+  useEffect(() => {
+    if (role !== 'admin') return
+    getUnreadFeedbackCount().then(setUnreadFeedback).catch(() => {})
+  }, [role])
 
   if (!tabs) return null
 
@@ -68,18 +77,24 @@ export function RoleTabBar({ role }: RoleTabBarProps) {
       <div className="flex flex-row gap-0">
         {tabs.map((tab: Tab) => {
           const isActive = pathname.startsWith(tab.href)
+          const isFeedbackAdmin = role === 'admin' && tab.href === ROUTES.admin.feedbackInbox
           return (
             <Link
               key={tab.href}
               href={tab.href}
               className={
-                'px-4 py-3 text-sm font-medium no-underline transition-colors ' +
+                'relative px-4 py-3 text-sm font-medium no-underline transition-colors ' +
                 (isActive
                   ? 'text-primary border-b-2 border-primary'
                   : 'text-muted-foreground hover:text-foreground')
               }
             >
               {tab.label}
+              {isFeedbackAdmin && unreadFeedback > 0 && (
+                <span className="absolute top-2 right-1 min-w-[16px] h-4 px-1 bg-primary text-primary-foreground text-[10px] font-semibold rounded-full flex items-center justify-center leading-none">
+                  {unreadFeedback > 99 ? '99+' : unreadFeedback}
+                </span>
+              )}
             </Link>
           )
         })}

@@ -15,9 +15,17 @@ import {
   Clock,
   CheckCircle2,
   InboxIcon,
+  ThumbsUp,
+  ArrowUpDown,
+  AlertCircle,
+  Flag,
+  Trash2,
+  X,
+  Archive,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Checkbox } from '@/components/ui/checkbox'
 import {
   Select,
   SelectContent,
@@ -37,7 +45,10 @@ import { AppHeader } from '@/components/app-header'
 import { RoleTabBar } from '@/components/role-tab-bar'
 import {
   getFeedbackTickets,
+  bulkFeedbackAction,
   type FeedbackTicket,
+  type FeedbackPriority,
+  FEEDBACK_PRIORITY_LABELS,
 } from '@/lib/actions/feedback'
 import {
   FEEDBACK_STATUS_LABELS,
@@ -72,8 +83,23 @@ function formatDate(iso: string) {
   })
 }
 
-const ALL_STATUSES = Object.entries(FEEDBACK_STATUS_LABELS) as [FeedbackStatus, string][]
-const ALL_TYPES    = Object.entries(FEEDBACK_TYPE_LABELS)   as [FeedbackType, string][]
+const ALL_STATUSES   = Object.entries(FEEDBACK_STATUS_LABELS)   as [FeedbackStatus, string][]
+const ALL_TYPES      = Object.entries(FEEDBACK_TYPE_LABELS)     as [FeedbackType, string][]
+const ALL_PRIORITIES = Object.entries(FEEDBACK_PRIORITY_LABELS) as [FeedbackPriority, string][]
+
+const PRIORITY_VARIANT: Record<FeedbackPriority, string> = {
+  low:      'bg-muted text-muted-foreground border-border',
+  medium:   'bg-blue-500/10 text-blue-600 border-blue-200',
+  high:     'bg-orange-500/10 text-orange-600 border-orange-200',
+  critical: 'bg-red-500/10 text-red-600 border-red-200',
+}
+
+const PRIORITY_ICON: Record<FeedbackPriority, React.ReactNode> = {
+  low:      <Flag className="w-3 h-3" />,
+  medium:   <Flag className="w-3 h-3 text-blue-500" />,
+  high:     <AlertCircle className="w-3 h-3 text-orange-500" />,
+  critical: <AlertCircle className="w-3 h-3 text-red-500" />,
+}
 
 const MODULE_OPTIONS = [
   'Invoices', 'Payments', 'Projects', 'Contractors', 'Reports',
@@ -88,11 +114,53 @@ export default function AdminFeedbackInboxPage() {
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
 
+  // Bulk selection
+  const [selected, setSelected]     = useState<Set<string>>(new Set())
+  const [bulkPending, setBulkPending] = useState(false)
+
+  const toggleSelect = (id: string) => {
+    setSelected(prev => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  }
+
+  const toggleSelectAll = () => {
+    if (selected.size === tickets.length) {
+      setSelected(new Set())
+    } else {
+      setSelected(new Set(tickets.map(t => t.id)))
+    }
+  }
+
+  const clearSelection = () => setSelected(new Set())
+
+  const handleBulkArchive = async () => {
+    if (!selected.size || bulkPending) return
+    setBulkPending(true)
+    await bulkFeedbackAction([...selected], { type: 'archive' })
+    clearSelection()
+    await load(false)
+    setBulkPending(false)
+  }
+
+  const handleBulkSetStatus = async (status: string) => {
+    if (!selected.size || bulkPending) return
+    setBulkPending(true)
+    await bulkFeedbackAction([...selected], { type: 'set_status', status: status as import('@/lib/feedback/constants').FeedbackStatus })
+    clearSelection()
+    await load(false)
+    setBulkPending(false)
+  }
+
   // Filters
-  const [search, setSearch]     = useState('')
-  const [typeFilter, setType]   = useState<FeedbackType | 'all'>('all')
-  const [statusFilter, setStatus] = useState<FeedbackStatus | 'all'>('all')
-  const [moduleFilter, setModule] = useState<string>('all')
+  const [search, setSearch]         = useState('')
+  const [typeFilter, setType]       = useState<FeedbackType | 'all'>('all')
+  const [statusFilter, setStatus]   = useState<FeedbackStatus | 'all'>('all')
+  const [moduleFilter, setModule]   = useState<string>('all')
+  const [priorityFilter, setPriority] = useState<FeedbackPriority | 'all'>('all')
+  const [sortBy, setSortBy]         = useState<'created_at' | 'vote_count' | 'updated_at'>('created_at')
 
   // Stats (derived from first full load)
   const [stats, setStats] = useState({ total: 0, open: 0, resolved: 0 })
@@ -102,13 +170,20 @@ export default function AdminFeedbackInboxPage() {
     const result = await getFeedbackTickets(
       {
         search:     search || undefined,
-        type:       typeFilter  !== 'all' ? typeFilter  : undefined,
-        status:     statusFilter !== 'all' ? statusFilter : undefined,
-        modulePage: moduleFilter !== 'all' ? moduleFilter : undefined,
+        type:       typeFilter    !== 'all' ? typeFilter    : undefined,
+        status:     statusFilter  !== 'all' ? statusFilter  : undefined,
+        modulePage: moduleFilter  !== 'all' ? moduleFilter  : undefined,
+        priority:   priorityFilter !== 'all' ? priorityFilter : undefined,
+        sortBy,
+        sortDir:    sortBy === 'vote_count' ? 'desc' : 'desc',
       },
       true
     )
-    setTickets(result.tickets)
+    // Client-side sort by vote_count since Supabase join count sort isn't trivial
+    const sorted = sortBy === 'vote_count'
+      ? [...result.tickets].sort((a, b) => (b.vote_count ?? 0) - (a.vote_count ?? 0))
+      : result.tickets
+    setTickets(sorted)
     setTotal(result.total)
     if (loadStats) {
       // Compute stats from an unfiltered fetch
@@ -121,7 +196,7 @@ export default function AdminFeedbackInboxPage() {
       })
     }
     setLoading(false)
-  }, [search, typeFilter, statusFilter, moduleFilter])
+  }, [search, typeFilter, statusFilter, moduleFilter, priorityFilter, sortBy])
 
   useEffect(() => { load(true) }, []) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { load(false) }, [load])
@@ -226,13 +301,76 @@ export default function AdminFeedbackInboxPage() {
               ))}
             </SelectContent>
           </Select>
+
+          <Select value={priorityFilter} onValueChange={(v) => setPriority(v as FeedbackPriority | 'all')}>
+            <SelectTrigger className="w-36">
+              <SelectValue placeholder="Priority" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Priorities</SelectItem>
+              {ALL_PRIORITIES.map(([val, label]) => (
+                <SelectItem key={val} value={val}>{label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <Select value={sortBy} onValueChange={(v) => setSortBy(v as typeof sortBy)}>
+            <SelectTrigger className="w-40">
+              <ArrowUpDown className="w-3.5 h-3.5 mr-1.5 text-muted-foreground" />
+              <SelectValue placeholder="Sort by" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="created_at">Newest First</SelectItem>
+              <SelectItem value="updated_at">Recently Updated</SelectItem>
+              <SelectItem value="vote_count">Most Votes</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
+
+        {/* Bulk action toolbar */}
+        {selected.size > 0 && (
+          <div className="flex items-center gap-3 px-4 py-2.5 mb-2 bg-primary/5 border border-primary/20 rounded-xl">
+            <span className="text-sm font-medium text-primary">
+              {selected.size} selected
+            </span>
+            <div className="flex items-center gap-2 ml-auto">
+              <Select onValueChange={handleBulkSetStatus} disabled={bulkPending}>
+                <SelectTrigger className="h-7 text-xs w-36">
+                  <SelectValue placeholder="Set status..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {ALL_STATUSES.map(([val, label]) => (
+                    <SelectItem key={val} value={val}>{label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 text-xs gap-1.5 text-destructive border-destructive/30 hover:bg-destructive/5"
+                onClick={handleBulkArchive}
+                disabled={bulkPending}
+              >
+                <Archive className="w-3.5 h-3.5" />
+                Archive
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 text-xs"
+                onClick={clearSelection}
+              >
+                <X className="w-3.5 h-3.5" />
+              </Button>
+            </div>
+          </div>
+        )}
 
         {/* Table */}
         <div className="bg-card border border-border rounded-xl overflow-hidden">
           <div className="px-5 py-3.5 border-b border-border flex items-center justify-between">
             <p className="text-xs text-muted-foreground">
-              {loading ? 'Loading...' : `${total} ticket${total !== 1 ? 's' : ''}`}
+              {loading ? 'Loading...' : `${total} ticket${total !== 1 ? 's' : ''}${selected.size > 0 ? ` · ${selected.size} selected` : ''}`}
             </p>
           </div>
 
@@ -252,12 +390,25 @@ export default function AdminFeedbackInboxPage() {
             <Table>
               <TableHeader>
                 <TableRow className="hover:bg-transparent">
-                  <TableHead className="pl-5">Ticket</TableHead>
+                  <TableHead className="pl-5 w-10">
+                    <Checkbox
+                      checked={tickets.length > 0 && selected.size === tickets.length}
+                      onCheckedChange={toggleSelectAll}
+                      aria-label="Select all"
+                    />
+                  </TableHead>
+                  <TableHead>Ticket</TableHead>
                   <TableHead>Type</TableHead>
                   <TableHead>Title</TableHead>
                   <TableHead>Submitter</TableHead>
                   <TableHead>Module</TableHead>
+                  <TableHead>Priority</TableHead>
                   <TableHead>Status</TableHead>
+                  <TableHead>
+                    <span className="flex items-center gap-1">
+                      <ThumbsUp className="w-3.5 h-3.5" /> Votes
+                    </span>
+                  </TableHead>
                   <TableHead>Assigned</TableHead>
                   <TableHead>Created</TableHead>
                   <TableHead className="w-10" />
@@ -267,10 +418,22 @@ export default function AdminFeedbackInboxPage() {
                 {tickets.map((ticket) => (
                   <TableRow
                     key={ticket.id}
-                    className="cursor-pointer hover:bg-muted/40"
-                    onClick={() => router.push(`/admin/feedback/${ticket.id}`)}
+                    className={`cursor-pointer hover:bg-muted/40 ${selected.has(ticket.id) ? 'bg-primary/5' : ''}`}
+                    onClick={(e) => {
+                      // Don't navigate if clicking the checkbox
+                      const target = e.target as HTMLElement
+                      if (target.closest('[role="checkbox"]')) return
+                      router.push(`/admin/feedback/${ticket.id}`)
+                    }}
                   >
-                    <TableCell className="pl-5 font-mono text-xs text-muted-foreground">
+                    <TableCell className="pl-5" onClick={(e) => { e.stopPropagation(); toggleSelect(ticket.id) }}>
+                      <Checkbox
+                        checked={selected.has(ticket.id)}
+                        onCheckedChange={() => toggleSelect(ticket.id)}
+                        aria-label={`Select ticket ${ticket.ticket_number}`}
+                      />
+                    </TableCell>
+                    <TableCell className="font-mono text-xs text-muted-foreground">
                       {ticket.ticket_number}
                     </TableCell>
                     <TableCell>
@@ -289,10 +452,26 @@ export default function AdminFeedbackInboxPage() {
                       {ticket.module_page ?? '—'}
                     </TableCell>
                     <TableCell>
+                      {ticket.priority ? (
+                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border ${PRIORITY_VARIANT[ticket.priority]}`}>
+                          {PRIORITY_ICON[ticket.priority]}
+                          {FEEDBACK_PRIORITY_LABELS[ticket.priority]}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
                       <span
                         className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${STATUS_VARIANT[ticket.status]}`}
                       >
                         {FEEDBACK_STATUS_LABELS[ticket.status]}
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground">
+                      <span className="flex items-center gap-1">
+                        <ThumbsUp className="w-3 h-3" />
+                        {ticket.vote_count ?? 0}
                       </span>
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">

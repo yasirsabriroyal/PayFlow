@@ -13,6 +13,7 @@ import {
   Send,
   Paperclip,
   ChevronRight,
+  ThumbsUp,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
@@ -21,6 +22,7 @@ import { RoleTabBar } from '@/components/role-tab-bar'
 import {
   getFeedbackTicket,
   addFeedbackComment,
+  toggleFeedbackVote,
   type FeedbackTicketDetail,
 } from '@/lib/actions/feedback'
 import {
@@ -73,10 +75,17 @@ export default function FeedbackTicketPage() {
   const [commentBody, setCommentBody] = useState('')
   const [isPending, startTransition] = useTransition()
   const [commentError, setCommentError] = useState<string | null>(null)
+  const [voteCount, setVoteCount] = useState(0)
+  const [userVoted, setUserVoted] = useState(false)
+  const [votePending, setVotePending] = useState(false)
 
   const load = useCallback(async () => {
     const data = await getFeedbackTicket(params.id, false)
     setTicket(data)
+    if (data) {
+      setVoteCount(data.vote_count ?? 0)
+      setUserVoted(data.user_has_voted ?? false)
+    }
     setLoading(false)
   }, [params.id])
 
@@ -94,6 +103,17 @@ export default function FeedbackTicketPage() {
         setCommentError(result.error ?? 'Failed to post comment.')
       }
     })
+  }
+
+  const handleVote = async () => {
+    if (votePending) return
+    setVotePending(true)
+    const result = await toggleFeedbackVote(params.id)
+    if (result.success) {
+      setVoteCount(result.voteCount)
+      setUserVoted(result.voted)
+    }
+    setVotePending(false)
   }
 
   if (loading) {
@@ -151,11 +171,26 @@ export default function FeedbackTicketPage() {
                   <span className="text-muted-foreground">/</span>
                   <span className="font-mono text-xs text-muted-foreground">{ticket.ticket_number}</span>
                 </div>
-                <span
-                  className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${STATUS_VARIANT[ticket.status]}`}
-                >
-                  {FEEDBACK_STATUS_LABELS[ticket.status]}
-                </span>
+                <div className="flex items-center gap-2">
+                  <span
+                    className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${STATUS_VARIANT[ticket.status]}`}
+                  >
+                    {FEEDBACK_STATUS_LABELS[ticket.status]}
+                  </span>
+                  <button
+                    onClick={handleVote}
+                    disabled={votePending}
+                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
+                      userVoted
+                        ? 'bg-primary/10 text-primary border-primary/20 hover:bg-primary/20'
+                        : 'bg-muted/50 text-muted-foreground border-border hover:bg-muted'
+                    }`}
+                    title={userVoted ? 'Remove vote' : 'Upvote this ticket'}
+                  >
+                    <ThumbsUp className={`w-3 h-3 ${userVoted ? 'fill-primary text-primary' : ''}`} />
+                    {voteCount}
+                  </button>
+                </div>
               </div>
               <h1 className="text-xl font-semibold text-balance">{ticket.title}</h1>
               {ticket.module_page && (
