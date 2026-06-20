@@ -266,7 +266,13 @@ export function KYCVerificationQueue() {
                   <FileText className="w-5 h-5 text-muted-foreground" />
                   <span className="text-sm">{selectedDoc.file_name}</span>
                 </div>
-                <Button variant="outline" size="sm">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() =>
+                    window.open(`/api/kyc-documents/${selectedDoc.id}`, '_blank')
+                  }
+                >
                   <Download className="w-4 h-4 mr-1.5" />
                   Download
                 </Button>
@@ -275,7 +281,9 @@ export function KYCVerificationQueue() {
               <div className="p-4 border border-dashed border-border rounded-lg text-center text-muted-foreground">
                 <FileText className="w-12 h-12 mx-auto mb-2 opacity-50" />
                 <p className="text-sm">Document preview would appear here</p>
-                <p className="text-xs">Click download to view the full document</p>
+                <p className="text-xs">
+                  Click Download above to view or save the full document
+                </p>
               </div>
             </div>
           )}
