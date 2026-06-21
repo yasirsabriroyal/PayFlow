@@ -524,40 +524,43 @@ export default function ProjectHubPage() {
 
         {/* Main Content Tabs */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-          <TabsList className="grid w-full grid-cols-5 max-w-3xl">
-            <TabsTrigger value="overview" className="flex items-center gap-2">
-              <Briefcase className="w-4 h-4" />
-              Overview
-            </TabsTrigger>
-            <TabsTrigger value="invoices" className="flex items-center gap-2">
-              <FileText className="w-4 h-4" />
-              Invoices
-              {invoices.length > 0 && (
-                <Badge variant="secondary" className="ml-1 h-5 px-1.5">{invoices.length}</Badge>
-              )}
-            </TabsTrigger>
-            <TabsTrigger value="change-orders" className="flex items-center gap-2">
-              <TrendingUp className="w-4 h-4" />
-              COs
-              {changeOrders.length > 0 && (
-                <Badge variant="secondary" className="ml-1 h-5 px-1.5">{changeOrders.length}</Badge>
-              )}
-            </TabsTrigger>
-            <TabsTrigger value="contractors" className="flex items-center gap-2">
-              <HardHat className="w-4 h-4" />
-              Contractors
-              {projectContractors.length > 0 && (
-                <Badge variant="secondary" className="ml-1 h-5 px-1.5">{projectContractors.length}</Badge>
-              )}
-            </TabsTrigger>
-            <TabsTrigger value="team" className="flex items-center gap-2">
-              <Users className="w-4 h-4" />
-              Team
-              {assignments.length > 0 && (
-                <Badge variant="secondary" className="ml-1 h-5 px-1.5">{assignments.length}</Badge>
-              )}
-            </TabsTrigger>
-          </TabsList>
+          {/* Mobile: horizontally scrollable strip. md+: grid layout. */}
+          <div className="overflow-x-auto -mx-4 px-4 md:mx-0 md:px-0">
+            <TabsList className="flex w-max min-w-full md:grid md:w-full md:grid-cols-5 md:max-w-3xl">
+              <TabsTrigger value="overview" className="flex items-center gap-1.5 whitespace-nowrap px-4 min-w-[5rem]">
+                <Briefcase className="w-4 h-4 shrink-0 hidden sm:block" />
+                Overview
+              </TabsTrigger>
+              <TabsTrigger value="invoices" className="flex items-center gap-1.5 whitespace-nowrap px-4 min-w-[5rem]">
+                <FileText className="w-4 h-4 shrink-0 hidden sm:block" />
+                Invoices
+                {invoices.length > 0 && (
+                  <Badge variant="secondary" className="ml-1 h-5 px-1.5 shrink-0">{invoices.length}</Badge>
+                )}
+              </TabsTrigger>
+              <TabsTrigger value="change-orders" className="flex items-center gap-1.5 whitespace-nowrap px-4 min-w-[5rem]">
+                <TrendingUp className="w-4 h-4 shrink-0 hidden sm:block" />
+                COs
+                {changeOrders.length > 0 && (
+                  <Badge variant="secondary" className="ml-1 h-5 px-1.5 shrink-0">{changeOrders.length}</Badge>
+                )}
+              </TabsTrigger>
+              <TabsTrigger value="contractors" className="flex items-center gap-1.5 whitespace-nowrap px-4 min-w-[5rem]">
+                <HardHat className="w-4 h-4 shrink-0 hidden sm:block" />
+                Contractors
+                {projectContractors.length > 0 && (
+                  <Badge variant="secondary" className="ml-1 h-5 px-1.5 shrink-0">{projectContractors.length}</Badge>
+                )}
+              </TabsTrigger>
+              <TabsTrigger value="team" className="flex items-center gap-1.5 whitespace-nowrap px-4 min-w-[5rem]">
+                <Users className="w-4 h-4 shrink-0 hidden sm:block" />
+                Team
+                {assignments.length > 0 && (
+                  <Badge variant="secondary" className="ml-1 h-5 px-1.5 shrink-0">{assignments.length}</Badge>
+                )}
+              </TabsTrigger>
+            </TabsList>
+          </div>
 
           {/* Overview Tab */}
           <TabsContent value="overview" className="space-y-6">
