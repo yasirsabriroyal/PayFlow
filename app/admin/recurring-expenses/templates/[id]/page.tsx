@@ -1,4 +1,4 @@
-'use server'
+export const dynamic = 'force-dynamic'
 
 import { createClient } from '@/lib/supabase/server'
 import { getSupabaseAdmin } from '@/lib/supabase/admin'
@@ -12,14 +12,18 @@ interface PageProps {
 }
 
 export async function generateMetadata({ params }: PageProps) {
-  const { id } = await params
-  const supabase = getSupabaseAdmin()
-  const { data } = await supabase
-    .from('expense_templates')
-    .select('name')
-    .eq('id', id)
-    .single()
-  return { title: data?.name ? `${data.name} — Recurring Expense` : 'Expense Template' }
+  try {
+    const { id } = await params
+    const supabase = getSupabaseAdmin()
+    const { data } = await supabase
+      .from('expense_templates')
+      .select('name')
+      .eq('id', id)
+      .single()
+    return { title: data?.name ? `${data.name} — Recurring Expense` : 'Expense Template' }
+  } catch {
+    return { title: 'Expense Template' }
+  }
 }
 
 export default async function TemplateDetailPage({ params }: PageProps) {
