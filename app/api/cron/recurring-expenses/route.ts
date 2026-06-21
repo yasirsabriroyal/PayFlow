@@ -213,7 +213,7 @@ export async function GET(request: Request) {
       console.error(`[recurring-engine] ${templateId} — exception:`, message)
 
       // Log the failure so it is visible in the dashboard
-      await supabase.from('recurring_generation_log').insert({
+      await supabase.from('recurring_generation_log').upsert({
         organization_id: orgId,
         template_id: templateId,
         schedule_id: schedule.id,
@@ -221,7 +221,7 @@ export async function GET(request: Request) {
         status: 'failed',
         error_message: message,
         triggered_by: 'cron',
-      }).onConflict('template_id, period_key').ignore()
+      }, { onConflict: 'template_id,period_key', ignoreDuplicates: true })
     }
   }
 

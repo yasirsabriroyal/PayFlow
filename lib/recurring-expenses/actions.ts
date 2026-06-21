@@ -247,7 +247,7 @@ export async function getUpcomingGenerations(days = 30): Promise<UpcomingGenerat
   return data
     .filter((row) => row.expense_templates && row.next_generation_date)
     .map((row) => {
-      const tmpl = row.expense_templates as Record<string, unknown> | null
+      const tmpl = (row.expense_templates as unknown) as Record<string, unknown> | null
       const contractor = tmpl?.contractors as Record<string, string> | null
       return {
         template_id: row.template_id,
@@ -432,6 +432,39 @@ export async function archiveExpenseTemplate(
   return { success: true }
 }
 
+/** Update the status of an expense template (active | inactive | archived). */
+export async function updateTemplateStatus(
+  id: string,
+  status: 'active' | 'inactive' | 'archived',
+  userId?: string,
+): Promise<ActionResult> {
+  if (status === 'archived') return archiveExpenseTemplate(id, userId)
+
+  const supabase = getSupabaseAdmin()
+  const orgId = await getOrgId()
+
+  const { error } = await supabase
+    .from('expense_templates')
+    .update({ status, updated_by: userId ?? null })
+    .eq('id', id)
+    .eq('organization_id', orgId)
+
+  if (error) return { success: false, error: error.message }
+
+  await writeAuditLog(supabase, {
+    action: status === 'active' ? 'expense_template_activated' : 'expense_template_paused',
+    entity_type: 'expense_template',
+    entity_id: id,
+    description: `Template status set to ${status}`,
+    user_id: userId ?? null,
+    new_values: { status },
+  })
+
+  revalidatePath('/admin/recurring-expenses')
+  revalidatePath(`/admin/recurring-expenses/templates/${id}`)
+  return { success: true }
+}
+
 /** Create or replace the schedule for a template. */
 export async function upsertSchedule(
   input: CreateScheduleInput,
@@ -476,7 +509,7 @@ export async function upsertSchedule(
     entity_id: data.id,
     description: `Schedule set to ${input.frequency} starting ${input.start_date}`,
     user_id: userId ?? null,
-    new_values: input as Record<string, unknown>,
+    new_values: input as unknown as Record<string, unknown>,
   })
 
   revalidatePath('/admin/recurring-expenses')
@@ -585,7 +618,7 @@ export async function resumeSchedule(
 /** Manually trigger generation of a draft invoice for a template right now. */
 export async function triggerManualGeneration(
   templateId: string,
-  userId: string,
+  userId?: string,
 ): Promise<ActionResult<{ invoice_id: string; invoice_number: string }>> {
   const supabase = getSupabaseAdmin()
   const orgId = await getOrgId()
@@ -687,7 +720,7 @@ export async function runGeneration(
 
   if (invError || !invoice) {
     // Log the failure
-    await supabase.from('recurring_generation_log').insert({
+    await supabase.from('recurring_generation_log').upsert({
       organization_id: orgId,
       template_id: template.id,
       schedule_id: template.schedule?.id ?? template.id,
@@ -696,7 +729,7 @@ export async function runGeneration(
       error_message: invError?.message ?? 'Unknown error',
       triggered_by: triggeredBy,
       triggered_user_id: triggeredUserId ?? null,
-    }).onConflict('template_id, period_key').ignore()
+    }, { onConflict: 'template_id,period_key', ignoreDuplicates: true })
 
     return { success: false, error: invError?.message ?? 'Invoice creation failed' }
   }

@@ -164,6 +164,26 @@ export interface UpcomingGeneration {
   currency: string
 }
 
+/** Nested join form returned by the template detail page query. */
+export interface ExpenseTemplateWithRelations extends ExpenseTemplate {
+  contractor: { id: string; company_name: string; trade_category: string | null; vendor_type: string } | null
+  category: { id: string; name: string } | null
+  subcategory: { id: string; name: string } | null
+  project: { id: string; name: string; project_number: string | null } | null
+  schedule: ExpenseTemplateSchedule | null
+  generation_log?: GenerationLog[]
+}
+
+/** Shape of each entry in the generation log (with optional nested invoice). */
+export interface GenerationLog extends RecurringGenerationLog {
+  invoice?: {
+    id: string
+    invoice_number: string | null
+    amount: number | null
+    status: string | null
+  } | null
+}
+
 // ─── Input types for server actions ──────────────────────────────────────────
 
 export interface CreateExpenseTemplateInput {
