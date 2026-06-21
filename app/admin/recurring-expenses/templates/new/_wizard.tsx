@@ -209,7 +209,10 @@ export function NewTemplateWizard({ vendors, categories, projects }: Props) {
           ? 'Template and schedule are active.'
           : 'Template saved. Add a schedule later.',
       })
+      // Small delay so the toast is visible before navigation
+      await new Promise((r) => setTimeout(r, 400))
       router.push(`/admin/recurring-expenses/templates/${templateId}`)
+      router.refresh()
     })
   }
 

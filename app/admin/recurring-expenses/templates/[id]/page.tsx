@@ -1,6 +1,7 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
+import { getSupabaseAdmin } from '@/lib/supabase/admin'
 import { notFound, redirect } from 'next/navigation'
 import { AppShell } from '@/components/layout/app-shell'
 import { TemplateDetailClient } from './_client'
@@ -12,7 +13,7 @@ interface PageProps {
 
 export async function generateMetadata({ params }: PageProps) {
   const { id } = await params
-  const supabase = await createClient()
+  const supabase = getSupabaseAdmin()
   const { data } = await supabase
     .from('expense_templates')
     .select('name')
@@ -23,19 +24,23 @@ export async function generateMetadata({ params }: PageProps) {
 
 export default async function TemplateDetailPage({ params }: PageProps) {
   const { id } = await params
-  const supabase = await createClient()
 
-  const { data: { user } } = await supabase.auth.getUser()
+  // Auth check — use user-scoped client for session only
+  const authClient = await createClient()
+  const { data: { user } } = await authClient.auth.getUser()
   if (!user) redirect('/auth/login')
 
-  const { data: userRow } = await supabase
+  const { data: userRow } = await authClient
     .from('users')
     .select('role')
-    .eq('id', user.id)
+    .eq('auth_user_id', user.id)
     .single()
   if (!userRow || !['admin', 'project_manager', 'accountant'].includes(userRow.role)) {
     redirect('/dashboard')
   }
+
+  // Data queries — use admin (service-role) client to bypass RLS
+  const supabase = getSupabaseAdmin()
 
   const { data: template, error } = await supabase
     .from('expense_templates')
@@ -45,17 +50,28 @@ export default async function TemplateDetailPage({ params }: PageProps) {
       category:contractor_categories(id, name),
       subcategory:contractor_subcategories(id, name),
       project:projects(id, name, project_number),
-      schedule:expense_template_schedules(*),
-      generation_log:recurring_generation_log(
-        id, period_key, status, invoice_id, skip_reason, error_message, generated_at, triggered_by,
-        invoice:invoices(id, invoice_number, amount, status)
-      )
+      schedule:expense_template_schedules(*)
     `)
     .eq('id', id)
-    .order('generated_at', { referencedTable: 'recurring_generation_log', ascending: false })
     .single()
 
   if (error || !template) notFound()
+
+  // Fetch generation log separately to allow ordering
+  const { data: generationLogRaw } = await supabase
+    .from('recurring_generation_log')
+    .select(`
+      id, period_key, status, invoice_id, skip_reason, error_message, generated_at, triggered_by,
+      invoice:invoices(id, invoice_number, amount, status)
+    `)
+    .eq('template_id', id)
+    .order('generated_at', { ascending: false })
+    .limit(50)
+
+  const templateWithLog = {
+    ...template,
+    generation_log: generationLogRaw ?? [],
+  }
 
   const { data: suppliersRaw } = await supabase
     .from('contractors')
@@ -83,7 +99,7 @@ export default async function TemplateDetailPage({ params }: PageProps) {
       backLabel="Recurring Expenses"
     >
       <TemplateDetailClient
-        template={template as unknown as ExpenseTemplateWithRelations}
+        template={templateWithLog as unknown as ExpenseTemplateWithRelations}
         suppliers={suppliersRaw ?? []}
         categories={categoriesRaw ?? []}
         projects={projectsRaw ?? []}

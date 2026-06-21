@@ -337,6 +337,7 @@ export async function createExpenseTemplate(
   })
 
   revalidatePath('/admin/recurring-expenses')
+  revalidatePath(`/admin/recurring-expenses/templates/${data.id}`)
   return { success: true, data: data as ExpenseTemplate }
 }
 
