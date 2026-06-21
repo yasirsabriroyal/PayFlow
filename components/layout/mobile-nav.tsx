@@ -22,7 +22,8 @@ import {
   Palette,
   LogOut,
   ChevronRight,
-  UserCog
+  UserCog,
+  RefreshCw,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet'
@@ -44,6 +45,7 @@ const navItems: NavItem[] = [
   { label: 'Payments', href: '/accountant/payments', icon: DollarSign, roles: ['admin', 'accountant'] },
   { label: 'Holdbacks', href: '/accountant/holdbacks', icon: Timer, roles: ['admin', 'accountant'] },
   { label: 'PM Approvals', href: '/pm/approvals', icon: Calculator, roles: ['admin', 'project_manager'] },
+  { label: 'Recurring Expenses', href: '/admin/recurring-expenses', icon: RefreshCw, roles: ['admin'] },
   { label: 'Accounting Sync', href: '/admin/accounting', icon: Database, roles: ['admin'] },
   { label: 'Permissions', href: '/admin/settings/permissions', icon: Shield, roles: ['admin'] },
   { label: 'Project Roles', href: '/admin/settings/project-roles', icon: UserCog, roles: ['admin'] },
