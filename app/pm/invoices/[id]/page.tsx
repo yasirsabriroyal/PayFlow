@@ -698,7 +698,7 @@ export default function PMInvoiceDetailPage() {
                 </div>
                 <div className="p-4 bg-muted/50 rounded-lg">
                   <p className="text-sm text-muted-foreground">Holdback</p>
-                  <p className="text-2xl font-bold text-orange-600">
+                  <p className={`text-2xl font-bold ${invoice.holdback_cents > 0 ? 'text-amber-600' : 'text-foreground'}`}>
                     ${(invoice.holdback_cents / 100).toLocaleString('en-US', { minimumFractionDigits: 2 })}
                   </p>
                 </div>
@@ -751,7 +751,11 @@ export default function PMInvoiceDetailPage() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-border">
-                      {certificates.map((cert) => {
+                      {[...certificates].sort((a, b) => {
+                        const dateA = a.work_period_start ? new Date(a.work_period_start).getTime() : new Date(a.created_at).getTime()
+                        const dateB = b.work_period_start ? new Date(b.work_period_start).getTime() : new Date(b.created_at).getTime()
+                        return dateA - dateB
+                      }).map((cert) => {
                         const certStatus = certStatusConfig[cert.status] || { label: cert.status, variant: 'outline' as const }
                         const isActioning = certActionLoading === cert.id
 

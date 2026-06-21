@@ -124,7 +124,7 @@ export default function PMProjectsPage() {
             {filteredProjects.map((project) => (
               <WorkflowLink 
                 key={project.id} 
-                href={`/projects/${project.id}`}
+                href={`/pm/projects/${project.id}`}
                 contextTitle={project.name}
               >
                 <Card className="h-full hover:border-primary/30 hover:shadow-sm transition-all cursor-pointer">

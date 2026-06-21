@@ -43,6 +43,23 @@ function formatCurrency(amount: number): string {
   }).format(amount)
 }
 
+const invoiceStatusLabels: Record<string, string> = {
+  draft: 'Draft',
+  submitted: 'Submitted',
+  pending_approval: 'Pending Approval',
+  approved: 'Approved',
+  rejected: 'Rejected',
+  paid: 'Paid',
+  partially_paid: 'Partially Paid',
+  disputed: 'Disputed',
+  revision_requested: 'Revision Requested',
+  payment_initiated: 'Payment Initiated',
+}
+
+function formatInvoiceStatus(status: string): string {
+  return invoiceStatusLabels[status] ?? status.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+}
+
 function formatDate(dateString: string): string {
   return new Date(dateString).toLocaleDateString('en-CA', {
     year: 'numeric',
@@ -163,7 +180,7 @@ export default function PMCertificatesPage() {
                               invoice.status === 'submitted' ? 'secondary' :
                               'outline'
                             }>
-                              {invoice.status}
+                              {formatInvoiceStatus(invoice.status)}
                             </Badge>
                           </div>
                           
