@@ -123,8 +123,8 @@ export default function PaymentsPage() {
   const [invoicesLoading, setInvoicesLoading] = useState(true)
 
   // Payment readiness engine — batch reports keyed by invoice ID
-  const [readinessReports, setReadinessReports] = useState<BatchReadinessResult['reports'] | null>(null)
-  const [readinessSummary, setReadinessSummary] = useState<BatchReadinessResult['summary'] | null>(null)
+  const [readinessReports, setReadinessReports] = useState<Record<string, import('@/lib/payments/readiness-engine').ReadinessReport> | null>(null)
+  const [readinessSummary, setReadinessSummary] = useState<{ total: number; ready: number; warnings: number; blocked: number } | null>(null)
   const [readinessLoading, setReadinessLoading] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [searchTerm, setSearchTerm] = useState('')

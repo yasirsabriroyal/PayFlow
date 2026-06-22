@@ -18,13 +18,9 @@ import { createClient } from '@/lib/supabase/server'
 // SINGLE INVOICE READINESS
 // ============================================
 
-export interface GetInvoiceReadinessResult {
-  success: true
-  report: ReadinessReport
-} | {
-  success: false
-  error: string
-}
+export type GetInvoiceReadinessResult =
+  | { success: true; report: ReadinessReport }
+  | { success: false; error: string }
 
 /**
  * Get the full readiness report for a single invoice.
@@ -55,19 +51,13 @@ export async function getInvoiceReadinessReport(
 // BATCH READINESS — for the payments list page
 // ============================================
 
-export interface BatchReadinessResult {
-  success: true
-  reports: Record<string, ReadinessReport>
-  summary: {
-    total: number
-    ready: number
-    warnings: number
-    blocked: number
-  }
-} | {
-  success: false
-  error: string
-}
+export type BatchReadinessResult =
+  | {
+      success: true
+      reports: Record<string, ReadinessReport>
+      summary: { total: number; ready: number; warnings: number; blocked: number }
+    }
+  | { success: false; error: string }
 
 /**
  * Get readiness reports for multiple invoices at once.
@@ -151,13 +141,9 @@ export interface QueueReadinessSummary {
   warningCount: number
 }
 
-export interface GetQueueReadinessResult {
-  success: true
-  summaries: Record<string, QueueReadinessSummary>
-} | {
-  success: false
-  error: string
-}
+export type GetQueueReadinessResult =
+  | { success: true; summaries: Record<string, QueueReadinessSummary> }
+  | { success: false; error: string }
 
 /**
  * Lightweight batch readiness for the AP Queue page.
@@ -193,20 +179,19 @@ export async function getQueueReadinessSummaries(
 // Returns aggregate readiness counts across all approved invoices
 // ============================================
 
-export interface ReadinessStatsResult {
-  success: true
-  stats: {
-    totalApproved: number
-    fullyReady: number
-    hasWarnings: number
-    hardBlocked: number
-    bankingBlockedCount: number
-    complianceBlockedCount: number
-  }
-} | {
-  success: false
-  error: string
-}
+export type ReadinessStatsResult =
+  | {
+      success: true
+      stats: {
+        totalApproved: number
+        fullyReady: number
+        hasWarnings: number
+        hardBlocked: number
+        bankingBlockedCount: number
+        complianceBlockedCount: number
+      }
+    }
+  | { success: false; error: string }
 
 /**
  * Aggregate readiness stats for the Accountant portal dashboard.
