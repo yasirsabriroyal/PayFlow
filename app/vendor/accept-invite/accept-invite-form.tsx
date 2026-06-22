@@ -60,9 +60,15 @@ export function AcceptInviteForm({
 
       setTimeout(() => {
         if (signInError) {
+          // Sign-in failed — send to login so they can sign in manually and then
+          // complete onboarding from /vendor/onboarding.
           router.push('/auth/login')
         } else {
-          router.push('/vendor/portal')
+          // Account created and signed in — route to KYC onboarding first.
+          // The contractor must complete their profile and upload documents
+          // before they can access the portal. /vendor/onboarding is protected
+          // by middleware but allowed because the user is now authenticated.
+          router.push('/vendor/onboarding')
         }
       }, 1500)
     } catch (err: unknown) {

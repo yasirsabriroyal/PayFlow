@@ -3,6 +3,7 @@
 import { getSupabaseAdmin } from '@/lib/supabase/admin'
 import { createClient } from '@/lib/supabase/server'
 import { encrypt, lastFour, isBankEncryptionAvailable } from '@/lib/security/crypto'
+import { sendGenericAlert } from '@/lib/notifications/server-dispatch'
 
 interface KYCSubmissionData {
   companyName: string
@@ -298,6 +299,67 @@ async function resolveAppUserId(authUserId: string): Promise<string | null> {
   return data.id
 }
 
+/** Human-readable labels for document types — never expose internal enum names to contractors. */
+const DOCUMENT_TYPE_LABELS: Record<string, string> = {
+  wcb_clearance: 'WCB Clearance',
+  insurance_certificate: 'Insurance Certificate',
+  business_license: 'Business License',
+  safety_certification: 'Safety Certification',
+  void_cheque: 'Void Cheque',
+}
+
+function labelForDocumentType(type: string): string {
+  return DOCUMENT_TYPE_LABELS[type] ?? type.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+}
+
+/**
+ * Notify a contractor about a compliance document decision. Uses the same
+ * `sendGenericAlert` path as banking-changes.ts for consistency. Never throws.
+ */
+async function notifyContractorDocumentDecision(
+  admin: ReturnType<typeof getSupabaseAdmin>,
+  contractorId: string,
+  title: string,
+  body: string,
+) {
+  try {
+    const { data: contractor } = await admin
+      .from('contractors')
+      .select('auth_user_id, email, phone')
+      .eq('id', contractorId)
+      .single()
+
+    if (!contractor) return
+
+    let recipientUserId: string | null = null
+    if (contractor.auth_user_id) {
+      const { data: u } = await admin
+        .from('users')
+        .select('id')
+        .eq('auth_user_id', contractor.auth_user_id)
+        .maybeSingle()
+      recipientUserId = (u?.id as string) ?? null
+    }
+
+    await sendGenericAlert({
+      recipientUserId,
+      recipient: {
+        name: 'Contractor',
+        email: (contractor.email as string) ?? undefined,
+        phone: (contractor.phone as string) ?? undefined,
+        emailEnabled: true,
+        smsEnabled: Boolean(contractor.phone),
+      },
+      type: 'kyc_document_decision',
+      title,
+      body,
+      link: '/vendor/compliance',
+    })
+  } catch (e) {
+    console.error('[vendor-kyc] notifyContractorDocumentDecision error:', e)
+  }
+}
+
 /**
  * Verify a single KYC document. If, after this verification, the contractor has
  * no remaining pending/rejected documents, the contractor is activated.
@@ -310,7 +372,7 @@ export async function verifyKycDocument(documentId: string) {
 
     const { data: doc, error: fetchError } = await admin
       .from('vendor_kyc_documents')
-      .select('id, contractor_id, status')
+      .select('id, contractor_id, status, document_type')
       .eq('id', documentId)
       .single()
 
@@ -334,6 +396,15 @@ export async function verifyKycDocument(documentId: string) {
     }
 
     const activation = await maybeActivateContractor(doc.contractor_id, user.id)
+
+    // Notify the contractor that their document has been verified.
+    const docLabel = labelForDocumentType(doc.document_type as string)
+    void notifyContractorDocumentDecision(
+      admin,
+      doc.contractor_id as string,
+      `${docLabel} Verified`,
+      `Your ${docLabel} has been reviewed and approved. ${activation.activated ? 'Your account is now fully active — you can submit invoices and receive payments.' : 'Please log in to your portal to check the status of any remaining documents.'}\n\nView your compliance documents at /vendor/compliance.`,
+    )
 
     revalidatePath('/admin/dashboard')
     revalidatePath('/admin/contractors')
@@ -362,7 +433,7 @@ export async function rejectKycDocument(documentId: string, reason: string) {
 
     const { data: doc, error: fetchError } = await admin
       .from('vendor_kyc_documents')
-      .select('id, contractor_id')
+      .select('id, contractor_id, document_type')
       .eq('id', documentId)
       .single()
 
@@ -384,6 +455,16 @@ export async function rejectKycDocument(documentId: string, reason: string) {
       console.error('Reject KYC document error:', updateError)
       return { success: false, error: updateError.message }
     }
+
+    // Notify the contractor that their document was not accepted and they need
+    // to re-upload. Use contractor-friendly language — no internal role terms.
+    const docLabel = labelForDocumentType(doc.document_type as string)
+    void notifyContractorDocumentDecision(
+      admin,
+      doc.contractor_id as string,
+      `Action Required: ${docLabel} Not Accepted`,
+      `Your ${docLabel} could not be accepted.\n\nReason: ${reason.trim()}\n\nPlease log in to your vendor portal and upload a new copy of this document to continue the verification process.`,
+    )
 
     revalidatePath('/admin/dashboard')
     revalidatePath('/admin/contractors')

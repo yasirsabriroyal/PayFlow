@@ -40,6 +40,19 @@ export default function SubmitInvoicePage() {
   const [uploadProgress, setUploadProgress] = useState<number[]>([])
   const [taxRate, setTaxRate] = useState<ProjectTaxRate | null>(null)
   const [taxLoading, setTaxLoading] = useState(false)
+  const [fieldErrors, setFieldErrors] = useState<Partial<Record<'projectId' | 'invoiceNumber' | 'invoiceDate' | 'subtotal' | 'files', string>>>({})
+
+  /** Validate all required fields before upload begins. Returns true when valid. */
+  const validateForm = (): boolean => {
+    const errors: typeof fieldErrors = {}
+    if (!projectId) errors.projectId = 'Please select a project.'
+    if (!invoiceNumber.trim()) errors.invoiceNumber = 'Invoice number is required.'
+    if (!invoiceDate) errors.invoiceDate = 'Invoice date is required.'
+    if (!subtotal || subtotalNum <= 0) errors.subtotal = 'Subtotal must be greater than $0.00.'
+    if (files.length === 0) errors.files = 'At least one invoice document is required.'
+    setFieldErrors(errors)
+    return Object.keys(errors).length === 0
+  }
 
   // Calculate amounts from the subtotal + province tax rates
   const subtotalNum = parseFloat(subtotal) || 0
@@ -105,6 +118,8 @@ export default function SubmitInvoicePage() {
           const deduped = accepted.filter((f) => !seen.has(`${f.name}:${f.size}`))
           return [...prev, ...deduped]
         })
+        // Clear the files field error once the user has added a valid file.
+        if (fieldErrors.files) setFieldErrors((prev) => ({ ...prev, files: undefined }))
       }
 
       if (rejected.length > 0) {
@@ -208,12 +223,11 @@ export default function SubmitInvoicePage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
 
-    if (files.length === 0) {
-      toast({
-        title: 'Invoice document required',
-        description: 'Please attach at least one invoice file before submitting.',
-        variant: 'destructive',
-      })
+    // Client-side validation — runs before any file upload starts.
+    if (!validateForm()) {
+      // Scroll the first error into view for keyboard/screen-reader users.
+      const firstError = document.querySelector('[data-field-error]')
+      firstError?.scrollIntoView({ behavior: 'smooth', block: 'center' })
       return
     }
 
@@ -478,8 +492,14 @@ export default function SubmitInvoicePage() {
                   {/* Project Selection */}
                   <div className="space-y-2">
                     <Label htmlFor="project">Project *</Label>
-                    <Select value={projectId} onValueChange={setProjectId}>
-                      <SelectTrigger id="project">
+                    <Select
+                      value={projectId}
+                      onValueChange={(v) => {
+                        setProjectId(v)
+                        if (fieldErrors.projectId) setFieldErrors((prev) => ({ ...prev, projectId: undefined }))
+                      }}
+                    >
+                      <SelectTrigger id="project" className={fieldErrors.projectId ? 'border-destructive' : ''}>
                         <SelectValue placeholder="Select a project" />
                       </SelectTrigger>
                       <SelectContent>
@@ -491,6 +511,11 @@ export default function SubmitInvoicePage() {
                         ))}
                       </SelectContent>
                     </Select>
+                    {fieldErrors.projectId && (
+                      <p className="text-xs text-destructive flex items-center gap-1" data-field-error>
+                        <X className="w-3 h-3" />{fieldErrors.projectId}
+                      </p>
+                    )}
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -501,9 +526,18 @@ export default function SubmitInvoicePage() {
                         id="invoiceNumber"
                         placeholder="e.g., INV-2024-0042"
                         value={invoiceNumber}
-                        onChange={(e) => setInvoiceNumber(e.target.value)}
+                        onChange={(e) => {
+                          setInvoiceNumber(e.target.value)
+                          if (fieldErrors.invoiceNumber) setFieldErrors((prev) => ({ ...prev, invoiceNumber: undefined }))
+                        }}
+                        className={fieldErrors.invoiceNumber ? 'border-destructive' : ''}
                         required
                       />
+                      {fieldErrors.invoiceNumber && (
+                        <p className="text-xs text-destructive flex items-center gap-1" data-field-error>
+                          <X className="w-3 h-3" />{fieldErrors.invoiceNumber}
+                        </p>
+                      )}
                     </div>
 
                     {/* Invoice Date */}
@@ -513,9 +547,18 @@ export default function SubmitInvoicePage() {
                         id="invoiceDate"
                         type="date"
                         value={invoiceDate}
-                        onChange={(e) => setInvoiceDate(e.target.value)}
+                        onChange={(e) => {
+                          setInvoiceDate(e.target.value)
+                          if (fieldErrors.invoiceDate) setFieldErrors((prev) => ({ ...prev, invoiceDate: undefined }))
+                        }}
+                        className={fieldErrors.invoiceDate ? 'border-destructive' : ''}
                         required
                       />
+                      {fieldErrors.invoiceDate && (
+                        <p className="text-xs text-destructive flex items-center gap-1" data-field-error>
+                          <X className="w-3 h-3" />{fieldErrors.invoiceDate}
+                        </p>
+                      )}
                     </div>
                   </div>
 
@@ -530,12 +573,20 @@ export default function SubmitInvoicePage() {
                         step="0.01"
                         min="0"
                         placeholder="0.00"
-                        className="pl-7"
+                        className={`pl-7 ${fieldErrors.subtotal ? 'border-destructive' : ''}`}
                         value={subtotal}
-                        onChange={(e) => setSubtotal(e.target.value)}
+                        onChange={(e) => {
+                          setSubtotal(e.target.value)
+                          if (fieldErrors.subtotal) setFieldErrors((prev) => ({ ...prev, subtotal: undefined }))
+                        }}
                         required
                       />
                     </div>
+                    {fieldErrors.subtotal && (
+                      <p className="text-xs text-destructive flex items-center gap-1" data-field-error>
+                        <X className="w-3 h-3" />{fieldErrors.subtotal}
+                      </p>
+                    )}
                     <p className="text-xs text-muted-foreground">
                       {!projectId
                         ? 'Select a project first to apply the correct provincial tax.'
@@ -572,10 +623,16 @@ export default function SubmitInvoicePage() {
                     Attach Invoice Documents *
                   </h2>
 
+                  {fieldErrors.files && (
+                    <p className="text-xs text-destructive flex items-center gap-1" data-field-error>
+                      <X className="w-3 h-3" />{fieldErrors.files}
+                    </p>
+                  )}
+
                   <div
                     className={`
                       relative border-2 border-dashed rounded-xl p-8 text-center transition-colors
-                      ${dragActive ? 'border-primary bg-primary/5' : 'border-border'}
+                      ${dragActive ? 'border-primary bg-primary/5' : fieldErrors.files ? 'border-destructive' : 'border-border'}
                       ${files.length > 0 ? 'border-success bg-success/5' : ''}
                     `}
                     onDragEnter={handleDrag}

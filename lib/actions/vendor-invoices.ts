@@ -413,6 +413,8 @@ export interface VendorInvoiceDetail extends VendorInvoiceListItem {
   totalCertifiedCents: number
   createdAt: string | null
   documents: VendorInvoiceDocument[]
+  /** Most recent rejection reason from invoice_history, or null when not rejected / no reason recorded. */
+  rejectionReason: string | null
 }
 
 /**
@@ -463,6 +465,24 @@ export async function getVendorInvoiceDetail(invoiceId: string): Promise<{
       .eq('invoice_id', invoiceId)
       .order('created_at', { ascending: false })
 
+    // Fetch the most recent rejection reason from invoice_history. This is the
+    // authoritative source of the reason a contractor's invoice was rejected, and
+    // we surface it prominently on the contractor detail page so they don't have
+    // to dig through the status timeline sidebar to understand what happened.
+    let rejectionReason: string | null = null
+    if (r.status === 'rejected') {
+      const { data: historyRow } = await adminSupabase
+        .from('invoice_history')
+        .select('reason')
+        .eq('invoice_id', invoiceId)
+        .eq('new_status', 'rejected')
+        .not('reason', 'is', null)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      rejectionReason = (historyRow?.reason as string | null) ?? null
+    }
+
     const project = Array.isArray(r.project) ? r.project[0] : r.project
 
     const invoice: VendorInvoiceDetail = {
@@ -493,6 +513,7 @@ export async function getVendorInvoiceDetail(invoiceId: string): Promise<{
         documentType: (d.document_type as string) ?? 'document',
         createdAt: d.created_at as string,
       })),
+      rejectionReason,
     }
 
     return { success: true, invoice }
