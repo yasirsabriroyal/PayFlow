@@ -13,8 +13,10 @@
  *      • Future QuickBooks sync (pre-sync validation)
  *      • Future recurring expense payments (pre-generation validation)
  *
- * Stage 1: Evaluation + reporting only. No payments are blocked here yet.
- * Stage 2: Banking hard block will be wired into payment actions.
+ * Stage 1: Evaluation + reporting only. No payments blocked.
+ * Stage 2 (ACTIVE): Banking hard block is wired into executeEFTPayment,
+ *   processPayments, recordCertificatePayment, and recordDirectInvoicePayment.
+ *   bankingApprovalStatus is now a live database column on contractors.
  * Stage 3+: Additional hard blocks (compliance, approval limits) will be added.
  *
  * Scoring model (0–100):

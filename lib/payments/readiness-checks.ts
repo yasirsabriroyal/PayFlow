@@ -58,9 +58,9 @@ interface InvoiceContractorData {
   totalCents: number
   holdbackCents: number
   contractorId: string
-  // Banking (Stage 1: from contractors table columns)
+  // Banking — Stage 2: live column from contractors table
   hasBankingData: boolean
-  bankingApprovalStatus: string | null  // null until Stage 2 DB migration
+  bankingApprovalStatus: string | null
   wcbClearanceExpiry: string | null
   // Approval
   approvedByUserId: string | null
@@ -114,7 +114,7 @@ export async function fetchInvoiceContractorData(
     // banking_approval_status does not exist yet (Stage 2 migration).
     // The column select will return undefined/null — that's intentional.
     // The engine handles null bankingApprovalStatus via the Stage 1 path.
-    bankingApprovalStatus: (contractor as Record<string, unknown>)?.banking_approval_status as string | null ?? null,
+    bankingApprovalStatus: (contractor?.banking_approval_status as string | null) ?? null,
     wcbClearanceExpiry: contractor?.wcb_clearance_expiry ?? null,
     approvedByUserId: invoice.approved_by ?? null,
   }

@@ -12,6 +12,7 @@ import {
 import { getSupabaseAdmin } from '@/lib/supabase/admin'
 import { resolveInternalUserId } from '@/lib/utils/resolve-user'
 import { applyInvoiceStatusChange, dispatchPaymentConfirmation } from '@/lib/invoices/status-flow'
+import { validateBankingForInvoiceBatch, evaluateBankingGate } from '@/lib/payments/banking-gate'
 
 // =====================================================
 // INVOICE APPROVAL / REJECTION ACTIONS
@@ -390,6 +391,27 @@ export const processPayments = secureAction(
     if (!userData) {
       throw new Error('User not found')
     }
+
+    // ── Stage 2: Hard banking gate for EFT batch ──────────────────────────────
+    // Prevents invoices from entering payment_processing when banking is not approved.
+    if (input.payment_method === 'eft') {
+      const bankingError = await validateBankingForInvoiceBatch(supabase, input.invoice_ids, input.payment_method)
+      if (bankingError) {
+        await supabase.from('audit_logs').insert({
+          action: 'banking_payment_blocked',
+          entity_type: 'payment_batch',
+          entity_id: `process-blocked-${Date.now()}`,
+          user_id: userData.id,
+          description: bankingError,
+          new_values: {
+            invoice_ids: input.invoice_ids,
+            payment_method: input.payment_method,
+            reason: bankingError,
+          },
+        })
+        throw new Error(bankingError)
+      }
+    }
     
     // Update all selected invoices to payment_processing
     const { error } = await supabase
@@ -512,6 +534,31 @@ export const executeEFTPayment = secureAction(
       throw new Error(
         `${unpaidCerts.length} payment certificate${unpaidCerts.length > 1 ? 's' : ''} must be fully paid before paying this invoice balance.`
       )
+    }
+
+    // ── Stage 2: Hard banking gate ────────────────────────────────────────────
+    // Validates banking approval status for all contractors in this batch.
+    // If any contractor's banking is not approved, the entire batch is blocked.
+    // No payment records are created, no statuses are changed.
+    const bankingError = await validateBankingForInvoiceBatch(supabase, input.invoice_ids, input.payment_method)
+    if (bankingError) {
+      // Audit log the block attempt
+      const auditUserId = userData?.id
+      if (auditUserId) {
+        await supabase.from('audit_logs').insert({
+          action: 'banking_payment_blocked',
+          entity_type: 'payment_batch',
+          entity_id: `eft-blocked-${Date.now()}`,
+          user_id: auditUserId,
+          description: bankingError,
+          new_values: {
+            invoice_ids: input.invoice_ids,
+            payment_method: input.payment_method,
+            reason: bankingError,
+          },
+        })
+      }
+      return { success: false, error: bankingError }
     }
 
     const batchReference = input.batch_reference || `EFT-${Date.now()}`
@@ -1363,7 +1410,9 @@ export async function getApprovedInvoices(options?: { limit?: number }) {
           id,
           company_name,
           wcb_clearance_expiry,
-          bank_account_last4
+          bank_account_last4,
+          banking_approval_status,
+          bank_account_encrypted
         ),
         project:projects(id, name, project_number)
       `)
@@ -1588,6 +1637,33 @@ export async function recordCertificatePayment(input: {
       }
     }
 
+    // ── Stage 2: Hard banking gate ────────────────────────────────────────────
+    const bankingGate = await evaluateBankingGate(supabase, certificate.contractor_id, input.payment_method)
+    if (!bankingGate.allowed) {
+      // Resolve reviewer ID for audit log (best-effort)
+      const { data: reviewer } = await supabase
+        .from('users')
+        .select('id')
+        .eq('auth_user_id', userData.id)
+        .maybeSingle()
+      if (reviewer?.id) {
+        await supabase.from('audit_logs').insert({
+          action: 'banking_payment_blocked',
+          entity_type: 'payment_certificate',
+          entity_id: input.certificate_id,
+          user_id: reviewer.id,
+          description: bankingGate.message,
+          new_values: {
+            certificate_id: input.certificate_id,
+            contractor_id: certificate.contractor_id,
+            payment_method: input.payment_method,
+            reason: bankingGate.message,
+          },
+        })
+      }
+      return { success: false, error: bankingGate.message }
+    }
+
     // Resolve internal users.id from auth UUID (processed_by FK references users(id))
     const internalUserId = await resolveInternalUserId(userData.id, supabase)
     if (!internalUserId) {
@@ -1804,6 +1880,32 @@ export async function recordDirectInvoicePayment(input: {
       }
     }
     
+    // ── Stage 2: Hard banking gate ────────────────────────────────────────────
+    const bankingGate = await evaluateBankingGate(supabase, invoice.contractor_id, input.payment_method)
+    if (!bankingGate.allowed) {
+      const { data: reviewer } = await supabase
+        .from('users')
+        .select('id')
+        .eq('auth_user_id', userData.id)
+        .maybeSingle()
+      if (reviewer?.id) {
+        await supabase.from('audit_logs').insert({
+          action: 'banking_payment_blocked',
+          entity_type: 'invoice',
+          entity_id: input.invoice_id,
+          user_id: reviewer.id,
+          description: bankingGate.message,
+          new_values: {
+            invoice_id: input.invoice_id,
+            contractor_id: invoice.contractor_id,
+            payment_method: input.payment_method,
+            reason: bankingGate.message,
+          },
+        })
+      }
+      return { success: false, error: bankingGate.message }
+    }
+
     // 4. Validate invoice status
     if (!['approved', 'payment_processing', 'paid'].includes(invoice.status)) {
       return { success: false, error: `Cannot process payment for invoice with status: ${invoice.status}` }

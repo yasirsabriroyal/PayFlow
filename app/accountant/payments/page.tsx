@@ -86,6 +86,8 @@ type ApprovedInvoice = {
   contractor: string
   contractorId: string
   bankInfo: string
+  /** Stage 2: from contractors.banking_approval_status */
+  bankingApprovalStatus: string
   project: string
   invoiceNumber: string
   approvedDate: string
@@ -217,6 +219,10 @@ export default function PaymentsPage() {
             const c = inv.contractor as Record<string, unknown>
             const last4 = (c?.bank_account_last4 as string) || ''
             return last4 ? `**** ${last4}` : 'Not set'
+          })(),
+          bankingApprovalStatus: (() => {
+            const c = inv.contractor as Record<string, unknown>
+            return (c?.banking_approval_status as string) || 'not_submitted'
           })(),
           project: (inv.project as Record<string, unknown>)?.name as string || 'Unknown',
           invoiceNumber: inv.invoice_number as string,
@@ -388,6 +394,24 @@ export default function PaymentsPage() {
   // Check compliance for an invoice based on active settings
   const checkCompliance = (invoice: ApprovedInvoice): InvoiceCompliance => {
     const issues: ComplianceIssue[] = []
+
+    // Stage 2: Banking approval gate (EFT-specific, highest priority)
+    // Mirrors the server-side evaluateBankingGate() logic for UI-layer gating.
+    switch (invoice.bankingApprovalStatus) {
+      case 'not_submitted':
+        issues.push({ type: 'wcb_expired', message: 'Banking not submitted — no banking details on file' })
+        break
+      case 'pending_review':
+        issues.push({ type: 'wcb_expired', message: 'Banking pending review — awaiting accountant approval' })
+        break
+      case 'rejected':
+        issues.push({ type: 'wcb_expired', message: 'Banking rejected — contractor must re-submit banking details' })
+        break
+      case 'superseded':
+        issues.push({ type: 'wcb_expired', message: 'Pending banking change request — payment held pending review' })
+        break
+      // 'approved' = pass through, 'skipped_non_eft' irrelevant here
+    }
 
     // Check WCB expiry
     if (paymentSettings.block_wcb_expired && invoice.wcbExpiry) {
@@ -1152,9 +1176,30 @@ export default function PaymentsPage() {
                           </p>
                         </td>
                         <td className="px-6 py-4">
-                          <div className="flex items-center gap-2">
-                            <CreditCard className={`w-4 h-4 ${isBlocked ? 'text-muted-foreground/50' : 'text-muted-foreground'}`} />
-                            <span className={`text-sm font-mono ${isBlocked ? 'text-muted-foreground' : ''}`}>{invoice.bankInfo}</span>
+                          <div className="flex flex-col gap-1">
+                            <div className="flex items-center gap-2">
+                              <CreditCard className={`w-4 h-4 shrink-0 ${isBlocked ? 'text-muted-foreground/50' : 'text-muted-foreground'}`} />
+                              <span className={`text-sm font-mono ${isBlocked ? 'text-muted-foreground' : ''}`}>{invoice.bankInfo}</span>
+                            </div>
+                            {/* Stage 2: banking approval status badge */}
+                            {invoice.bankingApprovalStatus !== 'approved' && (
+                              <span className={`inline-flex items-center text-xs px-1.5 py-0.5 rounded font-medium ${
+                                invoice.bankingApprovalStatus === 'not_submitted'
+                                  ? 'bg-muted text-muted-foreground'
+                                  : invoice.bankingApprovalStatus === 'pending_review'
+                                  ? 'bg-warning/15 text-warning'
+                                  : invoice.bankingApprovalStatus === 'rejected'
+                                  ? 'bg-destructive/10 text-destructive'
+                                  : invoice.bankingApprovalStatus === 'superseded'
+                                  ? 'bg-warning/15 text-warning'
+                                  : 'bg-muted text-muted-foreground'
+                              }`}>
+                                {invoice.bankingApprovalStatus === 'not_submitted' && 'Banking not submitted'}
+                                {invoice.bankingApprovalStatus === 'pending_review' && 'Banking pending review'}
+                                {invoice.bankingApprovalStatus === 'rejected' && 'Banking rejected'}
+                                {invoice.bankingApprovalStatus === 'superseded' && 'Pending change request'}
+                              </span>
+                            )}
                           </div>
                         </td>
                         <td className="px-6 py-4">
