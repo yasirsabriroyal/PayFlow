@@ -14,6 +14,7 @@ import { resolveInternalUserId } from '@/lib/utils/resolve-user'
 import { applyInvoiceStatusChange, dispatchPaymentConfirmation } from '@/lib/invoices/status-flow'
 import { validateBankingForInvoiceBatch, evaluateBankingGate } from '@/lib/payments/banking-gate'
 import { createHoldbackLedger, createHoldbackLedgerBatch } from '@/lib/payments/holdback-engine'
+import { getInvoicePaymentBalance, getCertificatePaymentBalance } from '@/lib/payments/payment-balance'
 
 // =====================================================
 // INVOICE APPROVAL / REJECTION ACTIONS
@@ -414,6 +415,33 @@ export const processPayments = secureAction(
       }
     }
     
+    // Pre-check: fetch the invoices to verify none are already fully paid.
+    // The .eq('status', 'approved') filter below handles the status check, but
+    // an invoice could be in 'approved' status while having partial payments
+    // already recorded (data inconsistency). Block these explicitly.
+    const { data: candidateInvoices } = await supabase
+      .from('invoices')
+      .select('id, net_payable_cents, status')
+      .in('id', input.invoice_ids)
+
+    const alreadyPaidIds: string[] = []
+    for (const inv of candidateInvoices ?? []) {
+      const invBalance = await getInvoicePaymentBalance(
+        supabase,
+        inv.id,
+        inv.net_payable_cents || 0,
+      )
+      if (invBalance.isFullyPaid) {
+        alreadyPaidIds.push(inv.id)
+      }
+    }
+
+    if (alreadyPaidIds.length > 0) {
+      throw new Error(
+        `${alreadyPaidIds.length} invoice(s) are already fully paid and cannot be moved to payment processing.`,
+      )
+    }
+
     // Update all selected invoices to payment_processing
     const { error } = await supabase
       .from('invoices')
@@ -425,7 +453,7 @@ export const processPayments = secureAction(
       })
       .in('id', input.invoice_ids)
       .eq('status', 'approved') // Only process approved invoices
-    
+
     if (error) {
       console.error('Process payments error:', error)
       throw new Error(error.message)
@@ -563,14 +591,32 @@ export const executeEFTPayment = secureAction(
     }
 
     const batchReference = input.batch_reference || `EFT-${Date.now()}`
-    const totalAmount = invoices?.reduce((sum, inv) => sum + (inv.net_payable_cents || 0), 0) || 0
+    // totalAmount accumulates only what is actually paid in this batch
+    // (remaining balance per invoice), not the full net_payable_cents totals.
+    let totalAmount = 0
 
     const processedPaymentIds: string[] = []
     const processedCertIds: string[] = []
 
     // Update each invoice to paid status with proper amount tracking
     for (const inv of invoices || []) {
-      const paymentAmount = inv.net_payable_cents || 0
+      // Query actual payment records to determine how much is still owed.
+      // Never assume net_payable_cents is fully unpaid — prior direct payments
+      // or partial certificate payments may have already reduced the balance.
+      const invBalance = await getInvoicePaymentBalance(
+        supabase,
+        inv.id,
+        inv.net_payable_cents || 0,
+      )
+
+      if (invBalance.isFullyPaid) {
+        // Invoice already fully paid through a prior payment path.
+        // Do not create another payment record.
+        continue
+      }
+
+      const paymentAmount = invBalance.remainingPayableCents
+      totalAmount += paymentAmount
 
       // First check if there are approved payment certificates for this invoice
       const { data: approvedCerts } = await supabase
@@ -697,13 +743,17 @@ export const executeEFTPayment = secureAction(
         }
       }
       
-      // Update invoice status and payment tracking
+      // Update invoice status and payment tracking.
+      // amount_paid_cents / total_paid_cents must accumulate (prior paid +
+      // this payment). Writing only paymentAmount would overwrite prior
+      // payments and cause the fields to show less than what was actually paid.
+      const newTotalPaidCents = invBalance.totalPaidCents + paymentAmount
       const { error: updateError } = await supabase
         .from('invoices')
         .update({
           status: 'paid',
-          amount_paid_cents: paymentAmount,
-          total_paid_cents: paymentAmount,
+          amount_paid_cents: newTotalPaidCents,
+          total_paid_cents: newTotalPaidCents,
           amount_remaining_cents: 0,
           updated_at: new Date().toISOString(),
         })
@@ -1645,21 +1695,39 @@ export async function recordCertificatePayment(input: {
       return { success: false, error: 'Certificate not found' }
     }
     
-    // 2. Validate certificate status
+    // 2. Validate certificate status — only 'approved' certificates may be paid.
+    if (certificate.status === 'paid') {
+      return { success: false, error: `Certificate ${certificate.certificate_number} has already been fully paid.` }
+    }
     if (certificate.status !== 'approved') {
       return { success: false, error: `Cannot process payment for certificate with status: ${certificate.status}` }
     }
-    
-    // 3. Validate payment amount
+
+    // 3. Validate payment amount against the CUMULATIVE remaining balance.
+    //    The old check compared only input.amount_cents against certified_amount_cents
+    //    and did not account for prior partial payments on the same certificate.
     if (input.amount_cents <= 0) {
       return { success: false, error: 'Payment amount must be greater than 0' }
     }
 
-    // Certs are paid in full certified amount — no holdback deduction per cert
-    if (input.amount_cents > certificate.certified_amount_cents) {
+    // Sum all existing non-cancelled payments for this certificate.
+    const certBalance = await getCertificatePaymentBalance(
+      supabase,
+      input.certificate_id,
+      certificate.net_payable_cents,
+    )
+
+    if (certBalance.isFullyPaid) {
       return {
         success: false,
-        error: `Payment amount ($${(input.amount_cents / 100).toFixed(2)}) exceeds certificate certified amount ($${(certificate.certified_amount_cents / 100).toFixed(2)})`
+        error: `Certificate ${certificate.certificate_number} has already been fully paid.`,
+      }
+    }
+
+    if (input.amount_cents > certBalance.remainingPayableCents) {
+      return {
+        success: false,
+        error: `Payment amount ($${(input.amount_cents / 100).toFixed(2)}) exceeds remaining certificate balance ($${(certBalance.remainingPayableCents / 100).toFixed(2)})`,
       }
     }
 
@@ -1932,24 +2000,40 @@ export async function recordDirectInvoicePayment(input: {
       return { success: false, error: bankingGate.message }
     }
 
-    // 4. Validate invoice status
-    if (!['approved', 'payment_processing', 'paid'].includes(invoice.status)) {
+    // 4. Validate invoice status — 'paid' is intentionally excluded.
+    //    An invoice that has already been fully paid must never receive another
+    //    payment through any code path. This is a hard server-side block.
+    if (invoice.status === 'paid') {
+      return { success: false, error: 'Invoice is already paid and cannot receive another payment.' }
+    }
+    if (!['approved', 'payment_processing'].includes(invoice.status)) {
       return { success: false, error: `Cannot process payment for invoice with status: ${invoice.status}` }
     }
-    
-    // 5. Calculate remaining balance
-    const currentPaid = invoice.amount_paid_cents || invoice.total_paid_cents || 0
-    const remainingBalance = invoice.net_payable_cents - currentPaid
-    
+
+    // 5. Calculate remaining balance from authoritative payment records.
+    //    Never trust the stale denormalised fields on the invoice row —
+    //    query the payments table directly to get the true paid total.
+    const balance = await getInvoicePaymentBalance(
+      supabase,
+      input.invoice_id,
+      invoice.net_payable_cents,
+    )
+
+    if (balance.isFullyPaid) {
+      return { success: false, error: 'Invoice is already paid and cannot receive another payment.' }
+    }
+
+    const remainingBalance = balance.remainingPayableCents
+
     // 6. Validate payment amount
     if (input.amount_cents <= 0) {
       return { success: false, error: 'Payment amount must be greater than 0' }
     }
-    
+
     if (input.amount_cents > remainingBalance) {
-      return { 
-        success: false, 
-        error: `Payment amount ($${(input.amount_cents / 100).toFixed(2)}) exceeds remaining balance ($${(remainingBalance / 100).toFixed(2)})` 
+      return {
+        success: false,
+        error: `Payment amount ($${(input.amount_cents / 100).toFixed(2)}) exceeds remaining balance ($${(remainingBalance / 100).toFixed(2)})`,
       }
     }
     
@@ -2012,8 +2096,10 @@ export async function recordDirectInvoicePayment(input: {
       return { success: false, error: paymentError.message }
     }
 
-    // 9. Update invoice payment totals
-    const newTotalPaid = currentPaid + input.amount_cents
+    // 9. Update invoice payment totals.
+    //    Use balance.totalPaidCents (authoritative, from payment records) not
+    //    the stale invoice fields, so concurrent payments are handled correctly.
+    const newTotalPaid = balance.totalPaidCents + input.amount_cents
     const newRemainingAmount = invoice.net_payable_cents - newTotalPaid
     const isFullyPaid = newRemainingAmount <= 0
     
