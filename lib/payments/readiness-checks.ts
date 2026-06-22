@@ -1,5 +1,3 @@
-'use server'
-
 /**
  * Readiness Check Data Fetchers
  *
@@ -10,6 +8,11 @@
  * All queries are read-only. No writes happen here.
  *
  * Called by: app/accountant/readiness/actions.ts → getInvoiceReadinessReport()
+ *
+ * NOTE: This file is a server-side utility library (NOT a 'use server' actions
+ * file). It is imported and called directly by server actions. It must use
+ * getSupabaseAdmin() so that RLS does not block contractor reads during
+ * payment validation.
  */
 
 import { getSupabaseAdmin } from '@/lib/supabase/admin'

@@ -1,5 +1,3 @@
-'use server'
-
 /**
  * Centralized Compliance Validation Gate
  *
@@ -24,6 +22,10 @@
  *   removed from the failures list. Overrides are audited as consumed.
  *
  * This module does NOT create payment records. It only validates.
+ *
+ * NOTE: This file is a server-side utility library (NOT a 'use server' actions
+ * file). It must NOT have 'use server' at file level — it is imported and
+ * called directly by server actions, not invoked as an action itself.
  */
 
 import { getSupabaseAdmin } from '@/lib/supabase/admin'
