@@ -21,13 +21,17 @@ export default async function VendorPortalPage() {
 
   const { success, stats, contractorStatus } = await getVendorPortalStats()
 
-  // A contractor who accepted their invite but has not yet completed KYC
-  // onboarding (status = 'pending_kyc') or whose contractor row doesn't exist
-  // yet must be sent back to onboarding. This handles the case where their
-  // session expired mid-onboarding and they re-authenticated, landing here.
-  if (!success || contractorStatus === 'pending_kyc') {
+  // Only redirect to onboarding when there is no contractor row at all —
+  // meaning the invite was accepted but the onboarding wizard was never started.
+  // Contractors with status 'pending_kyc' have ALREADY submitted their KYC and
+  // are waiting for admin review; redirecting them would create an infinite loop
+  // (onboarding sets status = 'pending_kyc', portal bounces them back, repeat).
+  // Those contractors land here and see a "pending review" notice instead.
+  if (!success) {
     redirect('/vendor/onboarding')
   }
+
+  const isPendingKyc = contractorStatus === 'pending_kyc'
 
   const displayStats = success && stats ? stats : {
     pendingReviewCount: 0,
@@ -90,6 +94,19 @@ export default async function VendorPortalPage() {
               Manage your invoices and track payment status.
             </p>
           </div>
+
+          {/* KYC pending review notice — shown until admin verifies all documents */}
+          {isPendingKyc && (
+            <div className="flex items-start gap-3 p-4 rounded-xl border border-warning/30 bg-warning/8">
+              <Clock className="w-5 h-5 text-warning mt-0.5 shrink-0" />
+              <div className="space-y-1">
+                <p className="text-sm font-semibold text-warning">Account Verification in Progress</p>
+                <p className="text-sm text-foreground">
+                  Your documents have been submitted and are under review. You will receive a notification once your account is verified. Some features are limited until verification is complete.
+                </p>
+              </div>
+            </div>
+          )}
 
           {/* Stats Cards */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">

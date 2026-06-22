@@ -465,14 +465,14 @@ export async function getVendorInvoiceDetail(invoiceId: string): Promise<{
       .eq('invoice_id', invoiceId)
       .order('created_at', { ascending: false })
 
-    // Fetch the most recent rejection reason from invoice_history. This is the
-    // authoritative source of the reason a contractor's invoice was rejected, and
-    // we surface it prominently on the contractor detail page so they don't have
-    // to dig through the status timeline sidebar to understand what happened.
+    // Fetch the most recent rejection reason from invoice_status_history. This
+    // is the authoritative source of the reason a contractor's invoice was
+    // rejected, and we surface it prominently on the contractor detail page so
+    // they don't have to dig through the status timeline sidebar.
     let rejectionReason: string | null = null
     if (r.status === 'rejected') {
       const { data: historyRow } = await adminSupabase
-        .from('invoice_history')
+        .from('invoice_status_history')
         .select('reason')
         .eq('invoice_id', invoiceId)
         .eq('new_status', 'rejected')
