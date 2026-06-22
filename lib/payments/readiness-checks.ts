@@ -12,7 +12,7 @@
  * Called by: app/accountant/readiness/actions.ts → getInvoiceReadinessReport()
  */
 
-import { createClient } from '@/lib/supabase/server'
+import { getSupabaseAdmin } from '@/lib/supabase/admin'
 import type { ReadinessInput } from './readiness-engine'
 
 // ============================================
@@ -39,7 +39,7 @@ function settingEnabled(value: unknown, defaultValue: boolean): boolean {
 }
 
 export async function fetchReadinessSystemSettings(): Promise<ReadinessSystemSettings> {
-  const supabase = await createClient()
+  const supabase = getSupabaseAdmin()
 
   const { data, error } = await supabase
     .from('system_settings')
@@ -106,7 +106,7 @@ interface InvoiceContractorData {
 export async function fetchInvoiceContractorData(
   invoiceId: string
 ): Promise<InvoiceContractorData | null> {
-  const supabase = await createClient()
+  const supabase = getSupabaseAdmin()
 
   const { data: invoice, error } = await supabase
     .from('invoices')
@@ -164,7 +164,7 @@ export async function fetchInvoiceContractorData(
 export async function fetchHasPendingBankingChangeRequest(
   contractorId: string
 ): Promise<boolean> {
-  const supabase = await createClient()
+  const supabase = getSupabaseAdmin()
 
   const { count, error } = await supabase
     .from('banking_change_requests')
@@ -183,7 +183,7 @@ export async function fetchHasPendingBankingChangeRequest(
 export async function fetchInsuranceCertificateExpiry(
   contractorId: string
 ): Promise<string | null> {
-  const supabase = await createClient()
+  const supabase = getSupabaseAdmin()
 
   // BUG-002 fix: 'expiring' is not a valid kyc_document_status value.
   // Query only 'verified' documents and let the engine compute expiry proximity.
@@ -208,7 +208,7 @@ export async function fetchInsuranceCertificateExpiry(
 export async function fetchBusinessLicenseExpiry(
   contractorId: string
 ): Promise<string | null> {
-  const supabase = await createClient()
+  const supabase = getSupabaseAdmin()
 
   // BUG-002 fix: 'expiring' is not a valid kyc_document_status value.
   const { data, error } = await supabase
@@ -232,7 +232,7 @@ export async function fetchBusinessLicenseExpiry(
 export async function fetchSafetyCertExpiry(
   contractorId: string
 ): Promise<string | null> {
-  const supabase = await createClient()
+  const supabase = getSupabaseAdmin()
 
   // BUG-002 fix: 'expiring' is not a valid kyc_document_status value.
   const { data, error } = await supabase
@@ -266,7 +266,7 @@ export interface LienWaiverState {
 export async function fetchLienWaiverState(
   invoiceId: string,
 ): Promise<LienWaiverState> {
-  const supabase = await createClient()
+  const supabase = getSupabaseAdmin()
 
   // Fetch all waivers for this invoice — either directly linked or via payment_requests
   const { data: directWaivers, error: directError } = await supabase
@@ -341,7 +341,7 @@ export async function fetchHoldbackLedgerState(
   invoiceStatus: string,
   holdbackCents: number
 ): Promise<HoldbackLedgerState> {
-  const supabase = await createClient()
+  const supabase = getSupabaseAdmin()
 
   const { count, error } = await supabase
     .from('holdback_ledgers')
@@ -369,7 +369,7 @@ interface CertificateState {
 }
 
 export async function fetchCertificateState(invoiceId: string): Promise<CertificateState> {
-  const supabase = await createClient()
+  const supabase = getSupabaseAdmin()
 
   const { data, error } = await supabase
     .from('payment_certificates')
@@ -404,7 +404,7 @@ export async function fetchApprovalLimitState(
     return { approverLimitCents: null, approvalLimitExceeded: false }
   }
 
-  const supabase = await createClient()
+  const supabase = getSupabaseAdmin()
 
   const { data, error } = await supabase
     .from('users')

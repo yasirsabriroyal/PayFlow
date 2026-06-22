@@ -26,7 +26,7 @@
  * This module does NOT create payment records. It only validates.
  */
 
-import { createClient } from '@/lib/supabase/server'
+import { getSupabaseAdmin } from '@/lib/supabase/admin'
 import { buildReadinessInput } from './readiness-checks'
 import {
   evaluateReadiness,
@@ -89,7 +89,7 @@ async function fetchActiveOverrides(
   contractorId: string,
   invoiceId: string
 ): Promise<Map<string, string>> {
-  const supabase = await createClient()
+  const supabase = getSupabaseAdmin()
   const now = new Date().toISOString()
 
   const { data, error } = await supabase
@@ -232,7 +232,7 @@ export async function consumeInvoiceOverrides(opts: {
 }): Promise<void> {
   if (opts.overrideIds.length === 0) return
 
-  const supabase = await createClient()
+  const supabase = getSupabaseAdmin()
   const now = new Date().toISOString()
 
   // Only consume overrides that are invoice-specific (invoice_id IS NOT NULL).
@@ -304,6 +304,21 @@ export async function validateComplianceDocsForPayment(
   input: ValidateComplianceInput
 ): Promise<ComplianceValidationResult> {
   const full = await validateComplianceForPayment(input)
+
+  // Infrastructure failures (e.g. INVOICE_NOT_FOUND) must always block even
+  // when filtering to compliance domain only. A readiness fetch failure is never
+  // safe to ignore — it means we cannot confirm compliance, so we must deny.
+  const infraFailure = full.failures.find(
+    f => f.code === 'INVOICE_NOT_FOUND' || f.domain === 'invoice_state'
+  )
+  if (infraFailure) {
+    return {
+      ...full,
+      valid: false,
+      failures: full.failures,
+      warnings: full.warnings,
+    }
+  }
 
   // Filter to compliance domain only
   const complianceFailures = full.failures.filter(f => f.domain === 'compliance')
