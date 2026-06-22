@@ -19,7 +19,16 @@ export default async function VendorPortalPage() {
     redirect('/auth/login')
   }
 
-  const { success, stats } = await getVendorPortalStats()
+  const { success, stats, contractorStatus } = await getVendorPortalStats()
+
+  // A contractor who accepted their invite but has not yet completed KYC
+  // onboarding (status = 'pending_kyc') or whose contractor row doesn't exist
+  // yet must be sent back to onboarding. This handles the case where their
+  // session expired mid-onboarding and they re-authenticated, landing here.
+  if (!success || contractorStatus === 'pending_kyc') {
+    redirect('/vendor/onboarding')
+  }
+
   const displayStats = success && stats ? stats : {
     pendingReviewCount: 0,
     approvedCount: 0,
