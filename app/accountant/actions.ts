@@ -615,8 +615,11 @@ export const executeEFTPayment = secureAction(
         continue
       }
 
+      // paymentAmount is the invoice-level remaining balance and is used for
+      // the non-certificate (payment_request) path below. For the certificate
+      // path we calculate per-cert remaining balances individually so that a
+      // cert that was partially paid outside this batch is handled correctly.
       const paymentAmount = invBalance.remainingPayableCents
-      totalAmount += paymentAmount
 
       // First check if there are approved payment certificates for this invoice
       const { data: approvedCerts } = await supabase
@@ -626,14 +629,33 @@ export const executeEFTPayment = secureAction(
         .eq('status', 'approved')
 
       if (approvedCerts && approvedCerts.length > 0) {
-        // Pay through certificates - create payment records linked to each certificate
+        // Pay through certificates — create payment records linked to each cert.
+        // Each cert is checked independently against the payments table so that
+        // a cert already (partially) paid outside this batch is never overpaid.
         for (const cert of approvedCerts) {
+          // Authoritative balance for this specific certificate.
+          const certBalance = await getCertificatePaymentBalance(
+            supabase,
+            cert.id,
+            cert.net_payable_cents || 0,
+          )
+
+          if (certBalance.isFullyPaid) {
+            // Certificate was already paid through another path — skip it.
+            // Do not create a duplicate payment record.
+            continue
+          }
+
+          // Use remaining payable, not the full cert.net_payable_cents.
+          const certPaymentAmount = certBalance.remainingPayableCents
+          totalAmount += certPaymentAmount
+
           const { data: newPayment, error: paymentError } = await supabase
             .from('payments')
             .insert({
               payment_certificate_id: cert.id,
               contractor_id: inv.contractor_id,
-              amount_cents: cert.net_payable_cents || 0,
+              amount_cents: certPaymentAmount,
               payment_method: input.payment_method,
               payment_date: new Date().toISOString().split('T')[0],
               status: 'cleared',
@@ -672,7 +694,9 @@ export const executeEFTPayment = secureAction(
           processedCertIds.push(cert.id)
         }
       } else {
-        // No certificates - use legacy payment_request flow
+        // No certificates — use legacy payment_request flow.
+        // Accumulate the invoice-level remaining payable into the batch total.
+        totalAmount += paymentAmount
         const { data: existingPR } = await supabase
           .from('payment_requests')
           .select('id')
