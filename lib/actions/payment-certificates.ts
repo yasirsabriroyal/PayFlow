@@ -7,16 +7,13 @@
  * invoices and payments. PMs create certificates to certify amounts for payment.
  */
 
-import { createClient } from '@supabase/supabase-js'
+// BUG-FIX (Issue E): Previously defined a local getSupabaseAdmin() using raw
+// createClient() which could silently fall back to an anon-key client if env
+// vars were undefined. Now uses the shared singleton from lib/supabase/admin.ts
+// which includes proper env-var assertions and caching.
+import { getSupabaseAdmin } from '@/lib/supabase/admin'
 import { withPermission } from '@/lib/permissions'
 import { PERMISSIONS } from '@/lib/permissions/constants'
-
-function getSupabaseAdmin() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  )
-}
 
 // =====================================================
 // TYPES

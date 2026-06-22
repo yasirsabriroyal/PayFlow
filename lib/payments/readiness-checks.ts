@@ -120,7 +120,7 @@ export async function fetchInvoiceContractorData(
       holdback_cents,
       contractor_id,
       approved_by,
-      contractors!inner (
+      contractors (
         id,
         bank_account_encrypted,
         bank_account_last4,
@@ -131,6 +131,11 @@ export async function fetchInvoiceContractorData(
     .eq('id', invoiceId)
     .single()
 
+  // BUG-FIX (Issue 1): Previously used contractors!inner which caused a null
+  // result (and false "Invoice not found" error) for invoices that have no
+  // associated contractor row (e.g. system-generated or recurring invoices
+  // where contractor_id IS NULL). Changed to a left join so the invoice row is
+  // always returned; contractor fields are null-safe below.
   if (error || !invoice) return null
 
   const contractor = Array.isArray(invoice.contractors)

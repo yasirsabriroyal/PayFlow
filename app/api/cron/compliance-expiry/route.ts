@@ -55,10 +55,13 @@ export async function GET(request: Request) {
   horizon.setDate(horizon.getDate() + MAX_LEAD_DAYS)
 
   // Fetch all verified docs expiring within horizon (includes overdue)
+  // BUG-FIX (Issue G): 'expiring' is not a valid kyc_document_status enum value.
+  // Only 'verified' documents should be scanned for expiry — 'pending' and
+  // 'rejected' documents have not passed review and should not trigger alerts.
   const { data: docs, error: docsError } = await admin
     .from('vendor_kyc_documents')
     .select('id, contractor_id, document_type, expiry_date, status')
-    .in('status', ['verified', 'expiring'])
+    .eq('status', 'verified')
     .not('expiry_date', 'is', null)
     .lte('expiry_date', horizon.toISOString().split('T')[0])
 

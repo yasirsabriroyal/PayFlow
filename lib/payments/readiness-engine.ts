@@ -543,7 +543,15 @@ export function evaluateReadiness(input: ReadinessInput): ReadinessReport {
 
   if (input.invoiceStatus === 'paid') {
     issues.push(READINESS_ISSUES.INVOICE_ALREADY_PAID())
-  } else if (!['approved', 'payment_initiated', 'partially_paid'].includes(input.invoiceStatus)) {
+  } else if (
+    // BUG-FIX (Issue C): 'payment_processing' was missing from the allowed list.
+    // executeEFTPayment accepts invoices in either 'approved' or 'payment_processing'
+    // status, so showing INVOICE_NOT_APPROVED for payment_processing was a false
+    // positive that confused accountants reviewing in-flight batches.
+    !['approved', 'payment_processing', 'payment_initiated', 'partially_paid'].includes(
+      input.invoiceStatus
+    )
+  ) {
     issues.push(READINESS_ISSUES.INVOICE_NOT_APPROVED())
   }
 

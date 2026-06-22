@@ -53,31 +53,11 @@ export async function GET(request: Request) {
 
   const orgId: string = orgRow.id
 
-  // Fetch all active schedules that are due today or overdue
-  const { data: dueSched, error: schedError } = await supabase
-    .from('expense_template_schedules')
-    .select(`
-      *,
-      expense_templates (
-        *,
-        contractors ( company_name, email, vendor_type ),
-        contractor_categories ( name ),
-        contractor_subcategories ( name ),
-        projects ( name ),
-        expense_template_schedules (*)
-      )
-    `)
-    .eq('organization_id', orgId)
-    .eq('is_active', true)
-    .lte('next_generation_date', todayStr)
-    .is('expense_templates.status', null) // handled below
-
-  if (schedError) {
-    console.error('[recurring-engine] Failed to fetch due schedules:', schedError.message)
-    return NextResponse.json({ error: schedError.message }, { status: 500 })
-  }
-
-  // Reload without broken null filter — get all due schedules
+  // Fetch all active schedules that are due today or overdue.
+  // BUG-FIX (Issue 7): Removed a dead first query that used an unsupported
+  // PostgREST `.is('expense_templates.status', null)` join filter. The result
+  // was discarded and a second identical query (minus the broken filter) was
+  // used instead. Removed the dead query to save one unnecessary round-trip.
   const { data: schedules } = await supabase
     .from('expense_template_schedules')
     .select(`
