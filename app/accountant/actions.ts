@@ -13,6 +13,7 @@ import { getSupabaseAdmin } from '@/lib/supabase/admin'
 import { resolveInternalUserId } from '@/lib/utils/resolve-user'
 import { applyInvoiceStatusChange, dispatchPaymentConfirmation } from '@/lib/invoices/status-flow'
 import { validateBankingForInvoiceBatch, evaluateBankingGate } from '@/lib/payments/banking-gate'
+import { createHoldbackLedger, createHoldbackLedgerBatch } from '@/lib/payments/holdback-engine'
 
 // =====================================================
 // INVOICE APPROVAL / REJECTION ACTIONS
@@ -502,7 +503,7 @@ export const executeEFTPayment = secureAction(
     // Verify all invoices are in approved/payment_processing status
     const { data: invoices, error: fetchError } = await supabase
       .from('invoices')
-      .select('id, status, net_payable_cents, contractor_id, invoice_number, project_id')
+      .select('id, status, net_payable_cents, holdback_cents, holdback_percent, contractor_id, invoice_number, project_id')
       .in('id', input.invoice_ids)
     
     if (fetchError) {
@@ -724,7 +725,32 @@ export const executeEFTPayment = secureAction(
       executed_at: new Date().toISOString(),
       status: 'completed',
     })
-    
+
+    // Stage 3: Create holdback ledger rows for every invoice in the batch that
+    // carries a holdback. Payment records and invoice statuses are already
+    // committed at this point, so failures are collected as warnings rather than
+    // aborting the batch. Each per-invoice failure is independently audit-logged
+    // by the holdback engine itself.
+    const holdbackDate = new Date().toISOString().split('T')[0]
+    const batchHoldbackResult = await createHoldbackLedgerBatch(supabase, {
+      paymentDate: holdbackDate,
+      processedByUserId: userData.id,
+      invoices: (invoices || []).map((inv) => ({
+        invoiceId: inv.id,
+        contractorId: inv.contractor_id,
+        projectId: inv.project_id,
+        holdbackCents: (inv.holdback_cents as number) ?? 0,
+        holdbackPercent: (inv.holdback_percent as number) ?? 0,
+      })),
+    })
+
+    if (batchHoldbackResult.failed.length > 0) {
+      console.error(
+        `EFT batch ${batchReference}: ${batchHoldbackResult.failed.length} holdback ledger(s) failed to create.`,
+        batchHoldbackResult.failed
+      )
+    }
+
     // Log the critical action
     await supabase.from('audit_logs').insert({
       action: 'eft_payment_executed',
