@@ -57,6 +57,9 @@ import { RoleTabBar } from '@/components/role-tab-bar'
 import { useListStatePreservation } from '@/lib/workflow-navigation'
 import { DataCard } from '@/components/ui/responsive-table'
 import { WorkflowLink } from '@/components/workflow-link'
+import { getBatchInvoiceReadiness, type BatchReadinessResult } from '@/app/accountant/readiness/actions'
+import { PaymentReadinessBadge, ReadinessCountBadge } from '@/components/payments/payment-readiness-badge'
+import type { QueueReadinessSummary } from '@/app/accountant/readiness/actions'
 
 // Compliance status types
 type ComplianceIssue = {
@@ -116,6 +119,11 @@ export default function PaymentsPage() {
   
   const [invoices, setInvoices] = useState<ApprovedInvoice[]>([])
   const [invoicesLoading, setInvoicesLoading] = useState(true)
+
+  // Payment readiness engine — batch reports keyed by invoice ID
+  const [readinessReports, setReadinessReports] = useState<BatchReadinessResult['reports'] | null>(null)
+  const [readinessSummary, setReadinessSummary] = useState<BatchReadinessResult['summary'] | null>(null)
+  const [readinessLoading, setReadinessLoading] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [searchTerm, setSearchTerm] = useState('')
   const [successDialogOpen, setSuccessDialogOpen] = useState(false)
@@ -187,12 +195,21 @@ export default function PaymentsPage() {
 
   // Fetch approved invoices from server action
   useEffect(() => {
-    const fetchApprovedInvoices = async () => {
+    const fetchReadiness = async (invoiceList: ApprovedInvoice[]) => {
+      if (invoiceList.length === 0) return
+      setReadinessLoading(true)
+      const result = await getBatchInvoiceReadiness(invoiceList.map(i => i.id))
+      if (result.success) {
+        setReadinessReports(result.reports)
+        setReadinessSummary(result.summary)
+      }
+      setReadinessLoading(false)
+    }
+
+    const loadAll = async () => {
       const result = await getApprovedInvoices()
-      
       if (result.success && Array.isArray(result.invoices) && result.invoices.length > 0) {
-        // Map server response to local type
-        setInvoices(result.invoices.map((inv: Record<string, unknown>) => ({
+        const mapped: ApprovedInvoice[] = result.invoices.map((inv: Record<string, unknown>) => ({
           id: inv.id as string,
           contractor: (inv.contractor as Record<string, unknown>)?.company_name as string || 'Unknown',
           contractorId: (inv.contractor as Record<string, unknown>)?.id as string || '',
@@ -203,25 +220,28 @@ export default function PaymentsPage() {
           })(),
           project: (inv.project as Record<string, unknown>)?.name as string || 'Unknown',
           invoiceNumber: inv.invoice_number as string,
-          approvedDate: inv.updated_at as string, // Use updated_at since approved_at doesn't exist
+          approvedDate: inv.updated_at as string,
           dueDate: (inv.due_date as string) || '',
           amount: ((inv.total_cents as number) || 0) / 100,
           holdback: ((inv.holdback_cents as number) || 0) / 100,
           netPayable: (((inv.net_payable_cents as number) ??
             (((inv.total_cents as number) || 0) - ((inv.holdback_cents as number) || 0))) || 0) / 100,
           wcbExpiry: ((inv.contractor as Record<string, unknown>)?.wcb_clearance_expiry as string) || '',
-          hasLienWaiver: true as boolean, // Would come from separate table in production
+          hasLienWaiver: true as boolean,
           hasStatutoryDeclaration: false as boolean,
           hasUnpaidCerts: (inv as Record<string, unknown>).has_unpaid_certs as boolean || false,
-        })))
+        }))
+        setInvoices(mapped)
+        setInvoicesLoading(false)
+        // Load readiness in parallel after invoices are set
+        fetchReadiness(mapped)
       } else {
-        // No approved invoices - show empty state (don't use mock data to avoid confusion)
         setInvoices([])
+        setInvoicesLoading(false)
       }
-      setInvoicesLoading(false)
     }
     
-    fetchApprovedInvoices()
+    loadAll()
   }, [])
 
   // Fetch payment guardrail settings from system_settings table
@@ -770,11 +790,40 @@ export default function PaymentsPage() {
                   {blockedCount} invoice{blockedCount > 1 ? 's' : ''} blocked by compliance guardrails
                 </p>
                 <p className="text-sm text-muted-foreground mt-1">
-                  These invoices cannot be selected for payment until compliance issues are resolved. 
+                  These invoices cannot be selected for payment until compliance issues are resolved.
 <WorkflowLink href="/admin/settings/payments" contextTitle="Guardrail Settings" className="text-primary ml-1 hover:underline">
   View guardrail settings
   </WorkflowLink>
                 </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Payment Readiness Engine Summary Banner */}
+        {readinessSummary && (readinessSummary.blocked > 0 || readinessSummary.warnings > 0) && (
+          <div className="rounded-xl border border-border bg-card p-4">
+            <div className="flex items-center justify-between gap-4 flex-wrap">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1">
+                  Payment Readiness Engine
+                </p>
+                <p className="text-sm text-foreground">
+                  {readinessSummary.blocked > 0
+                    ? `${readinessSummary.blocked} invoice${readinessSummary.blocked > 1 ? 's' : ''} have unresolved issues that will block payment in Stage 2.`
+                    : `${readinessSummary.warnings} invoice${readinessSummary.warnings > 1 ? 's' : ''} have advisory issues. Review before paying.`}
+                </p>
+              </div>
+              <div className="flex items-center gap-2 flex-wrap">
+                {readinessSummary.ready > 0 && (
+                  <ReadinessCountBadge count={readinessSummary.ready} status="READY" label="ready" />
+                )}
+                {readinessSummary.warnings > 0 && (
+                  <ReadinessCountBadge count={readinessSummary.warnings} status="WARNING" label="warnings" />
+                )}
+                {readinessSummary.blocked > 0 && (
+                  <ReadinessCountBadge count={readinessSummary.blocked} status="NOT_READY" label="blocked" />
+                )}
               </div>
             </div>
           </div>
@@ -965,6 +1014,9 @@ export default function PaymentsPage() {
                   <th className="px-6 py-4 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                     Bank
                   </th>
+                  <th className="px-6 py-4 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                    Readiness
+                  </th>
                   <th className="sticky right-0 z-10 bg-muted/30 px-6 py-4 text-right text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                     Action
                   </th>
@@ -1104,6 +1156,24 @@ export default function PaymentsPage() {
                             <CreditCard className={`w-4 h-4 ${isBlocked ? 'text-muted-foreground/50' : 'text-muted-foreground'}`} />
                             <span className={`text-sm font-mono ${isBlocked ? 'text-muted-foreground' : ''}`}>{invoice.bankInfo}</span>
                           </div>
+                        </td>
+                        <td className="px-6 py-4">
+                          <PaymentReadinessBadge
+                            summary={
+                              readinessReports?.[invoice.id]
+                                ? {
+                                    invoiceId: invoice.id,
+                                    status: readinessReports[invoice.id].status,
+                                    score: readinessReports[invoice.id].score,
+                                    summaryLabel: readinessReports[invoice.id].summaryLabel,
+                                    blockerCount: readinessReports[invoice.id].blockers.length,
+                                    warningCount: readinessReports[invoice.id].warnings.length,
+                                  }
+                                : undefined
+                            }
+                            loading={readinessLoading && !readinessReports?.[invoice.id]}
+                            size="sm"
+                          />
                         </td>
                         <td
                           className="sticky right-0 z-10 bg-card px-6 py-4 text-right shadow-[-8px_0_8px_-8px_rgba(0,0,0,0.1)]"
