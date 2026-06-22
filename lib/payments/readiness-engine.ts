@@ -206,9 +206,31 @@ export interface ReadinessInput {
    */
   allCertificatesPaid: boolean
 
+  // --- Document expiry details (for nuanced lien waiver failures) ---
+  /**
+   * When hasSignedLienWaiver = false, the specific reason:
+   * 'missing' | 'unsigned' | 'expired' | null (= not checked / waiver present)
+   */
+  lienWaiverFailureReason: 'missing' | 'unsigned' | 'expired' | null
+
+  /**
+   * Business license expiry from vendor_kyc_documents.
+   * Null = not on file.
+   */
+  businessLicenseExpiry: string | null
+
+  /**
+   * Safety certification expiry from vendor_kyc_documents.
+   * Null = not on file.
+   */
+  safetyCertExpiry: string | null
+
   // --- System settings (tenant-configurable) ---
   requireLienWaiver: boolean
   blockWcbExpired: boolean
+  requireBusinessLicense: boolean
+  requireInsurance: boolean
+  requireSafetyCert: boolean
 }
 
 // ============================================
@@ -338,14 +360,110 @@ export const READINESS_ISSUES = {
     recommendedAction: 'Request an updated certificate of insurance before the current one expires.',
     overridable: true,
   }),
+  INSURANCE_NOT_ON_FILE: (): ReadinessIssue => ({
+    code: 'INSURANCE_NOT_ON_FILE',
+    domain: 'compliance',
+    level: 'BLOCKER',
+    title: 'Insurance certificate not on file',
+    description:
+      'No insurance certificate has been submitted for this contractor. A valid certificate of insurance is required before payment.',
+    recommendedAction: 'Request a certificate of insurance from the contractor and upload it to their compliance profile.',
+    overridable: true,
+  }),
+
+  // --- Business License ---
+  BUSINESS_LICENSE_EXPIRED: (): ReadinessIssue => ({
+    code: 'BUSINESS_LICENSE_EXPIRED',
+    domain: 'compliance',
+    level: 'BLOCKER',
+    title: 'Business license expired',
+    description:
+      'The contractor\'s business or trade license has expired. Payment is blocked until a valid license is on file.',
+    recommendedAction: 'Request an updated business license from the contractor and upload it to their compliance profile.',
+    overridable: true,
+  }),
+  BUSINESS_LICENSE_EXPIRING_SOON: (): ReadinessIssue => ({
+    code: 'BUSINESS_LICENSE_EXPIRING_SOON',
+    domain: 'compliance',
+    level: 'WARNING',
+    title: 'Business license expiring within 30 days',
+    description:
+      'The contractor\'s business license will expire soon. Payment can proceed, but a renewal should be requested.',
+    recommendedAction: 'Request a renewed business license from the contractor before the current one expires.',
+    overridable: true,
+  }),
+  BUSINESS_LICENSE_NOT_ON_FILE: (): ReadinessIssue => ({
+    code: 'BUSINESS_LICENSE_NOT_ON_FILE',
+    domain: 'compliance',
+    level: 'BLOCKER',
+    title: 'Business license not on file',
+    description:
+      'No business or trade license has been submitted for this contractor. A valid license is required before payment.',
+    recommendedAction: 'Request the contractor\'s business license and upload it to their compliance profile.',
+    overridable: true,
+  }),
+
+  // --- Safety Certification ---
+  SAFETY_CERT_EXPIRED: (): ReadinessIssue => ({
+    code: 'SAFETY_CERT_EXPIRED',
+    domain: 'compliance',
+    level: 'BLOCKER',
+    title: 'Safety certification expired',
+    description:
+      'The contractor\'s required safety certification has expired. Payment is blocked until a valid certification is on file.',
+    recommendedAction: 'Request an updated safety certification from the contractor and upload it to their compliance profile.',
+    overridable: true,
+  }),
+  SAFETY_CERT_EXPIRING_SOON: (): ReadinessIssue => ({
+    code: 'SAFETY_CERT_EXPIRING_SOON',
+    domain: 'compliance',
+    level: 'WARNING',
+    title: 'Safety certification expiring within 30 days',
+    description:
+      'The contractor\'s safety certification will expire soon. Payment can proceed, but a renewal should be requested.',
+    recommendedAction: 'Request a renewed safety certification from the contractor before the current one expires.',
+    overridable: true,
+  }),
+  SAFETY_CERT_NOT_ON_FILE: (): ReadinessIssue => ({
+    code: 'SAFETY_CERT_NOT_ON_FILE',
+    domain: 'compliance',
+    level: 'BLOCKER',
+    title: 'Safety certification not on file',
+    description:
+      'No safety certification has been submitted for this contractor. A valid certification is required by your system settings before payment.',
+    recommendedAction: 'Request the contractor\'s safety certification and upload it to their compliance profile.',
+    overridable: true,
+  }),
+
+  // --- Lien Waiver ---
   LIEN_WAIVER_MISSING: (): ReadinessIssue => ({
     code: 'LIEN_WAIVER_MISSING',
     domain: 'compliance',
-    level: 'WARNING',
+    level: 'BLOCKER',
     title: 'Lien waiver not on file',
     description:
-      'No signed lien waiver has been received for this invoice. Under the Alberta Builder\'s Lien Act, a signed waiver is recommended before releasing payment.',
+      'No lien waiver has been received for this invoice. A signed lien waiver is required before releasing payment.',
     recommendedAction: 'Request a signed lien waiver from the contractor before processing payment.',
+    overridable: true,
+  }),
+  LIEN_WAIVER_UNSIGNED: (): ReadinessIssue => ({
+    code: 'LIEN_WAIVER_UNSIGNED',
+    domain: 'compliance',
+    level: 'BLOCKER',
+    title: 'Lien waiver not signed',
+    description:
+      'A lien waiver exists for this invoice but has not yet been signed by the contractor. Payment is held until the waiver is signed.',
+    recommendedAction: 'Contact the contractor and request they sign the lien waiver via their portal.',
+    overridable: true,
+  }),
+  LIEN_WAIVER_EXPIRED: (): ReadinessIssue => ({
+    code: 'LIEN_WAIVER_EXPIRED',
+    domain: 'compliance',
+    level: 'BLOCKER',
+    title: 'Lien waiver has expired',
+    description:
+      'The lien waiver on file for this invoice has passed its valid-through date. A new waiver must be obtained before payment.',
+    recommendedAction: 'Request a new lien waiver from the contractor and have them sign it before processing payment.',
     overridable: true,
   }),
 
@@ -499,21 +617,74 @@ export function evaluateReadiness(input: ReadinessInput): ReadinessReport {
     }
   }
 
-  // Insurance — hard block if expired
-  if (input.insuranceCertificateExpiry !== null) {
+  // Insurance — block if required, warn on expiry, block if not on file when required
+  if (input.requireInsurance) {
+    if (input.insuranceCertificateExpiry === null) {
+      issues.push(READINESS_ISSUES.INSURANCE_NOT_ON_FILE())
+    } else {
+      const insExpiry = new Date(input.insuranceCertificateExpiry)
+      const daysUntilExpiry = Math.ceil((insExpiry.getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
+      if (daysUntilExpiry < 0) {
+        issues.push(READINESS_ISSUES.INSURANCE_EXPIRED())
+      } else if (daysUntilExpiry <= 30) {
+        issues.push(READINESS_ISSUES.INSURANCE_EXPIRING_SOON())
+      }
+    }
+  } else if (input.insuranceCertificateExpiry !== null) {
+    // Insurance not required by settings but IS on file — still warn if it expired
     const insExpiry = new Date(input.insuranceCertificateExpiry)
     const daysUntilExpiry = Math.ceil((insExpiry.getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
     if (daysUntilExpiry < 0) {
-      issues.push(READINESS_ISSUES.INSURANCE_EXPIRED())
+      issues.push({ ...READINESS_ISSUES.INSURANCE_EXPIRED(), level: 'WARNING', overridable: true })
     } else if (daysUntilExpiry <= 30) {
       issues.push(READINESS_ISSUES.INSURANCE_EXPIRING_SOON())
     }
   }
 
-  // Lien waiver — warning if required and missing (overridable)
-  // hasSignedLienWaiver = null means "not yet checked" (Stage 1) — skip
+  // Business license — block when required
+  if (input.requireBusinessLicense) {
+    if (input.businessLicenseExpiry === null) {
+      issues.push(READINESS_ISSUES.BUSINESS_LICENSE_NOT_ON_FILE())
+    } else {
+      const licExpiry = new Date(input.businessLicenseExpiry)
+      const daysUntilExpiry = Math.ceil((licExpiry.getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
+      if (daysUntilExpiry < 0) {
+        issues.push(READINESS_ISSUES.BUSINESS_LICENSE_EXPIRED())
+      } else if (daysUntilExpiry <= 30) {
+        issues.push(READINESS_ISSUES.BUSINESS_LICENSE_EXPIRING_SOON())
+      }
+    }
+  }
+
+  // Safety certification — block when tenant has it enabled
+  if (input.requireSafetyCert) {
+    if (input.safetyCertExpiry === null) {
+      issues.push(READINESS_ISSUES.SAFETY_CERT_NOT_ON_FILE())
+    } else {
+      const certExpiry = new Date(input.safetyCertExpiry)
+      const daysUntilExpiry = Math.ceil((certExpiry.getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
+      if (daysUntilExpiry < 0) {
+        issues.push(READINESS_ISSUES.SAFETY_CERT_EXPIRED())
+      } else if (daysUntilExpiry <= 30) {
+        issues.push(READINESS_ISSUES.SAFETY_CERT_EXPIRING_SOON())
+      }
+    }
+  }
+
+  // Lien waiver — nuanced failure reason: missing / unsigned / expired
   if (input.hasSignedLienWaiver === false && input.requireLienWaiver) {
-    issues.push(READINESS_ISSUES.LIEN_WAIVER_MISSING())
+    switch (input.lienWaiverFailureReason) {
+      case 'unsigned':
+        issues.push(READINESS_ISSUES.LIEN_WAIVER_UNSIGNED())
+        break
+      case 'expired':
+        issues.push(READINESS_ISSUES.LIEN_WAIVER_EXPIRED())
+        break
+      case 'missing':
+      default:
+        issues.push(READINESS_ISSUES.LIEN_WAIVER_MISSING())
+        break
+    }
   }
 
   // ------------------------------------------

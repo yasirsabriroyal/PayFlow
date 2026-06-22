@@ -22,6 +22,20 @@ import type { ReadinessInput } from './readiness-engine'
 interface ReadinessSystemSettings {
   requireLienWaiver: boolean
   blockWcbExpired: boolean
+  requireBusinessLicense: boolean
+  requireInsurance: boolean
+  requireSafetyCert: boolean
+}
+
+/** Reads a boolean from a system_settings JSONB value's "enabled" key. */
+function settingEnabled(value: unknown, defaultValue: boolean): boolean {
+  if (value === null || value === undefined) return defaultValue
+  if (typeof value === 'boolean') return value
+  if (typeof value === 'string') return value === 'true'
+  if (typeof value === 'object' && value !== null && 'enabled' in value) {
+    return Boolean((value as Record<string, unknown>).enabled)
+  }
+  return defaultValue
 }
 
 export async function fetchReadinessSystemSettings(): Promise<ReadinessSystemSettings> {
@@ -29,23 +43,46 @@ export async function fetchReadinessSystemSettings(): Promise<ReadinessSystemSet
 
   const { data, error } = await supabase
     .from('system_settings')
-    .select('key, value')
-    .in('key', ['require_lien_waiver', 'block_wcb_expired'])
+    .select('setting_key, setting_value')
+    .in('setting_key', [
+      'require_lien_waiver',
+      'require_lien_waiver_for_payment',
+      'block_wcb_expired',
+      'payment_wcb_block',
+      'require_business_license',
+      'require_insurance_certificate',
+      'require_safety_certification',
+    ])
 
   if (error || !data) {
-    // Safe defaults: enforced WCB, advisory lien waiver
-    return { requireLienWaiver: true, blockWcbExpired: true }
-  }
-
-  const settings: ReadinessSystemSettings = { requireLienWaiver: true, blockWcbExpired: true }
-  for (const row of data) {
-    if (row.key === 'require_lien_waiver') {
-      settings.requireLienWaiver = row.value === true || row.value === 'true'
-    } else if (row.key === 'block_wcb_expired') {
-      settings.blockWcbExpired = row.value === true || row.value === 'true'
+    // Safe defaults — all required except safety cert (off by default)
+    return {
+      requireLienWaiver: true,
+      blockWcbExpired: true,
+      requireBusinessLicense: true,
+      requireInsurance: true,
+      requireSafetyCert: false,
     }
   }
-  return settings
+
+  const map: Record<string, unknown> = {}
+  for (const row of data) {
+    map[row.setting_key] = row.setting_value
+  }
+
+  return {
+    // Lien waiver: check both old and new key names
+    requireLienWaiver:
+      settingEnabled(map['require_lien_waiver_for_payment'], true) ||
+      settingEnabled(map['require_lien_waiver'], true),
+    // WCB: check both old and new key names
+    blockWcbExpired:
+      settingEnabled(map['payment_wcb_block'], true) ||
+      settingEnabled(map['block_wcb_expired'], true),
+    requireBusinessLicense: settingEnabled(map['require_business_license'], true),
+    requireInsurance: settingEnabled(map['require_insurance_certificate'], true),
+    requireSafetyCert: settingEnabled(map['require_safety_certification'], false),
+  }
 }
 
 // ============================================
@@ -163,20 +200,122 @@ export async function fetchInsuranceCertificateExpiry(
 }
 
 // ============================================
+// BUSINESS LICENSE FETCHER
+// ============================================
+
+export async function fetchBusinessLicenseExpiry(
+  contractorId: string
+): Promise<string | null> {
+  const supabase = await createClient()
+
+  const { data, error } = await supabase
+    .from('vendor_kyc_documents')
+    .select('expiry_date, status')
+    .eq('contractor_id', contractorId)
+    .eq('document_type', 'business_license')
+    .in('status', ['verified', 'expiring'])
+    .order('expiry_date', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  if (error || !data) return null
+  return data.expiry_date ?? null
+}
+
+// ============================================
+// SAFETY CERTIFICATION FETCHER
+// ============================================
+
+export async function fetchSafetyCertExpiry(
+  contractorId: string
+): Promise<string | null> {
+  const supabase = await createClient()
+
+  const { data, error } = await supabase
+    .from('vendor_kyc_documents')
+    .select('expiry_date, status')
+    .eq('contractor_id', contractorId)
+    .eq('document_type', 'safety_certification')
+    .in('status', ['verified', 'expiring'])
+    .order('expiry_date', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  if (error || !data) return null
+  return data.expiry_date ?? null
+}
+
+// ============================================
 // LIEN WAIVER FETCHER
 // ============================================
 
+export interface LienWaiverState {
+  hasSignedLienWaiver: boolean
+  failureReason: 'missing' | 'unsigned' | 'expired' | null
+}
+
 /**
- * Stage 1: Returns null (not yet checked) — the engine skips this check.
- * Stage 3: Will query lien_waivers table by invoice_id (after invoice_id FK is added).
+ * Queries the lien_waivers table for a valid signed waiver for this invoice.
+ * Checks both invoice_id (new FK added in migration 049) and payment_request_id.
+ * Returns hasSignedLienWaiver=null only if there is no lien waiver table yet (fallback).
  */
-export async function fetchHasSignedLienWaiver(
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  _invoiceId: string
-): Promise<boolean | null> {
-  // Stage 1: Not implemented yet. Return null to signal "not checked".
-  // The engine treats null as "skip this check" to avoid false positives.
-  return null
+export async function fetchLienWaiverState(
+  invoiceId: string,
+): Promise<LienWaiverState> {
+  const supabase = await createClient()
+
+  // Fetch all waivers for this invoice — either directly linked or via payment_requests
+  const { data: directWaivers, error: directError } = await supabase
+    .from('lien_waivers')
+    .select('id, is_signed, signed_at, valid_through_date')
+    .eq('invoice_id', invoiceId)
+
+  // Also check payment_requests for this invoice (legacy path)
+  const { data: prWaivers, error: prError } = await supabase
+    .from('lien_waivers')
+    .select('id, is_signed, signed_at, valid_through_date')
+    .in(
+      'payment_request_id',
+      supabase
+        .from('payment_requests')
+        .select('id')
+        .eq('invoice_id', invoiceId)
+    )
+
+  if (directError && prError) {
+    // If both queries fail, skip this check rather than produce false positives
+    return { hasSignedLienWaiver: true, failureReason: null }
+  }
+
+  const allWaivers = [...(directWaivers ?? []), ...(prWaivers ?? [])]
+
+  if (allWaivers.length === 0) {
+    return { hasSignedLienWaiver: false, failureReason: 'missing' }
+  }
+
+  const today = new Date()
+
+  // Look for any waiver that is signed and not expired
+  for (const w of allWaivers) {
+    if (!w.is_signed) continue
+    if (!w.valid_through_date) {
+      // No expiry date — treat as valid
+      return { hasSignedLienWaiver: true, failureReason: null }
+    }
+    const expiry = new Date(w.valid_through_date)
+    if (expiry >= today) {
+      return { hasSignedLienWaiver: true, failureReason: null }
+    }
+  }
+
+  // We have waivers but none that are valid
+  const hasUnsigned = allWaivers.some(w => !w.is_signed)
+  if (hasUnsigned) {
+    return { hasSignedLienWaiver: false, failureReason: 'unsigned' }
+  }
+
+  // All waivers are signed but all have expired
+  return { hasSignedLienWaiver: false, failureReason: 'expired' }
 }
 
 // ============================================
@@ -299,18 +438,22 @@ export async function buildReadinessInput(
     systemSettings,
     hasPendingBankingChangeRequest,
     insuranceCertificateExpiry,
-    hasSignedLienWaiver,
+    lienWaiverState,
     holdbackLedgerState,
     certificateState,
     approvalLimitState,
+    businessLicenseExpiry,
+    safetyCertExpiry,
   ] = await Promise.all([
     fetchReadinessSystemSettings(),
     fetchHasPendingBankingChangeRequest(invoiceData.contractorId),
     fetchInsuranceCertificateExpiry(invoiceData.contractorId),
-    fetchHasSignedLienWaiver(invoiceId),
+    fetchLienWaiverState(invoiceId),
     fetchHoldbackLedgerState(invoiceId, invoiceData.invoiceStatus, invoiceData.holdbackCents),
     fetchCertificateState(invoiceId),
     fetchApprovalLimitState(invoiceData.approvedByUserId, invoiceData.totalCents),
+    fetchBusinessLicenseExpiry(invoiceData.contractorId),
+    fetchSafetyCertExpiry(invoiceData.contractorId),
   ])
 
   return {
@@ -323,9 +466,12 @@ export async function buildReadinessInput(
     hasPendingBankingChangeRequest,
     wcbClearanceExpiry: invoiceData.wcbClearanceExpiry,
     insuranceCertificateExpiry,
-    hasSignedLienWaiver,
-    hasCurrentLicense: null,      // Stage 3+
-    hasCurrentSafetyCert: null,   // Stage 3+
+    hasSignedLienWaiver: lienWaiverState.hasSignedLienWaiver,
+    lienWaiverFailureReason: lienWaiverState.failureReason,
+    businessLicenseExpiry,
+    safetyCertExpiry,
+    hasCurrentLicense: businessLicenseExpiry !== null,
+    hasCurrentSafetyCert: safetyCertExpiry !== null,
     holdbackLedgerExists: holdbackLedgerState.ledgerExists,
     paidWithoutHoldbackRecord: holdbackLedgerState.paidWithoutHoldbackRecord,
     approverLimitCents: approvalLimitState.approverLimitCents,
@@ -335,5 +481,8 @@ export async function buildReadinessInput(
     allCertificatesPaid: certificateState.allCertificatesPaid,
     requireLienWaiver: systemSettings.requireLienWaiver,
     blockWcbExpired: systemSettings.blockWcbExpired,
+    requireBusinessLicense: systemSettings.requireBusinessLicense,
+    requireInsurance: systemSettings.requireInsurance,
+    requireSafetyCert: systemSettings.requireSafetyCert,
   }
 }

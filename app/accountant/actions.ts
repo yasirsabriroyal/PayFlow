@@ -13,6 +13,7 @@ import { getSupabaseAdmin } from '@/lib/supabase/admin'
 import { resolveInternalUserId } from '@/lib/utils/resolve-user'
 import { applyInvoiceStatusChange, dispatchPaymentConfirmation } from '@/lib/invoices/status-flow'
 import { validateBankingForInvoiceBatch, evaluateBankingGate } from '@/lib/payments/banking-gate'
+import { validateComplianceDocsForPayment, formatComplianceError } from '@/lib/payments/compliance-validation'
 import { createHoldbackLedger, createHoldbackLedgerBatch } from '@/lib/payments/holdback-engine'
 import { getInvoicePaymentBalance, getCertificatePaymentBalance } from '@/lib/payments/payment-balance'
 
@@ -588,6 +589,39 @@ export const executeEFTPayment = secureAction(
         })
       }
       return { success: false, error: bankingError }
+    }
+
+    // ── Stage 5: Compliance gate ──────────────────────────────────────────────
+    // Validate compliance documents for every invoice in this batch.
+    // A single compliance failure blocks the entire batch.
+    // Overrides are checked per-invoice and consume the override record.
+    for (const inv of invoices || []) {
+      const complianceResult = await validateComplianceDocsForPayment({
+        contractorId: inv.contractor_id,
+        invoiceId: inv.id,
+        paymentMethod: input.payment_method,
+      })
+      if (!complianceResult.valid) {
+        const complianceError = formatComplianceError(complianceResult)
+        if (userData?.id) {
+          await supabase.from('audit_logs').insert({
+            action: 'payment_blocked_compliance',
+            entity_type: 'invoice',
+            entity_id: inv.id,
+            user_id: userData.id,
+            description: complianceError,
+            new_values: {
+              invoice_id: inv.id,
+              invoice_number: inv.invoice_number,
+              contractor_id: inv.contractor_id,
+              payment_method: input.payment_method,
+              failures: complianceResult.failures,
+              reason: complianceError,
+            },
+          })
+        }
+        return { success: false, error: `Invoice ${inv.invoice_number || inv.id}: ${complianceError}` }
+      }
     }
 
     const batchReference = input.batch_reference || `EFT-${Date.now()}`
@@ -1833,6 +1867,39 @@ export async function recordCertificatePayment(input: {
       return { success: false, error: bankingGate.message }
     }
 
+    // ── Stage 5: Compliance gate ──────────────────────────────────────────────
+    // Certificate payments require the same compliance checks as direct payments.
+    if (certificate.invoice_id) {
+      const complianceResult = await validateComplianceDocsForPayment({
+        contractorId: certificate.contractor_id,
+        invoiceId: certificate.invoice_id,
+        paymentMethod: input.payment_method,
+      })
+      if (!complianceResult.valid) {
+        const complianceError = formatComplianceError(complianceResult)
+        const { data: reviewer } = await supabase
+          .from('users').select('id').eq('auth_user_id', userData.id).maybeSingle()
+        if (reviewer?.id) {
+          await supabase.from('audit_logs').insert({
+            action: 'payment_blocked_compliance',
+            entity_type: 'payment_certificate',
+            entity_id: input.certificate_id,
+            user_id: reviewer.id,
+            description: complianceError,
+            new_values: {
+              certificate_id: input.certificate_id,
+              invoice_id: certificate.invoice_id,
+              contractor_id: certificate.contractor_id,
+              payment_method: input.payment_method,
+              failures: complianceResult.failures,
+              reason: complianceError,
+            },
+          })
+        }
+        return { success: false, error: complianceError }
+      }
+    }
+
     // Resolve internal users.id from auth UUID (processed_by FK references users(id))
     const internalUserId = await resolveInternalUserId(userData.id, supabase)
     if (!internalUserId) {
@@ -2115,6 +2182,35 @@ export async function recordDirectInvoicePayment(input: {
         })
       }
       return { success: false, error: bankingGate.message }
+    }
+
+    // ── Stage 5: Compliance gate ──────────────────────────────────────────────
+    const complianceResult = await validateComplianceDocsForPayment({
+      contractorId: invoice.contractor_id,
+      invoiceId: input.invoice_id,
+      paymentMethod: input.payment_method,
+    })
+    if (!complianceResult.valid) {
+      const complianceError = formatComplianceError(complianceResult)
+      const { data: reviewer } = await supabase
+        .from('users').select('id').eq('auth_user_id', userData.id).maybeSingle()
+      if (reviewer?.id) {
+        await supabase.from('audit_logs').insert({
+          action: 'payment_blocked_compliance',
+          entity_type: 'invoice',
+          entity_id: input.invoice_id,
+          user_id: reviewer.id,
+          description: complianceError,
+          new_values: {
+            invoice_id: input.invoice_id,
+            contractor_id: invoice.contractor_id,
+            payment_method: input.payment_method,
+            failures: complianceResult.failures,
+            reason: complianceError,
+          },
+        })
+      }
+      return { success: false, error: complianceError }
     }
 
     // 4. Validate invoice status — 'paid' is intentionally excluded.
