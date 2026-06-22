@@ -13,9 +13,97 @@ import { getSupabaseAdmin } from '@/lib/supabase/admin'
 import { resolveInternalUserId } from '@/lib/utils/resolve-user'
 import { applyInvoiceStatusChange, dispatchPaymentConfirmation } from '@/lib/invoices/status-flow'
 import { validateBankingForInvoiceBatch, evaluateBankingGate } from '@/lib/payments/banking-gate'
-import { validateComplianceDocsForPayment, formatComplianceError } from '@/lib/payments/compliance-validation'
+import { validateComplianceDocsForPayment, formatComplianceError, consumeInvoiceOverrides } from '@/lib/payments/compliance-validation'
 import { createHoldbackLedger, createHoldbackLedgerBatch } from '@/lib/payments/holdback-engine'
 import { getInvoicePaymentBalance, getCertificatePaymentBalance } from '@/lib/payments/payment-balance'
+import { sendGenericAlert } from '@/lib/notifications/server-dispatch'
+
+// =====================================================
+// COMPLIANCE BLOCK NOTIFICATION HELPER
+// =====================================================
+
+/**
+ * Fires in-app notifications to Admin, Accountant, and assigned PM when a
+ * payment is blocked by the compliance gate. Non-fatal — never affects the
+ * payment result. Message is internal-facing only (not contractor-visible).
+ */
+async function notifyComplianceBlock(opts: {
+  invoiceId: string | null
+  invoiceNumber: string
+  contractorName: string
+  reason: string
+  projectId?: string | null
+  actorUserId: string
+}): Promise<void> {
+  const supabase = getSupabaseAdmin()
+  const title = `Payment blocked — compliance issue`
+  const body =
+    `Invoice ${opts.invoiceNumber} for ${opts.contractorName} was blocked before payment. ` +
+    `Reason: ${opts.reason}`
+  const link = opts.invoiceId
+    ? `/accountant/invoices/${opts.invoiceId}`
+    : `/accountant/payments`
+
+  try {
+    // Fetch all Admin and Accountant users
+    const { data: internalUsers } = await supabase
+      .from('users')
+      .select('id, first_name, last_name, email, role')
+      .in('role', ['admin', 'accountant'])
+
+    // Optionally find the assigned PM for this invoice's project
+    let pmUsers: Array<{ id: string; first_name: string | null; last_name: string | null; email: string | null }> = []
+    if (opts.projectId) {
+      const { data: pmRows } = await supabase
+        .from('project_assignments')
+        .select('user_id, users!inner(id, first_name, last_name, email, role)')
+        .eq('project_id', opts.projectId)
+
+      if (pmRows) {
+        pmUsers = pmRows
+          .map((r: Record<string, unknown>) => {
+            const u = r.users as { id: string; first_name: string | null; last_name: string | null; email: string | null; role: string } | null
+            return u
+          })
+          .filter((u): u is NonNullable<typeof u> => u !== null && u.role === 'project_manager')
+      }
+    }
+
+    const recipients = [
+      ...(internalUsers ?? []),
+      ...pmUsers,
+    ]
+
+    // Deduplicate by user id
+    const seen = new Set<string>()
+    const unique = recipients.filter(u => {
+      if (seen.has(u.id)) return false
+      seen.add(u.id)
+      return true
+    })
+
+    await Promise.all(
+      unique.map(u =>
+        sendGenericAlert({
+          recipientUserId: u.id,
+          recipient: {
+            id: u.id,
+            name: [u.first_name, u.last_name].filter(Boolean).join(' ') || 'Team Member',
+            email: u.email ?? undefined,
+            role: (u as { role?: string }).role as 'admin' | 'accountant' | 'project_manager' | undefined,
+          },
+          type: 'payment_blocked_compliance',
+          title,
+          body,
+          link,
+        })
+      )
+    )
+  } catch (e) {
+    // Non-fatal — the payment block itself is already logged to audit_logs
+    console.error('[notifyComplianceBlock] failed to send notifications:', e)
+  }
+}
 
 // =====================================================
 // INVOICE APPROVAL / REJECTION ACTIONS
@@ -594,7 +682,15 @@ export const executeEFTPayment = secureAction(
     // ── Stage 5: Compliance gate ──────────────────────────────────────────────
     // Validate compliance documents for every invoice in this batch.
     // A single compliance failure blocks the entire batch.
-    // Overrides are checked per-invoice and consume the override record.
+    // Overrides are collected per-invoice and consumed after payment commits.
+    // BUG-004: pendingOverrideConsumptions accumulates { invoiceId, contractorId, overrideIds }
+    // for all invoice-specific overrides that were used to unblock this batch.
+    const pendingOverrideConsumptions: Array<{
+      invoiceId: string
+      contractorId: string
+      overrideIds: string[]
+    }> = []
+
     for (const inv of invoices || []) {
       const complianceResult = await validateComplianceDocsForPayment({
         contractorId: inv.contractor_id,
@@ -620,7 +716,29 @@ export const executeEFTPayment = secureAction(
             },
           })
         }
+        // Notify Admin, Accountant, assigned PM
+        const { data: contractorRow } = await supabase
+          .from('contractors')
+          .select('company_name, contact_name')
+          .eq('id', inv.contractor_id)
+          .maybeSingle()
+        void notifyComplianceBlock({
+          invoiceId: inv.id,
+          invoiceNumber: inv.invoice_number || inv.id,
+          contractorName: contractorRow?.company_name || contractorRow?.contact_name || inv.contractor_id,
+          reason: complianceError,
+          projectId: inv.project_id ?? null,
+          actorUserId: userData.id,
+        })
         return { success: false, error: `Invoice ${inv.invoice_number || inv.id}: ${complianceError}` }
+      }
+      // Collect any invoice-specific overrides used so we can consume them post-payment
+      if (complianceResult.overriddenIssues.length > 0) {
+        pendingOverrideConsumptions.push({
+          invoiceId: inv.id,
+          contractorId: inv.contractor_id,
+          overrideIds: complianceResult.overriddenIssues.map(o => o.overrideId),
+        })
       }
     }
 
@@ -871,6 +989,24 @@ export const executeEFTPayment = secureAction(
         invoice_ids: input.invoice_ids,
       },
     })
+
+    // BUG-004: Consume any invoice-specific compliance overrides that were used
+    // to unblock invoices in this batch. Fire-and-forget, non-fatal.
+    if (pendingOverrideConsumptions.length > 0) {
+      const internalUserId = await resolveInternalUserId(userData.id, supabase)
+      if (internalUserId) {
+        void Promise.all(
+          pendingOverrideConsumptions.map(c =>
+            consumeInvoiceOverrides({
+              contractorId: c.contractorId,
+              invoiceId: c.invoiceId,
+              overrideIds: c.overrideIds,
+              actorUserId: internalUserId,
+            })
+          )
+        )
+      }
+    }
     
     // Send branded payment-confirmation emails to the REAL vendor (plus internal
     // CC) via the unified server dispatcher. Additive + non-fatal: the payment is
@@ -1869,6 +2005,8 @@ export async function recordCertificatePayment(input: {
 
     // ── Stage 5: Compliance gate ──────────────────────────────────────────────
     // Certificate payments require the same compliance checks as direct payments.
+    // BUG-004: Collect invoice-specific overrides used to unblock this cert.
+    let certComplianceOverrideIds: string[] = []
     if (certificate.invoice_id) {
       const complianceResult = await validateComplianceDocsForPayment({
         contractorId: certificate.contractor_id,
@@ -1896,7 +2034,24 @@ export async function recordCertificatePayment(input: {
             },
           })
         }
+        // Resolve invoice number and contractor name for notification
+        const [invRowResult, contractorRowResult] = await Promise.all([
+          supabase.from('invoices').select('invoice_number').eq('id', certificate.invoice_id).maybeSingle(),
+          supabase.from('contractors').select('company_name, contact_name').eq('id', certificate.contractor_id).maybeSingle(),
+        ])
+        void notifyComplianceBlock({
+          invoiceId: certificate.invoice_id,
+          invoiceNumber: invRowResult.data?.invoice_number || certificate.invoice_id || 'unknown',
+          contractorName: contractorRowResult.data?.company_name || contractorRowResult.data?.contact_name || certificate.contractor_id || 'unknown',
+          reason: complianceError,
+          projectId: certificate.project_id ?? null,
+          actorUserId: userData.id,
+        })
         return { success: false, error: complianceError }
+      }
+      // Payment passes — collect override IDs for post-commit consumption
+      if (complianceResult.overriddenIssues.length > 0) {
+        certComplianceOverrideIds = complianceResult.overriddenIssues.map(o => o.overrideId)
       }
     }
 
@@ -2082,6 +2237,17 @@ export async function recordCertificatePayment(input: {
     revalidatePath('/accountant/queue')
     revalidatePath('/accountant/holdbacks')
     revalidatePath(`/invoices/${certificate.invoice_id}`)
+
+    // BUG-004: Consume any invoice-specific compliance overrides used to unblock
+    // this certificate payment. Fire-and-forget, non-fatal.
+    if (certComplianceOverrideIds.length > 0 && certificate.invoice_id) {
+      void consumeInvoiceOverrides({
+        contractorId: certificate.contractor_id,
+        invoiceId: certificate.invoice_id,
+        overrideIds: certComplianceOverrideIds,
+        actorUserId: internalUserId,
+      })
+    }
     
     return { 
       success: true, 
@@ -2185,6 +2351,9 @@ export async function recordDirectInvoicePayment(input: {
     }
 
     // ── Stage 5: Compliance gate ──────────────────────────────────────────────
+    // BUG-004: directComplianceOverrideIds captures invoice-specific override IDs
+    // used to unblock this payment so they can be consumed post-commit.
+    let directComplianceOverrideIds: string[] = []
     const complianceResult = await validateComplianceDocsForPayment({
       contractorId: invoice.contractor_id,
       invoiceId: input.invoice_id,
@@ -2210,7 +2379,25 @@ export async function recordDirectInvoicePayment(input: {
           },
         })
       }
+      // Notify Admin, Accountant, assigned PM
+      const { data: contractorRow } = await supabase
+        .from('contractors')
+        .select('company_name, contact_name')
+        .eq('id', invoice.contractor_id)
+        .maybeSingle()
+      void notifyComplianceBlock({
+        invoiceId: input.invoice_id,
+        invoiceNumber: invoice.invoice_number || input.invoice_id,
+        contractorName: contractorRow?.company_name || contractorRow?.contact_name || invoice.contractor_id,
+        reason: complianceError,
+        projectId: invoice.project_id ?? null,
+        actorUserId: userData.id,
+      })
       return { success: false, error: complianceError }
+    }
+    // Payment passes — collect override IDs for post-commit consumption
+    if (complianceResult.overriddenIssues.length > 0) {
+      directComplianceOverrideIds = complianceResult.overriddenIssues.map(o => o.overrideId)
     }
 
     // 4. Validate invoice status — 'paid' is intentionally excluded.
@@ -2375,6 +2562,20 @@ export async function recordDirectInvoicePayment(input: {
         payment_type: 'direct_invoice',
       },
     })
+
+    // BUG-004: Consume any invoice-specific compliance overrides used to unblock
+    // this direct payment. Resolve internal user ID for audit attribution.
+    if (directComplianceOverrideIds.length > 0) {
+      const internalUserId = await resolveInternalUserId(userData.id, supabase)
+      if (internalUserId) {
+        void consumeInvoiceOverrides({
+          contractorId: invoice.contractor_id,
+          invoiceId: input.invoice_id,
+          overrideIds: directComplianceOverrideIds,
+          actorUserId: internalUserId,
+        })
+      }
+    }
     
     revalidatePath('/accountant/payments')
     revalidatePath('/accountant/queue')
@@ -2603,6 +2804,117 @@ export async function executeCertificateEFTBatch(input: {
       }
     }
 
+    // ── Stage 2: Hard banking gate ────────────────────────────────────────────
+    // Every unique contractor in this batch must have approved banking before any
+    // payment record is created. A single failure blocks the entire batch.
+    const uniqueContractorIds = [...new Set((certificates || []).map(c => c.contractor_id).filter(Boolean))]
+    for (const contractorId of uniqueContractorIds) {
+      const bankingGate = await evaluateBankingGate(supabase, contractorId, input.payment_method)
+      if (!bankingGate.allowed) {
+        const { data: reviewer } = await supabase
+          .from('users')
+          .select('id')
+          .eq('auth_user_id', userData.id)
+          .maybeSingle()
+        if (reviewer?.id) {
+          await supabase.from('audit_logs').insert({
+            action: 'banking_payment_blocked',
+            entity_type: 'payment_certificate_batch',
+            entity_id: contractorId,
+            user_id: reviewer.id,
+            description: bankingGate.message,
+            new_values: {
+              contractor_id: contractorId,
+              certificate_ids: input.certificate_ids,
+              payment_method: input.payment_method,
+              reason: bankingGate.message,
+            },
+          })
+        }
+        return { success: false, error: `Banking gate: ${bankingGate.message}` }
+      }
+    }
+
+    // ── Stage 5: Compliance gate ──────────────────────────────────────────────
+    // Every unique invoice in this batch must pass compliance validation before any
+    // payment record is created. Overrides are collected per-invoice.
+    // BUG-004: certBatchOverrideConsumptions collects invoice-specific override IDs
+    // to consume after the payment records are committed.
+    const certBatchOverrideConsumptions: Array<{
+      invoiceId: string
+      contractorId: string
+      overrideIds: string[]
+    }> = []
+
+    for (const invoiceId of uniqueInvoiceIds) {
+      const certForInvoice = (certificates || []).find(c => c.invoice_id === invoiceId)
+      if (!certForInvoice?.contractor_id) continue
+
+      const complianceResult = await validateComplianceDocsForPayment({
+        contractorId: certForInvoice.contractor_id,
+        invoiceId,
+        paymentMethod: input.payment_method,
+      })
+      if (!complianceResult.valid) {
+        const complianceError = formatComplianceError(complianceResult)
+        // Resolve invoice number for user-facing message and audit log
+        const { data: invRow } = await supabase
+          .from('invoices')
+          .select('invoice_number')
+          .eq('id', invoiceId)
+          .maybeSingle()
+        const { data: reviewer } = await supabase
+          .from('users')
+          .select('id')
+          .eq('auth_user_id', userData.id)
+          .maybeSingle()
+        if (reviewer?.id) {
+          await supabase.from('audit_logs').insert({
+            action: 'payment_blocked_compliance',
+            entity_type: 'payment_certificate_batch',
+            entity_id: invoiceId,
+            user_id: reviewer.id,
+            description: complianceError,
+            new_values: {
+              invoice_id: invoiceId,
+              invoice_number: invRow?.invoice_number ?? invoiceId,
+              contractor_id: certForInvoice.contractor_id,
+              certificate_ids: input.certificate_ids,
+              payment_method: input.payment_method,
+              failures: complianceResult.failures,
+              reason: complianceError,
+            },
+          })
+        }
+        // Notify Admin, Accountant, assigned PM — best-effort, non-fatal
+        const { data: contractorRow } = await supabase
+          .from('contractors')
+          .select('company_name, contact_name')
+          .eq('id', certForInvoice.contractor_id)
+          .maybeSingle()
+        void notifyComplianceBlock({
+          invoiceId,
+          invoiceNumber: invRow?.invoice_number ?? invoiceId,
+          contractorName: contractorRow?.company_name || contractorRow?.contact_name || certForInvoice.contractor_id,
+          reason: complianceError,
+          projectId: null,
+          actorUserId: userData.id,
+        })
+        return {
+          success: false,
+          error: `Compliance gate: Invoice ${invRow?.invoice_number ?? invoiceId}: ${complianceError}`,
+        }
+      }
+      // Payment passes — collect invoice-specific overrides for post-commit consumption
+      if (complianceResult.overriddenIssues.length > 0) {
+        certBatchOverrideConsumptions.push({
+          invoiceId,
+          contractorId: certForInvoice.contractor_id,
+          overrideIds: complianceResult.overriddenIssues.map(o => o.overrideId),
+        })
+      }
+    }
+
     const batchReference = input.batch_reference || `EFT-CERT-${Date.now()}`
     const totalAmount = certificates?.reduce((sum, c) => sum + (c.net_payable_cents || 0), 0) || 0
 
@@ -2764,6 +3076,22 @@ export async function executeCertificateEFTBatch(input: {
     
     revalidatePath('/accountant/payments')
     revalidatePath('/accountant/queue')
+
+    // BUG-004: Consume any invoice-specific compliance overrides used to unblock
+    // certificates in this batch. Fire-and-forget, non-fatal.
+    // internalUserId was resolved earlier in this function (before the payment loop).
+    if (certBatchOverrideConsumptions.length > 0) {
+      void Promise.all(
+        certBatchOverrideConsumptions.map(c =>
+          consumeInvoiceOverrides({
+            contractorId: c.contractorId,
+            invoiceId: c.invoiceId,
+            overrideIds: c.overrideIds,
+            actorUserId: internalUserId,
+          })
+        )
+      )
+    }
     
     return { 
       success: true,

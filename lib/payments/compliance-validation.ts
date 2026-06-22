@@ -192,6 +192,106 @@ export async function validateComplianceForPayment(
 }
 
 // ============================================
+// BUG-004: OVERRIDE CONSUMPTION
+//
+// After a successful payment that relied on one or more compliance overrides,
+// invoice-specific overrides (invoice_id IS NOT NULL) must be consumed so
+// they cannot be reused for a future payment on a different invoice.
+//
+// Contractor-wide overrides (invoice_id IS NULL) are intentionally preserved —
+// they cover the contractor broadly and may span multiple invoices until they
+// expire or are manually revoked.
+//
+// Implementation note:
+//   We use the existing is_active = false mechanism rather than adding a new
+//   consumed_at column. This is the smallest safe change: it reuses the column
+//   the gate already filters on, and the audit log records the exact consumption
+//   event with full traceability. If a consumed_at column is later added to the
+//   schema, this function should be updated to populate it as well.
+// ============================================
+
+/**
+ * Marks all invoice-specific compliance overrides that were used for this
+ * payment as inactive (consumed). Contractor-wide overrides are left active.
+ *
+ * Must be called by payment actions AFTER the payment record is successfully
+ * committed — never before, to avoid consuming overrides for failed payments.
+ *
+ * @param contractorId  The contractor whose overrides to consume.
+ * @param invoiceId     The specific invoice the payment was for.
+ * @param overrideIds   The override IDs that were matched during validation.
+ *                      Sourced from ComplianceValidationResult.overriddenIssues.
+ * @param actorUserId   The internal users.id of the person who initiated payment
+ *                      (for audit log attribution).
+ */
+export async function consumeInvoiceOverrides(opts: {
+  contractorId: string
+  invoiceId: string
+  overrideIds: string[]
+  actorUserId: string
+}): Promise<void> {
+  if (opts.overrideIds.length === 0) return
+
+  const supabase = await createClient()
+  const now = new Date().toISOString()
+
+  // Only consume overrides that are invoice-specific (invoice_id IS NOT NULL).
+  // Contractor-wide overrides (invoice_id IS NULL) are intentionally preserved.
+  const { data: toConsume, error: fetchError } = await supabase
+    .from('compliance_overrides')
+    .select('id, issue_type, invoice_id')
+    .in('id', opts.overrideIds)
+    .eq('contractor_id', opts.contractorId)
+    .eq('is_active', true)
+    .not('invoice_id', 'is', null)  // invoice-specific only
+
+  if (fetchError || !toConsume || toConsume.length === 0) return
+
+  const idsToConsume = toConsume.map(o => o.id)
+
+  // Deactivate invoice-specific overrides
+  const { error: updateError } = await supabase
+    .from('compliance_overrides')
+    .update({
+      is_active: false,
+      // expires_at is set to now to signal the override was consumed, not just
+      // expired naturally — distinguishable in the audit log below.
+      expires_at: now,
+    })
+    .in('id', idsToConsume)
+
+  if (updateError) {
+    console.error('[consumeInvoiceOverrides] failed to deactivate overrides:', updateError)
+    return
+  }
+
+  // Write one audit log entry per consumed override for full traceability
+  const auditRows = toConsume.map(o => ({
+    action: 'compliance_override_consumed',
+    entity_type: 'compliance_override',
+    entity_id: o.id,
+    user_id: opts.actorUserId,
+    description: `Override for ${o.issue_type} consumed after successful payment on invoice ${opts.invoiceId}.`,
+    new_values: {
+      override_id: o.id,
+      invoice_id: opts.invoiceId,
+      contractor_id: opts.contractorId,
+      issue_type: o.issue_type,
+      consumed_at: now,
+      consumed_by: opts.actorUserId,
+    },
+  }))
+
+  const { error: auditError } = await supabase
+    .from('audit_logs')
+    .insert(auditRows)
+
+  if (auditError) {
+    console.error('[consumeInvoiceOverrides] failed to write audit logs:', auditError)
+  }
+}
+
+// ============================================
 // COMPLIANCE-ONLY GATE (excludes banking / invoice state / holdback)
 // ============================================
 

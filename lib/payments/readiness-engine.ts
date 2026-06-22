@@ -317,8 +317,10 @@ export const READINESS_ISSUES = {
     title: 'WCB Clearance expired',
     description:
       'The contractor\'s WCB (Workers\' Compensation Board) clearance certificate has expired. Payment is blocked until a valid clearance is on file.',
-    recommendedAction: 'Request an updated WCB clearance letter from the contractor and upload it to their compliance profile.',
-    overridable: false,
+    recommendedAction: 'Request an updated WCB clearance letter from the contractor and upload it to their compliance profile. An Admin or Accountant may issue a time-limited override with a documented reason.',
+    // BUG-003 fix: WCB can be overridden by Admin/Accountant with documented reason,
+    // expiry date, and full audit log — identical to all other compliance overrides.
+    overridable: true,
   }),
   WCB_EXPIRING_SOON: (): ReadinessIssue => ({
     code: 'WCB_EXPIRING_SOON',
@@ -337,8 +339,10 @@ export const READINESS_ISSUES = {
     title: 'WCB Clearance not on file',
     description:
       'No WCB clearance certificate is on file for this contractor. WCB verification is required before payment.',
-    recommendedAction: 'Request the contractor\'s current WCB clearance certificate and upload it to their compliance profile.',
-    overridable: false,
+    recommendedAction: 'Request the contractor\'s current WCB clearance certificate and upload it to their compliance profile. An Admin or Accountant may issue a time-limited override with a documented reason.',
+    // BUG-003 fix: WCB missing/expired can be overridden by Admin/Accountant only.
+    // Override still requires 25+ char reason, expiry date, and audit log.
+    overridable: true,
   }),
   INSURANCE_EXPIRED: (): ReadinessIssue => ({
     code: 'INSURANCE_EXPIRED',
@@ -717,7 +721,10 @@ export function evaluateReadiness(input: ReadinessInput): ReadinessReport {
       - warnings.length * WARNING_DEDUCTION
   )
 
-  const status = scoreToStatus(score)
+  // BUG-005 fix: Any blocker must always produce NOT_READY regardless of numeric
+  // score. A single BLOCKER deducts 40 points (score = 60), which previously
+  // mapped to WARNING. Now we short-circuit the band check if blockers exist.
+  const status: ReadinessStatus = blockers.length > 0 ? 'NOT_READY' : scoreToStatus(score)
 
   // Sort: BLOCKERs first, then WARNINGs, then INFO
   const levelOrder: Record<ReadinessIssueLevel, number> = { BLOCKER: 0, WARNING: 1, INFO: 2 }

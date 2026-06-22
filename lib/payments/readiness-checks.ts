@@ -185,12 +185,14 @@ export async function fetchInsuranceCertificateExpiry(
 ): Promise<string | null> {
   const supabase = await createClient()
 
+  // BUG-002 fix: 'expiring' is not a valid kyc_document_status value.
+  // Query only 'verified' documents and let the engine compute expiry proximity.
   const { data, error } = await supabase
     .from('vendor_kyc_documents')
     .select('expiry_date, status')
     .eq('contractor_id', contractorId)
     .eq('document_type', 'insurance_certificate')
-    .in('status', ['verified', 'expiring'])
+    .eq('status', 'verified')
     .order('expiry_date', { ascending: false })
     .limit(1)
     .maybeSingle()
@@ -208,12 +210,13 @@ export async function fetchBusinessLicenseExpiry(
 ): Promise<string | null> {
   const supabase = await createClient()
 
+  // BUG-002 fix: 'expiring' is not a valid kyc_document_status value.
   const { data, error } = await supabase
     .from('vendor_kyc_documents')
     .select('expiry_date, status')
     .eq('contractor_id', contractorId)
     .eq('document_type', 'business_license')
-    .in('status', ['verified', 'expiring'])
+    .eq('status', 'verified')
     .order('expiry_date', { ascending: false })
     .limit(1)
     .maybeSingle()
@@ -231,12 +234,13 @@ export async function fetchSafetyCertExpiry(
 ): Promise<string | null> {
   const supabase = await createClient()
 
+  // BUG-002 fix: 'expiring' is not a valid kyc_document_status value.
   const { data, error } = await supabase
     .from('vendor_kyc_documents')
     .select('expiry_date, status')
     .eq('contractor_id', contractorId)
     .eq('document_type', 'safety_certification')
-    .in('status', ['verified', 'expiring'])
+    .eq('status', 'verified')
     .order('expiry_date', { ascending: false })
     .limit(1)
     .maybeSingle()
