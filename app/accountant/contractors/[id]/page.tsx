@@ -30,6 +30,13 @@ import { getContractorById } from '../../actions'
 import { AppHeader } from '@/components/app-header'
 import { PAID_PAYMENT_STATUSES, SETTLED_OR_SENT_STATUSES } from '@/lib/payments/status'
 
+const PAYMENT_METHOD_LABELS: Record<string, string> = {
+  eft: 'EFT / Direct Deposit',
+  etransfer: 'eTransfer',
+  cheque: 'Cheque',
+  wire: 'Wire Transfer',
+}
+
 type Contractor = {
   id: string
   company_name: string
@@ -46,6 +53,9 @@ type Contractor = {
   bank_institution_number?: string
   bank_transit_number?: string
   bank_account_number?: string
+  banking_approval_status?: string
+  preferred_payment_method?: string
+  etransfer_email?: string
   wcb_clearance_expiry?: string
   gst_hst_number?: string
 }
@@ -275,6 +285,53 @@ export default function AccountantContractorDetailPage() {
                     <p className="text-xs text-muted-foreground">Trade</p>
                     <p className="text-sm font-medium">{contractor.trade}</p>
                   </div>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Payment Method Preference</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {contractor.preferred_payment_method ? (
+                  <>
+                    <div className="flex items-center gap-3">
+                      <Banknote className="w-4 h-4 text-muted-foreground" />
+                      <div>
+                        <p className="text-xs text-muted-foreground">Preferred Method</p>
+                        <p className="text-sm font-medium">
+                          {PAYMENT_METHOD_LABELS[contractor.preferred_payment_method] ?? contractor.preferred_payment_method}
+                        </p>
+                      </div>
+                    </div>
+                    {contractor.preferred_payment_method === 'etransfer' && (
+                      <div className="flex items-center gap-3">
+                        <Mail className="w-4 h-4 text-muted-foreground" />
+                        <div>
+                          <p className="text-xs text-muted-foreground">eTransfer Email</p>
+                          {contractor.etransfer_email ? (
+                            <a href={`mailto:${contractor.etransfer_email}`} className="text-sm text-primary hover:underline">
+                              {contractor.etransfer_email}
+                            </a>
+                          ) : (
+                            <p className="text-sm text-amber-600 font-medium">Not set — required for eTransfer payments</p>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                    {contractor.banking_approval_status && (
+                      <div className="flex items-center gap-3">
+                        <Shield className="w-4 h-4 text-muted-foreground" />
+                        <div>
+                          <p className="text-xs text-muted-foreground">Banking Status</p>
+                          <p className="text-sm font-medium capitalize">{contractor.banking_approval_status.replace(/_/g, ' ')}</p>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <p className="text-sm text-muted-foreground">No payment preference set</p>
                 )}
               </CardContent>
             </Card>

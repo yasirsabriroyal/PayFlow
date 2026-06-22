@@ -179,13 +179,31 @@ export async function getPaymentCertificateById(certificateId: string) {
         created_at,
         approved_at,
         approved_by,
+        paid_at,
+        paid_by,
         invoice:invoices(
           id,
           invoice_number,
           total_cents,
           holdback_percent,
-          contractor:contractors(company_name),
+          contractor:contractors(
+            company_name,
+            preferred_payment_method,
+            etransfer_email
+          ),
           project:projects(name, project_number)
+        ),
+        payment:payments(
+          id,
+          payment_method,
+          amount_cents,
+          payment_date,
+          cheque_number,
+          etransfer_reference,
+          wire_reference,
+          eft_file_id,
+          status,
+          created_at
         )
       `)
       .eq('id', certificateId)

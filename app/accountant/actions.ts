@@ -1427,6 +1427,9 @@ export async function getContractorById(contractorId: string) {
         postal_code,
         bank_name,
         bank_account_last4,
+        banking_approval_status,
+        preferred_payment_method,
+        etransfer_email,
         wcb_clearance_expiry,
         wcb_account_number,
         business_number,
@@ -1721,37 +1724,85 @@ export async function recordCertificatePayment(input: {
     
     // 2. Validate certificate status — only 'approved' certificates may be paid.
     if (certificate.status === 'paid') {
-      return { success: false, error: `Certificate ${certificate.certificate_number} has already been fully paid.` }
+      // Emit duplicate-blocked audit event before returning.
+      const blockUserId = await resolveInternalUserId(userData.id, supabase)
+      if (blockUserId) {
+        await supabase.from('audit_logs').insert({
+          action: 'certificate_payment_blocked_duplicate',
+          entity_type: 'payment_certificate',
+          entity_id: input.certificate_id,
+          user_id: blockUserId,
+          description: `Duplicate payment attempt blocked for certificate ${certificate.certificate_number} (status: paid)`,
+          new_values: {
+            certificate_id: input.certificate_id,
+            certificate_number: certificate.certificate_number,
+            payment_method: input.payment_method,
+          },
+        })
+      }
+      return { success: false, error: `Certificate ${certificate.certificate_number} has already been paid and is locked. No further payment actions are permitted.` }
     }
     if (certificate.status !== 'approved') {
       return { success: false, error: `Cannot process payment for certificate with status: ${certificate.status}` }
     }
 
-    // 3. Validate payment amount against the CUMULATIVE remaining balance.
-    //    The old check compared only input.amount_cents against certified_amount_cents
-    //    and did not account for prior partial payments on the same certificate.
-    if (input.amount_cents <= 0) {
-      return { success: false, error: 'Payment amount must be greater than 0' }
+    // 3. One Certificate = One Payment policy.
+    //    Check whether ANY prior payment row exists for this certificate
+    //    regardless of the balance math. The uix_payments_per_cert unique
+    //    index enforces this at the DB layer; this application-layer check
+    //    provides an early, human-readable rejection before hitting the DB
+    //    constraint and emits a structured audit event.
+    const { data: existingPayments, error: existingPaymentsError } = await supabase
+      .from('payments')
+      .select('id, amount_cents, status, created_at')
+      .eq('payment_certificate_id', input.certificate_id)
+      .not('status', 'in', '("cancelled","returned")')
+      .limit(1)
+
+    if (existingPaymentsError) {
+      console.error('recordCertificatePayment: could not check existing payments', existingPaymentsError)
+      return { success: false, error: 'Could not verify certificate payment history.' }
     }
 
-    // Sum all existing non-cancelled payments for this certificate.
-    const certBalance = await getCertificatePaymentBalance(
-      supabase,
-      input.certificate_id,
-      certificate.net_payable_cents,
-    )
-
-    if (certBalance.isFullyPaid) {
+    if (existingPayments && existingPayments.length > 0) {
+      const blockUserId = await resolveInternalUserId(userData.id, supabase)
+      if (blockUserId) {
+        await supabase.from('audit_logs').insert({
+          action: 'certificate_payment_blocked_duplicate',
+          entity_type: 'payment_certificate',
+          entity_id: input.certificate_id,
+          user_id: blockUserId,
+          description: `Duplicate payment attempt blocked for certificate ${certificate.certificate_number} — a payment record already exists`,
+          new_values: {
+            certificate_id: input.certificate_id,
+            certificate_number: certificate.certificate_number,
+            payment_method: input.payment_method,
+            existing_payment_id: existingPayments[0].id,
+          },
+        })
+      }
       return {
         success: false,
-        error: `Certificate ${certificate.certificate_number} has already been fully paid.`,
+        error: `Certificate ${certificate.certificate_number} has already been paid and is locked. No further payment actions are permitted.`,
       }
     }
 
-    if (input.amount_cents > certBalance.remainingPayableCents) {
+    // 4. Full-amount enforcement.
+    //    Certificate payments are always the full net_payable_cents amount.
+    //    The amount field is a display value only — the system always uses
+    //    the certificate amount, never a caller-provided partial amount.
+    const requiredAmount = certificate.net_payable_cents
+
+    if (requiredAmount <= 0) {
+      return { success: false, error: 'Certificate net payable amount is zero or invalid.' }
+    }
+
+    // If the caller supplied an amount, it must exactly match net_payable_cents.
+    // This guards against any UI that might pass an incorrect value.
+    if (input.amount_cents !== requiredAmount) {
       return {
         success: false,
-        error: `Payment amount ($${(input.amount_cents / 100).toFixed(2)}) exceeds remaining certificate balance ($${(certBalance.remainingPayableCents / 100).toFixed(2)})`,
+        error: `Payment amount ($${(input.amount_cents / 100).toFixed(2)}) does not match certificate net payable ($${(requiredAmount / 100).toFixed(2)}). Certificate payments must be for the full certified amount.`,
       }
     }
 
@@ -1789,15 +1840,33 @@ export async function recordCertificatePayment(input: {
       return { success: false, error: 'Could not resolve internal user ID' }
     }
 
-    // 4. Create the payment record
-    // Note: payment_request_id is intentionally omitted — cert payments use
-    // payment_certificate_id instead (migration 041 makes payment_request_id nullable)
+    // 5. Audit: payment method selected for this certificate
+    await supabase.from('audit_logs').insert({
+      action: 'certificate_payment_method_selected',
+      entity_type: 'payment_certificate',
+      entity_id: input.certificate_id,
+      user_id: internalUserId,
+      description: `Payment method ${input.payment_method.toUpperCase()} selected for certificate ${certificate.certificate_number}`,
+      new_values: {
+        certificate_id: input.certificate_id,
+        certificate_number: certificate.certificate_number,
+        payment_method: input.payment_method,
+        invoice_id: certificate.invoice_id,
+        contractor_id: certificate.contractor_id,
+      },
+    })
+
+    // 6. Create the payment record.
+    //    payment_request_id intentionally omitted — cert payments use
+    //    payment_certificate_id (migration 041 makes payment_request_id nullable).
+    //    amount_cents is always requiredAmount (net_payable_cents) — enforced above.
+    const paymentDate = new Date().toISOString()
     const { data: payment, error: paymentError } = await supabase
       .from('payments')
       .insert({
         payment_certificate_id: input.certificate_id,
         contractor_id: certificate.contractor_id,
-        amount_cents: input.amount_cents,
+        amount_cents: requiredAmount,
         payment_method: input.payment_method,
         payment_date: input.payment_date,
         status: 'cleared',
@@ -1815,18 +1884,36 @@ export async function recordCertificatePayment(input: {
       return { success: false, error: paymentError.message }
     }
     
-    // 5. Update certificate status to paid if fully paid (based on net payable amount)
-    if (input.amount_cents >= certificate.net_payable_cents) {
-      await supabase
-        .from('payment_certificates')
-        .update({
-          status: 'paid',
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', input.certificate_id)
-    }
-    
-    // 6. Update invoice total_paid_cents
+    // 7. Lock the certificate: status = 'paid', paid_at/paid_by stamped.
+    //    Certificate payments are always full — every cert payment fully settles
+    //    the certificate. The immutability lock is unconditional.
+    await supabase
+      .from('payment_certificates')
+      .update({
+        status: 'paid',
+        paid_at: paymentDate,
+        paid_by: internalUserId,
+        updated_at: paymentDate,
+      })
+      .eq('id', input.certificate_id)
+
+    // Audit: certificate locked after payment
+    await supabase.from('audit_logs').insert({
+      action: 'certificate_locked_after_payment',
+      entity_type: 'payment_certificate',
+      entity_id: input.certificate_id,
+      user_id: internalUserId,
+      description: `Certificate ${certificate.certificate_number} locked after payment — no further payment actions permitted`,
+      new_values: {
+        certificate_id: input.certificate_id,
+        certificate_number: certificate.certificate_number,
+        paid_at: paymentDate,
+        invoice_id: certificate.invoice_id,
+        contractor_id: certificate.contractor_id,
+      },
+    })
+
+    // 8. Update invoice total_paid_cents
     const { data: invoice } = await supabase
       .from('invoices')
       .select('total_paid_cents, net_payable_cents, status')
@@ -1835,7 +1922,7 @@ export async function recordCertificatePayment(input: {
     
     let invoiceFullyPaid = false
     if (invoice) {
-      const newTotalPaid = (invoice.total_paid_cents || 0) + input.amount_cents
+      const newTotalPaid = (invoice.total_paid_cents || 0) + requiredAmount
       invoiceFullyPaid = newTotalPaid >= (invoice.net_payable_cents || 0)
       await supabase
         .from('invoices')
@@ -1843,13 +1930,13 @@ export async function recordCertificatePayment(input: {
           total_paid_cents: newTotalPaid,
           amount_paid_cents: newTotalPaid,
           amount_remaining_cents: Math.max(0, invoice.net_payable_cents - newTotalPaid),
-          updated_at: new Date().toISOString(),
+          updated_at: paymentDate,
         })
         .eq('id', certificate.invoice_id)
     }
 
-    // 6b. Flip the invoice status (paid / partially_paid) through the centralized
-    //     status engine so audit + history + notifications fire consistently.
+    // 8b. Flip the invoice status through the centralized status engine
+    //     so audit + history + notifications fire consistently.
     if (invoice && invoice.status !== 'paid') {
       try {
         await applyInvoiceStatusChange({
@@ -1861,7 +1948,7 @@ export async function recordCertificatePayment(input: {
             role: userData.role ?? 'accountant',
             authUserId: userData.id,
           },
-          reason: `Payment of $${(input.amount_cents / 100).toFixed(2)} recorded for certificate ${certificate.certificate_number}`,
+          reason: `Payment of $${(requiredAmount / 100).toFixed(2)} recorded for certificate ${certificate.certificate_number}`,
         })
       } catch (statusErr) {
         // Non-fatal — payment is already recorded.
@@ -1904,29 +1991,35 @@ export async function recordCertificatePayment(input: {
       }
     }
 
-    // 8. Log the action
-    const auditUserId = await resolveInternalUserId(userData.id, supabase)
+    // 9. Emit certificate_payment_completed — the primary accounting event
+    //    for this transaction. internalUserId was resolved above; re-use it.
     await supabase.from('audit_logs').insert({
-      action: 'payment_recorded',
-      entity_type: 'payment',
-      entity_id: payment.id,
-      user_id: auditUserId,
-      description: `Recorded payment of $${(input.amount_cents / 100).toFixed(2)} for certificate ${certificate.certificate_number}`,
+      action: 'certificate_payment_completed',
+      entity_type: 'payment_certificate',
+      entity_id: input.certificate_id,
+      user_id: internalUserId,
+      description: `Certificate ${certificate.certificate_number} payment completed — $${(requiredAmount / 100).toFixed(2)} via ${input.payment_method.toUpperCase()}`,
       new_values: {
-        amount_cents: input.amount_cents,
-        payment_method: input.payment_method,
+        payment_id: payment.id,
+        certificate_id: input.certificate_id,
         certificate_number: certificate.certificate_number,
+        amount_cents: requiredAmount,
+        payment_method: input.payment_method,
+        invoice_id: certificate.invoice_id,
+        contractor_id: certificate.contractor_id,
+        payment_date: input.payment_date,
       },
     })
-    
+
     revalidatePath('/accountant/payments')
     revalidatePath('/accountant/queue')
     revalidatePath('/accountant/holdbacks')
+    revalidatePath(`/invoices/${certificate.invoice_id}`)
     
     return { 
       success: true, 
       payment,
-      message: `Payment of $${(input.amount_cents / 100).toFixed(2)} recorded successfully`
+      message: `Payment of $${(requiredAmount / 100).toFixed(2)} recorded successfully. Certificate ${certificate.certificate_number} is now locked.`
     }
   })
 }

@@ -72,10 +72,46 @@ export async function evaluateBankingGate(
   contractorId: string,
   paymentMethod: 'eft' | 'cheque' | 'wire' | 'etransfer'
 ): Promise<BankingGateResult> {
-  // Gate only applies to EFT payments
-  if (paymentMethod !== 'eft') {
-    return { allowed: true, status: 'skipped_non_eft', message: 'Banking gate not required for non-EFT payment.' }
+  // ── eTransfer gate ────────────────────────────────────────────────────────
+  // eTransfer requires an approved contractor profile and a valid etransfer_email.
+  // It does NOT require bank account details (no EFT banking profile needed).
+  if (paymentMethod === 'etransfer') {
+    const { data: contractor, error } = await supabase
+      .from('contractors')
+      .select('id, status, etransfer_email')
+      .eq('id', contractorId)
+      .single()
+
+    if (error || !contractor) {
+      return BLOCKED('not_submitted', 'Payment blocked. Contractor record not found — eTransfer email cannot be verified.')
+    }
+
+    const etransferEmail = (contractor.etransfer_email as string | null)?.trim()
+    if (!etransferEmail) {
+      return BLOCKED(
+        'not_submitted',
+        'Payment blocked. No eTransfer email address is on file for this contractor. The contractor must add an eTransfer email before an eTransfer payment can be processed.'
+      )
+    }
+
+    // Basic email format validation (RFC-5321 local-part@domain)
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+    if (!emailRegex.test(etransferEmail)) {
+      return BLOCKED(
+        'missing_data',
+        `Payment blocked. The contractor's eTransfer email address (${etransferEmail}) is not a valid email format.`
+      )
+    }
+
+    return { allowed: true, status: 'approved', message: 'eTransfer approved.' }
   }
+
+  // ── Non-EFT, non-eTransfer gate (cheque, wire) ───────────────────────────
+  if (paymentMethod !== 'eft') {
+    return { allowed: true, status: 'skipped_non_eft', message: 'Banking gate not required for this payment method.' }
+  }
+
+  // ── EFT gate ──────────────────────────────────────────────────────────────
 
   // ── 1. Fetch contractor banking columns ────────────────────────────────────
   const { data: contractor, error } = await supabase
