@@ -274,17 +274,22 @@ export async function fetchLienWaiverState(
     .select('id, is_signed, signed_at, valid_through_date')
     .eq('invoice_id', invoiceId)
 
-  // Also check payment_requests for this invoice (legacy path)
-  const { data: prWaivers, error: prError } = await supabase
-    .from('lien_waivers')
-    .select('id, is_signed, signed_at, valid_through_date')
-    .in(
-      'payment_request_id',
-      supabase
-        .from('payment_requests')
-        .select('id')
-        .eq('invoice_id', invoiceId)
-    )
+  // Also check payment_requests for this invoice (legacy path).
+  // Supabase JS v2 does not support subquery builders in .in(); we resolve
+  // the payment_request IDs in a separate query first.
+  const { data: prIds } = await supabase
+    .from('payment_requests')
+    .select('id')
+    .eq('invoice_id', invoiceId)
+
+  const prIdList = (prIds ?? []).map(r => r.id)
+
+  const { data: prWaivers, error: prError } = prIdList.length > 0
+    ? await supabase
+        .from('lien_waivers')
+        .select('id, is_signed, signed_at, valid_through_date')
+        .in('payment_request_id', prIdList)
+    : { data: [], error: null }
 
   if (directError && prError) {
     // If both queries fail, skip this check rather than produce false positives

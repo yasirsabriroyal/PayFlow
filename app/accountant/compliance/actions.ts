@@ -12,8 +12,6 @@ import { COMPLIANCE_DOC_LABELS, COMPLIANCE_TRACKED_TYPES } from '@/lib/complianc
 import { listComplianceOverrides } from '@/lib/compliance/override-actions'
 import type { ComplianceOverride } from '@/lib/compliance/override-actions'
 
-export type { ComplianceOverride }
-
 // ============================================
 // TYPES
 // ============================================
@@ -225,7 +223,7 @@ export async function getComplianceDashboard(): Promise<GetComplianceDashboardRe
       invoice_id: log.entity_id as string,
       invoice_number: (vals.invoice_number as string) ?? log.entity_id as string,
       contractor_id: (vals.contractor_id as string) ?? '',
-      contractor_name: contractor?.company_name || contractor?.contact_name || (vals.contractor_id as string) ?? '',
+      contractor_name: (contractor?.company_name || contractor?.contact_name || (vals.contractor_id as string)) ?? '',
       amount_cents: 0, // Not stored in audit log; would need join
       blocked_at: log.created_at as string,
       blocked_reason: (vals.reason as string) ?? log.description as string ?? '',

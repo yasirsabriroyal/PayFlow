@@ -698,7 +698,7 @@ export const executeEFTPayment = secureAction(
         paymentMethod: input.payment_method,
       })
       if (!complianceResult.valid) {
-        const complianceError = formatComplianceError(complianceResult)
+        const complianceError = await formatComplianceError(complianceResult)
         if (userData?.id) {
           await supabase.from('audit_logs').insert({
             action: 'payment_blocked_compliance',
@@ -2014,7 +2014,7 @@ export async function recordCertificatePayment(input: {
         paymentMethod: input.payment_method,
       })
       if (!complianceResult.valid) {
-        const complianceError = formatComplianceError(complianceResult)
+        const complianceError = await formatComplianceError(complianceResult)
         const { data: reviewer } = await supabase
           .from('users').select('id').eq('auth_user_id', userData.id).maybeSingle()
         if (reviewer?.id) {
@@ -2360,7 +2360,7 @@ export async function recordDirectInvoicePayment(input: {
       paymentMethod: input.payment_method,
     })
     if (!complianceResult.valid) {
-      const complianceError = formatComplianceError(complianceResult)
+      const complianceError = await formatComplianceError(complianceResult)
       const { data: reviewer } = await supabase
         .from('users').select('id').eq('auth_user_id', userData.id).maybeSingle()
       if (reviewer?.id) {
@@ -2856,7 +2856,7 @@ export async function executeCertificateEFTBatch(input: {
         paymentMethod: input.payment_method,
       })
       if (!complianceResult.valid) {
-        const complianceError = formatComplianceError(complianceResult)
+        const complianceError = await formatComplianceError(complianceResult)
         // Resolve invoice number for user-facing message and audit log
         const { data: invRow } = await supabase
           .from('invoices')

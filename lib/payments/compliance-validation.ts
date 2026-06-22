@@ -324,8 +324,9 @@ export async function validateComplianceDocsForPayment(
 /**
  * Returns a single human-readable error string from the first compliance failure.
  * Used in payment action error returns.
+ * Async required because this file is marked 'use server'.
  */
-export function formatComplianceError(result: ComplianceValidationResult): string {
+export async function formatComplianceError(result: ComplianceValidationResult): Promise<string> {
   if (result.valid) return ''
   const first = result.failures[0]
   if (!first) return 'Compliance validation failed.'
