@@ -27,8 +27,23 @@ export const COMPLIANCE_DOC_LABELS: Record<string, string> = {
   void_cheque: 'Void Cheque',
 }
 
-/** Number of days ahead we warn before a document expires. */
+/**
+ * Legacy single-threshold constant kept for any callers that haven't migrated.
+ * The cron now uses COMPLIANCE_ALERT_STAGES for multi-threshold scanning.
+ */
 export const COMPLIANCE_EXPIRY_LEAD_DAYS = 30
+
+/**
+ * Named alert stages in ascending urgency order.
+ * Each key maps to a unique row in compliance_expiry_alerts (deduplicated).
+ */
+export const COMPLIANCE_ALERT_STAGE_LABELS: Record<string, string> = {
+  expiring_30d: 'Expiring in 30 days',
+  expiring_14d: 'Expiring in 14 days',
+  expiring_7d:  'Expiring in 7 days',
+  expiring_1d:  'Expiring today',
+  expired:      'Expired',
+}
 
 /** Document types tracked in the compliance center. */
 export const COMPLIANCE_TRACKED_TYPES = [

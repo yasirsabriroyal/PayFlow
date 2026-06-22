@@ -22,6 +22,7 @@ export const ROUTES = {
     payments: '/accountant/payments',
     holdbacks: '/accountant/holdbacks',
     bankingChanges: '/accountant/banking-changes',
+    compliance: '/accountant/compliance',
     invoice: (id: string) => `/accountant/invoices/${id}`,
     contractor: (id: string) => `/accountant/contractors/${id}`,
   },
