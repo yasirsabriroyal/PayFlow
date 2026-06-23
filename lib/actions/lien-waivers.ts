@@ -29,7 +29,7 @@ export async function getVendorLienWaivers() {
         total_cents,
         invoice_date,
         project:projects(name),
-        payment_requests(id, status, lien_waivers(id, is_signed, waiver_type, signed_at))
+        payment_requests(id, status, lien_waivers(id, is_signed, waiver_type, signed_at, signature_data))
       `)
       .eq('contractor_id', contractor.id)
       .eq('status', 'paid')
@@ -55,7 +55,8 @@ export async function getVendorLienWaivers() {
         payment_date: inv.invoice_date, // Using invoice date as placeholder for payment date
         status: lw && lw.is_signed ? 'signed' : 'pending',
         waiver_type: lw ? lw.waiver_type : 'progress',
-        signed_at: lw ? lw.signed_at : null
+        signed_at: lw ? lw.signed_at : null,
+        signature_data: lw ? lw.signature_data : null
       }
     })
 

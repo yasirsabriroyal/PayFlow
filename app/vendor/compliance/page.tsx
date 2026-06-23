@@ -11,7 +11,8 @@ import {
   Clock,
   FileSignature,
   AlertCircle,
-  Loader2
+  Loader2,
+  CalendarCheck
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { AppHeader } from '@/components/app-header'
@@ -40,12 +41,14 @@ type LienWaiver = {
   status: 'signed' | 'pending'
   waiver_type: string
   signed_at: string | null
+  signature_data: string | null
 }
 
 export default function VendorCompliancePage() {
   const [waivers, setWaivers] = useState<LienWaiver[]>([])
   const [loading, setLoading] = useState(true)
   const [signDialogOpen, setSignDialogOpen] = useState(false)
+  const [viewDialogOpen, setViewDialogOpen] = useState(false)
   const [selectedWaiver, setSelectedWaiver] = useState<LienWaiver | null>(null)
   const [signatureName, setSignatureName] = useState('')
   const [agreedToTerms, setAgreedToTerms] = useState(false)
@@ -65,6 +68,11 @@ export default function VendorCompliancePage() {
     }
     fetchWaivers()
   }, [])
+
+  const handleOpenView = (waiver: LienWaiver) => {
+    setSelectedWaiver(waiver)
+    setViewDialogOpen(true)
+  }
 
   const handleOpenSign = (waiver: LienWaiver) => {
     setSelectedWaiver(waiver)
@@ -275,7 +283,7 @@ export default function VendorCompliancePage() {
                           Sign Lien Waiver
                         </Button>
                       ) : (
-                        <Button variant="outline" size="sm">
+                        <Button variant="outline" size="sm" onClick={() => handleOpenView(waiver)}>
                           <FileText className="w-4 h-4 mr-2" />
                           View
                         </Button>
@@ -288,6 +296,92 @@ export default function VendorCompliancePage() {
           </div>
         </div>
       </main>
+
+      {/* Signed Waiver View Dialog */}
+      <Dialog open={viewDialogOpen} onOpenChange={setViewDialogOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <div className="mx-auto w-16 h-16 bg-success/10 rounded-full flex items-center justify-center mb-4">
+              <CheckCircle className="w-8 h-8 text-success" />
+            </div>
+            <DialogTitle className="text-center text-xl">Signed Lien Waiver</DialogTitle>
+            <DialogDescription className="text-center">
+              Statutory Declaration for Invoice {selectedWaiver?.invoice_number}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            {/* Invoice Details */}
+            <div className="bg-muted/50 rounded-lg p-4 space-y-2">
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">Invoice</span>
+                <span className="font-medium">{selectedWaiver?.invoice_number}</span>
+              </div>
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">Project</span>
+                <span className="font-medium">{selectedWaiver?.project_name}</span>
+              </div>
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">Amount</span>
+                <span className="font-medium">
+                  {selectedWaiver && formatCurrency(selectedWaiver.amount_cents)}
+                </span>
+              </div>
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">Payment Date</span>
+                <span className="font-medium">
+                  {selectedWaiver && new Date(selectedWaiver.payment_date).toLocaleDateString('en-CA')}
+                </span>
+              </div>
+            </div>
+
+            {/* Declaration Text */}
+            <div className="border border-border rounded-lg p-4 bg-muted/30">
+              <p className="text-sm text-muted-foreground leading-relaxed">
+                I hereby declare that all labor, services, and materials provided under this invoice
+                have been paid in full by the undersigned contractor. I release and waive any and all
+                liens, claims, or encumbrances against the property, the owner, and the general contractor
+                in connection with this payment.
+              </p>
+            </div>
+
+            {/* Signature Block */}
+            <div className="border border-success/30 bg-success/5 rounded-lg p-4 space-y-3">
+              <div className="flex items-center gap-2 text-success">
+                <CalendarCheck className="w-4 h-4" />
+                <span className="text-sm font-medium">Electronically Signed</span>
+              </div>
+              {selectedWaiver?.signed_at && (
+                <p className="text-xs text-muted-foreground">
+                  Signed on {new Date(selectedWaiver.signed_at).toLocaleString('en-CA', {
+                    dateStyle: 'long',
+                    timeStyle: 'short',
+                  })}
+                </p>
+              )}
+              <div className="pt-1 border-t border-success/20">
+                <p className="text-xs text-muted-foreground mb-1">Electronic Signature</p>
+                <p className="text-xl font-serif italic text-success">
+                  {(() => {
+                    try {
+                      const parsed = JSON.parse(selectedWaiver?.signature_data || '{}')
+                      return parsed.name || 'Signed'
+                    } catch {
+                      return 'Signed'
+                    }
+                  })()}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button className="w-full" variant="outline" onClick={() => setViewDialogOpen(false)}>
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* E-Signature Dialog */}
       <Dialog open={signDialogOpen} onOpenChange={setSignDialogOpen}>
