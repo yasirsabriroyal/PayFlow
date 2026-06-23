@@ -227,7 +227,7 @@ export default async function VendorInvoiceDetailPage({
                 <h2 className="font-semibold">Status History</h2>
               </div>
               <div className="p-6">
-                <InvoiceStatusTimeline invoiceId={invoice.id} />
+                <InvoiceStatusTimeline invoiceId={invoice.id} currentStatus={invoice.status} />
               </div>
             </div>
           </div>

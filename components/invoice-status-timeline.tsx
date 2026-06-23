@@ -7,6 +7,8 @@ import { getInvoiceStatusHistory, type InvoiceHistoryEntry } from '@/app/actions
 
 interface InvoiceStatusTimelineProps {
   invoiceId: string
+  /** Pass the invoice's current status so the timeline can detect incomplete history */
+  currentStatus?: string
 }
 
 const STATUS_LABELS: Record<string, string> = {
@@ -19,7 +21,24 @@ const STATUS_LABELS: Record<string, string> = {
   disputed: 'Disputed',
   partially_paid: 'Partially Paid',
   paid: 'Paid',
+  payment_processing: 'Processing Payment',
+  payment_initiated: 'Payment Sent',
+  void: 'Voided',
+  cancelled: 'Cancelled',
 }
+
+// Terminal statuses — if the invoice is in one of these states but the
+// history does not contain a matching newStatus entry, the recorded history
+// is incomplete (e.g. transitions happened before history logging was
+// introduced). We surface a notice so the contractor is not confused.
+const TERMINAL_STATUSES = new Set([
+  'paid',
+  'partially_paid',
+  'payment_initiated',
+  'payment_processing',
+  'void',
+  'cancelled',
+])
 
 const STATUS_DOT: Record<string, string> = {
   approved: 'bg-emerald-500',
@@ -46,7 +65,7 @@ function roleLabel(role: string | null): string | null {
     .join(' ')
 }
 
-export function InvoiceStatusTimeline({ invoiceId }: InvoiceStatusTimelineProps) {
+export function InvoiceStatusTimeline({ invoiceId, currentStatus }: InvoiceStatusTimelineProps) {
   const [history, setHistory] = useState<InvoiceHistoryEntry[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -72,7 +91,22 @@ export function InvoiceStatusTimeline({ invoiceId }: InvoiceStatusTimelineProps)
     return <p className="text-sm text-muted-foreground">No status changes recorded yet.</p>
   }
 
+  // Detect incomplete history: the invoice is in a terminal state but the
+  // timeline has no entry with that newStatus — this means earlier transitions
+  // were not captured (pre-history or direct DB update).
+  const lastRecordedStatus = history[history.length - 1]?.newStatus
+  const isIncomplete =
+    currentStatus &&
+    TERMINAL_STATUSES.has(currentStatus) &&
+    lastRecordedStatus !== currentStatus
+
   return (
+    <div className="space-y-5">
+      {isIncomplete && (
+        <p className="text-xs text-muted-foreground bg-muted/50 rounded-md px-3 py-2">
+          Some earlier transitions were not recorded. The history below may be partial.
+        </p>
+      )}
     <ol className="relative space-y-5 pl-1">
       {history.map((entry, idx) => {
         const isLast = idx === history.length - 1
@@ -113,5 +147,6 @@ export function InvoiceStatusTimeline({ invoiceId }: InvoiceStatusTimelineProps)
         )
       })}
     </ol>
+    </div>
   )
 }
