@@ -95,6 +95,7 @@ export default function VendorOnboardingPage() {
   const [currentStep, setCurrentStep] = useState(1)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isComplete, setIsComplete] = useState(false)
+  const [submitError, setSubmitError] = useState<string | null>(null)
   const [categories, setCategories] = useState<ContractorCategory[]>([])
   const [subcategories, setSubcategories] = useState<ContractorSubcategory[]>([])
   const [subcategoriesLoading, setSubcategoriesLoading] = useState(false)
@@ -165,6 +166,7 @@ export default function VendorOnboardingPage() {
 
   const handleSubmit = async () => {
     setIsSubmitting(true)
+    setSubmitError(null)
 
     try {
       const data = new FormData()
@@ -178,12 +180,13 @@ export default function VendorOnboardingPage() {
       const result = await submitVendorKYC(data)
       
       if (!result.success) {
-        console.error('Submission failed:', result.error)
+        setSubmitError(result.error || 'Submission failed. Please try again.')
       } else {
         setIsComplete(true)
       }
     } catch (e) {
       console.error(e)
+      setSubmitError('An unexpected error occurred. Please try again.')
     } finally {
       setIsSubmitting(false)
     }
@@ -744,6 +747,14 @@ export default function VendorOnboardingPage() {
                     </ul>
                   </div>
                 </div>
+              </div>
+            )}
+
+            {/* Submission Error */}
+            {submitError && (
+              <div className="flex items-start gap-2 bg-destructive/10 text-destructive text-sm p-3 rounded-md border border-destructive/20 mt-4">
+                <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
+                <span>{submitError}</span>
               </div>
             )}
 

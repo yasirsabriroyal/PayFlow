@@ -12,6 +12,98 @@ import {
 import { getSupabaseAdmin } from '@/lib/supabase/admin'
 import { resolveInternalUserId } from '@/lib/utils/resolve-user'
 import { applyInvoiceStatusChange, dispatchPaymentConfirmation } from '@/lib/invoices/status-flow'
+import { validateBankingForInvoiceBatch, evaluateBankingGate } from '@/lib/payments/banking-gate'
+import { validateComplianceDocsForPayment, formatComplianceError, consumeInvoiceOverrides } from '@/lib/payments/compliance-validation'
+import { createHoldbackLedger, createHoldbackLedgerBatch } from '@/lib/payments/holdback-engine'
+import { getInvoicePaymentBalance, getCertificatePaymentBalance } from '@/lib/payments/payment-balance'
+import { sendGenericAlert } from '@/lib/notifications/server-dispatch'
+
+// =====================================================
+// COMPLIANCE BLOCK NOTIFICATION HELPER
+// =====================================================
+
+/**
+ * Fires in-app notifications to Admin, Accountant, and assigned PM when a
+ * payment is blocked by the compliance gate. Non-fatal — never affects the
+ * payment result. Message is internal-facing only (not contractor-visible).
+ */
+async function notifyComplianceBlock(opts: {
+  invoiceId: string | null
+  invoiceNumber: string
+  contractorName: string
+  reason: string
+  projectId?: string | null
+  actorUserId: string
+}): Promise<void> {
+  const supabase = getSupabaseAdmin()
+  const title = `Payment blocked — compliance issue`
+  const body =
+    `Invoice ${opts.invoiceNumber} for ${opts.contractorName} was blocked before payment. ` +
+    `Reason: ${opts.reason}`
+  const link = opts.invoiceId
+    ? `/accountant/invoices/${opts.invoiceId}`
+    : `/accountant/payments`
+
+  try {
+    // Fetch all Admin and Accountant users
+    const { data: internalUsers } = await supabase
+      .from('users')
+      .select('id, first_name, last_name, email, role')
+      .in('role', ['admin', 'accountant'])
+
+    // Optionally find the assigned PM for this invoice's project
+    let pmUsers: Array<{ id: string; first_name: string | null; last_name: string | null; email: string | null }> = []
+    if (opts.projectId) {
+      const { data: pmRows } = await supabase
+        .from('project_assignments')
+        .select('user_id, users!inner(id, first_name, last_name, email, role)')
+        .eq('project_id', opts.projectId)
+
+      if (pmRows) {
+        pmUsers = pmRows
+          .map((r: Record<string, unknown>) => {
+            const u = r.users as { id: string; first_name: string | null; last_name: string | null; email: string | null; role: string } | null
+            return u
+          })
+          .filter((u): u is NonNullable<typeof u> => u !== null && u.role === 'project_manager')
+      }
+    }
+
+    const recipients = [
+      ...(internalUsers ?? []),
+      ...pmUsers,
+    ]
+
+    // Deduplicate by user id
+    const seen = new Set<string>()
+    const unique = recipients.filter(u => {
+      if (seen.has(u.id)) return false
+      seen.add(u.id)
+      return true
+    })
+
+    await Promise.all(
+      unique.map(u =>
+        sendGenericAlert({
+          recipientUserId: u.id,
+          recipient: {
+            id: u.id,
+            name: [u.first_name, u.last_name].filter(Boolean).join(' ') || 'Team Member',
+            email: u.email ?? undefined,
+            role: (u as { role?: string }).role as 'admin' | 'accountant' | 'project_manager' | undefined,
+          },
+          type: 'payment_blocked_compliance',
+          title,
+          body,
+          link,
+        })
+      )
+    )
+  } catch (e) {
+    // Non-fatal — the payment block itself is already logged to audit_logs
+    console.error('[notifyComplianceBlock] failed to send notifications:', e)
+  }
+}
 
 // =====================================================
 // INVOICE APPROVAL / REJECTION ACTIONS
@@ -390,7 +482,114 @@ export const processPayments = secureAction(
     if (!userData) {
       throw new Error('User not found')
     }
-    
+
+    // ── Stage 2: Hard banking gate for EFT batch ──────────────────────────────
+    // Prevents invoices from entering payment_processing when banking is not approved.
+    if (input.payment_method === 'eft') {
+      const bankingError = await validateBankingForInvoiceBatch(supabase, input.invoice_ids, input.payment_method)
+      if (bankingError) {
+        await supabase.from('audit_logs').insert({
+          action: 'banking_payment_blocked',
+          entity_type: 'payment_batch',
+          entity_id: `process-blocked-${Date.now()}`,
+          user_id: userData.id,
+          description: bankingError,
+          new_values: {
+            invoice_ids: input.invoice_ids,
+            payment_method: input.payment_method,
+            reason: bankingError,
+          },
+        })
+        throw new Error(bankingError)
+      }
+    }
+
+    // ── Compliance gate for processPayments ───────────────────────────────────
+    // BUG-FIX (Issue B): processPayments previously had no compliance gate.
+    // Non-compliant invoices could be moved to payment_processing unblocked.
+    // Every payment path that advances invoice status must validate compliance.
+    // We fetch contractor_id from the invoices table to run the per-invoice check.
+    {
+      const { data: batchInvoices } = await supabase
+        .from('invoices')
+        .select('id, invoice_number, contractor_id, project_id')
+        .in('id', input.invoice_ids)
+
+      for (const inv of batchInvoices ?? []) {
+        if (!inv.contractor_id) continue // system/recurring invoices without a contractor skip compliance
+
+        const complianceResult = await validateComplianceDocsForPayment({
+          contractorId: inv.contractor_id,
+          invoiceId: inv.id,
+          paymentMethod: input.payment_method,
+        })
+
+        if (!complianceResult.valid) {
+          const complianceError = await formatComplianceError(complianceResult)
+
+          await supabase.from('audit_logs').insert({
+            action: 'payment_blocked_compliance',
+            entity_type: 'invoice',
+            entity_id: inv.id,
+            user_id: userData.id,
+            description: complianceError,
+            new_values: {
+              invoice_id: inv.id,
+              invoice_number: inv.invoice_number,
+              contractor_id: inv.contractor_id,
+              payment_method: input.payment_method,
+              failures: complianceResult.failures,
+              reason: complianceError,
+            },
+          })
+
+          const { data: contractorRow } = await supabase
+            .from('contractors')
+            .select('company_name, contact_name')
+            .eq('id', inv.contractor_id)
+            .maybeSingle()
+          void notifyComplianceBlock({
+            invoiceId: inv.id,
+            invoiceNumber: inv.invoice_number || inv.id,
+            contractorName:
+              contractorRow?.company_name || contractorRow?.contact_name || inv.contractor_id,
+            reason: complianceError,
+            projectId: inv.project_id ?? null,
+            actorUserId: userData.id,
+          })
+
+          throw new Error(`Invoice ${inv.invoice_number || inv.id}: ${complianceError}`)
+        }
+      }
+    }
+
+    // Pre-check: fetch the invoices to verify none are already fully paid.
+    // The .eq('status', 'approved') filter below handles the status check, but
+    // an invoice could be in 'approved' status while having partial payments
+    // already recorded (data inconsistency). Block these explicitly.
+    const { data: candidateInvoices } = await supabase
+      .from('invoices')
+      .select('id, net_payable_cents, status')
+      .in('id', input.invoice_ids)
+
+    const alreadyPaidIds: string[] = []
+    for (const inv of candidateInvoices ?? []) {
+      const invBalance = await getInvoicePaymentBalance(
+        supabase,
+        inv.id,
+        inv.net_payable_cents || 0,
+      )
+      if (invBalance.isFullyPaid) {
+        alreadyPaidIds.push(inv.id)
+      }
+    }
+
+    if (alreadyPaidIds.length > 0) {
+      throw new Error(
+        `${alreadyPaidIds.length} invoice(s) are already fully paid and cannot be moved to payment processing.`,
+      )
+    }
+
     // Update all selected invoices to payment_processing
     const { error } = await supabase
       .from('invoices')
@@ -402,7 +601,7 @@ export const processPayments = secureAction(
       })
       .in('id', input.invoice_ids)
       .eq('status', 'approved') // Only process approved invoices
-    
+
     if (error) {
       console.error('Process payments error:', error)
       throw new Error(error.message)
@@ -480,7 +679,7 @@ export const executeEFTPayment = secureAction(
     // Verify all invoices are in approved/payment_processing status
     const { data: invoices, error: fetchError } = await supabase
       .from('invoices')
-      .select('id, status, net_payable_cents, contractor_id, invoice_number, project_id')
+      .select('id, status, net_payable_cents, holdback_cents, holdback_percent, contractor_id, invoice_number, project_id')
       .in('id', input.invoice_ids)
     
     if (fetchError) {
@@ -514,15 +713,124 @@ export const executeEFTPayment = secureAction(
       )
     }
 
+    // ── Stage 2: Hard banking gate ────────────────────────────────────────────
+    // Validates banking approval status for all contractors in this batch.
+    // If any contractor's banking is not approved, the entire batch is blocked.
+    // No payment records are created, no statuses are changed.
+    const bankingError = await validateBankingForInvoiceBatch(supabase, input.invoice_ids, input.payment_method)
+    if (bankingError) {
+      // Audit log the block attempt
+      const auditUserId = userData?.id
+      if (auditUserId) {
+        await supabase.from('audit_logs').insert({
+          action: 'banking_payment_blocked',
+          entity_type: 'payment_batch',
+          entity_id: `eft-blocked-${Date.now()}`,
+          user_id: auditUserId,
+          description: bankingError,
+          new_values: {
+            invoice_ids: input.invoice_ids,
+            payment_method: input.payment_method,
+            reason: bankingError,
+          },
+        })
+      }
+      return { success: false, error: bankingError }
+    }
+
+    // ── Stage 5: Compliance gate ──────────────────────────────────────────────
+    // Validate compliance documents for every invoice in this batch.
+    // A single compliance failure blocks the entire batch.
+    // Overrides are collected per-invoice and consumed after payment commits.
+    // BUG-004: pendingOverrideConsumptions accumulates { invoiceId, contractorId, overrideIds }
+    // for all invoice-specific overrides that were used to unblock this batch.
+    const pendingOverrideConsumptions: Array<{
+      invoiceId: string
+      contractorId: string
+      overrideIds: string[]
+    }> = []
+
+    for (const inv of invoices || []) {
+      const complianceResult = await validateComplianceDocsForPayment({
+        contractorId: inv.contractor_id,
+        invoiceId: inv.id,
+        paymentMethod: input.payment_method,
+      })
+      if (!complianceResult.valid) {
+        const complianceError = await formatComplianceError(complianceResult)
+        if (userData?.id) {
+          await supabase.from('audit_logs').insert({
+            action: 'payment_blocked_compliance',
+            entity_type: 'invoice',
+            entity_id: inv.id,
+            user_id: userData.id,
+            description: complianceError,
+            new_values: {
+              invoice_id: inv.id,
+              invoice_number: inv.invoice_number,
+              contractor_id: inv.contractor_id,
+              payment_method: input.payment_method,
+              failures: complianceResult.failures,
+              reason: complianceError,
+            },
+          })
+        }
+        // Notify Admin, Accountant, assigned PM
+        const { data: contractorRow } = await supabase
+          .from('contractors')
+          .select('company_name, contact_name')
+          .eq('id', inv.contractor_id)
+          .maybeSingle()
+        void notifyComplianceBlock({
+          invoiceId: inv.id,
+          invoiceNumber: inv.invoice_number || inv.id,
+          contractorName: contractorRow?.company_name || contractorRow?.contact_name || inv.contractor_id,
+          reason: complianceError,
+          projectId: inv.project_id ?? null,
+          actorUserId: userData.id,
+        })
+        return { success: false, error: `Invoice ${inv.invoice_number || inv.id}: ${complianceError}` }
+      }
+      // Collect any invoice-specific overrides used so we can consume them post-payment
+      if (complianceResult.overriddenIssues.length > 0) {
+        pendingOverrideConsumptions.push({
+          invoiceId: inv.id,
+          contractorId: inv.contractor_id,
+          overrideIds: complianceResult.overriddenIssues.map(o => o.overrideId),
+        })
+      }
+    }
+
     const batchReference = input.batch_reference || `EFT-${Date.now()}`
-    const totalAmount = invoices?.reduce((sum, inv) => sum + (inv.net_payable_cents || 0), 0) || 0
+    // totalAmount accumulates only what is actually paid in this batch
+    // (remaining balance per invoice), not the full net_payable_cents totals.
+    let totalAmount = 0
 
     const processedPaymentIds: string[] = []
     const processedCertIds: string[] = []
 
     // Update each invoice to paid status with proper amount tracking
     for (const inv of invoices || []) {
-      const paymentAmount = inv.net_payable_cents || 0
+      // Query actual payment records to determine how much is still owed.
+      // Never assume net_payable_cents is fully unpaid — prior direct payments
+      // or partial certificate payments may have already reduced the balance.
+      const invBalance = await getInvoicePaymentBalance(
+        supabase,
+        inv.id,
+        inv.net_payable_cents || 0,
+      )
+
+      if (invBalance.isFullyPaid) {
+        // Invoice already fully paid through a prior payment path.
+        // Do not create another payment record.
+        continue
+      }
+
+      // paymentAmount is the invoice-level remaining balance and is used for
+      // the non-certificate (payment_request) path below. For the certificate
+      // path we calculate per-cert remaining balances individually so that a
+      // cert that was partially paid outside this batch is handled correctly.
+      const paymentAmount = invBalance.remainingPayableCents
 
       // First check if there are approved payment certificates for this invoice
       const { data: approvedCerts } = await supabase
@@ -532,14 +840,33 @@ export const executeEFTPayment = secureAction(
         .eq('status', 'approved')
 
       if (approvedCerts && approvedCerts.length > 0) {
-        // Pay through certificates - create payment records linked to each certificate
+        // Pay through certificates — create payment records linked to each cert.
+        // Each cert is checked independently against the payments table so that
+        // a cert already (partially) paid outside this batch is never overpaid.
         for (const cert of approvedCerts) {
+          // Authoritative balance for this specific certificate.
+          const certBalance = await getCertificatePaymentBalance(
+            supabase,
+            cert.id,
+            cert.net_payable_cents || 0,
+          )
+
+          if (certBalance.isFullyPaid) {
+            // Certificate was already paid through another path — skip it.
+            // Do not create a duplicate payment record.
+            continue
+          }
+
+          // Use remaining payable, not the full cert.net_payable_cents.
+          const certPaymentAmount = certBalance.remainingPayableCents
+          totalAmount += certPaymentAmount
+
           const { data: newPayment, error: paymentError } = await supabase
             .from('payments')
             .insert({
               payment_certificate_id: cert.id,
               contractor_id: inv.contractor_id,
-              amount_cents: cert.net_payable_cents || 0,
+              amount_cents: certPaymentAmount,
               payment_method: input.payment_method,
               payment_date: new Date().toISOString().split('T')[0],
               status: 'cleared',
@@ -578,7 +905,9 @@ export const executeEFTPayment = secureAction(
           processedCertIds.push(cert.id)
         }
       } else {
-        // No certificates - use legacy payment_request flow
+        // No certificates — use legacy payment_request flow.
+        // Accumulate the invoice-level remaining payable into the batch total.
+        totalAmount += paymentAmount
         const { data: existingPR } = await supabase
           .from('payment_requests')
           .select('id')
@@ -649,13 +978,17 @@ export const executeEFTPayment = secureAction(
         }
       }
       
-      // Update invoice status and payment tracking
+      // Update invoice status and payment tracking.
+      // amount_paid_cents / total_paid_cents must accumulate (prior paid +
+      // this payment). Writing only paymentAmount would overwrite prior
+      // payments and cause the fields to show less than what was actually paid.
+      const newTotalPaidCents = invBalance.totalPaidCents + paymentAmount
       const { error: updateError } = await supabase
         .from('invoices')
         .update({
           status: 'paid',
-          amount_paid_cents: paymentAmount,
-          total_paid_cents: paymentAmount,
+          amount_paid_cents: newTotalPaidCents,
+          total_paid_cents: newTotalPaidCents,
           amount_remaining_cents: 0,
           updated_at: new Date().toISOString(),
         })
@@ -677,7 +1010,32 @@ export const executeEFTPayment = secureAction(
       executed_at: new Date().toISOString(),
       status: 'completed',
     })
-    
+
+    // Stage 3: Create holdback ledger rows for every invoice in the batch that
+    // carries a holdback. Payment records and invoice statuses are already
+    // committed at this point, so failures are collected as warnings rather than
+    // aborting the batch. Each per-invoice failure is independently audit-logged
+    // by the holdback engine itself.
+    const holdbackDate = new Date().toISOString().split('T')[0]
+    const batchHoldbackResult = await createHoldbackLedgerBatch(supabase, {
+      paymentDate: holdbackDate,
+      processedByUserId: userData.id,
+      invoices: (invoices || []).map((inv) => ({
+        invoiceId: inv.id,
+        contractorId: inv.contractor_id,
+        projectId: inv.project_id,
+        holdbackCents: (inv.holdback_cents as number) ?? 0,
+        holdbackPercent: (inv.holdback_percent as number) ?? 0,
+      })),
+    })
+
+    if (batchHoldbackResult.failed.length > 0) {
+      console.error(
+        `EFT batch ${batchReference}: ${batchHoldbackResult.failed.length} holdback ledger(s) failed to create.`,
+        batchHoldbackResult.failed
+      )
+    }
+
     // Log the critical action
     await supabase.from('audit_logs').insert({
       action: 'eft_payment_executed',
@@ -690,6 +1048,24 @@ export const executeEFTPayment = secureAction(
         invoice_ids: input.invoice_ids,
       },
     })
+
+    // BUG-004: Consume any invoice-specific compliance overrides that were used
+    // to unblock invoices in this batch. Fire-and-forget, non-fatal.
+    if (pendingOverrideConsumptions.length > 0) {
+      const internalUserId = await resolveInternalUserId(userData.id, supabase)
+      if (internalUserId) {
+        void Promise.all(
+          pendingOverrideConsumptions.map(c =>
+            consumeInvoiceOverrides({
+              contractorId: c.contractorId,
+              invoiceId: c.invoiceId,
+              overrideIds: c.overrideIds,
+              actorUserId: internalUserId,
+            })
+          )
+        )
+      }
+    }
     
     // Send branded payment-confirmation emails to the REAL vendor (plus internal
     // CC) via the unified server dispatcher. Additive + non-fatal: the payment is
@@ -1280,6 +1656,9 @@ export async function getContractorById(contractorId: string) {
         postal_code,
         bank_name,
         bank_account_last4,
+        banking_approval_status,
+        preferred_payment_method,
+        etransfer_email,
         wcb_clearance_expiry,
         wcb_account_number,
         business_number,
@@ -1363,7 +1742,9 @@ export async function getApprovedInvoices(options?: { limit?: number }) {
           id,
           company_name,
           wcb_clearance_expiry,
-          bank_account_last4
+          bank_account_last4,
+          banking_approval_status,
+          bank_account_encrypted
         ),
         project:projects(id, name, project_number)
       `)
@@ -1570,21 +1951,166 @@ export async function recordCertificatePayment(input: {
       return { success: false, error: 'Certificate not found' }
     }
     
-    // 2. Validate certificate status
+    // 2. Validate certificate status — only 'approved' certificates may be paid.
+    if (certificate.status === 'paid') {
+      // Emit duplicate-blocked audit event before returning.
+      const blockUserId = await resolveInternalUserId(userData.id, supabase)
+      if (blockUserId) {
+        await supabase.from('audit_logs').insert({
+          action: 'certificate_payment_blocked_duplicate',
+          entity_type: 'payment_certificate',
+          entity_id: input.certificate_id,
+          user_id: blockUserId,
+          description: `Duplicate payment attempt blocked for certificate ${certificate.certificate_number} (status: paid)`,
+          new_values: {
+            certificate_id: input.certificate_id,
+            certificate_number: certificate.certificate_number,
+            payment_method: input.payment_method,
+          },
+        })
+      }
+      return { success: false, error: `Certificate ${certificate.certificate_number} has already been paid and is locked. No further payment actions are permitted.` }
+    }
     if (certificate.status !== 'approved') {
       return { success: false, error: `Cannot process payment for certificate with status: ${certificate.status}` }
     }
-    
-    // 3. Validate payment amount
-    if (input.amount_cents <= 0) {
-      return { success: false, error: 'Payment amount must be greater than 0' }
+
+    // 3. One Certificate = One Payment policy.
+    //    Check whether ANY prior payment row exists for this certificate
+    //    regardless of the balance math. The uix_payments_per_cert unique
+    //    index enforces this at the DB layer; this application-layer check
+    //    provides an early, human-readable rejection before hitting the DB
+    //    constraint and emits a structured audit event.
+    const { data: existingPayments, error: existingPaymentsError } = await supabase
+      .from('payments')
+      .select('id, amount_cents, status, created_at')
+      .eq('payment_certificate_id', input.certificate_id)
+      .not('status', 'in', '("cancelled","returned")')
+      .limit(1)
+
+    if (existingPaymentsError) {
+      console.error('recordCertificatePayment: could not check existing payments', existingPaymentsError)
+      return { success: false, error: 'Could not verify certificate payment history.' }
     }
 
-    // Certs are paid in full certified amount — no holdback deduction per cert
-    if (input.amount_cents > certificate.certified_amount_cents) {
+    if (existingPayments && existingPayments.length > 0) {
+      const blockUserId = await resolveInternalUserId(userData.id, supabase)
+      if (blockUserId) {
+        await supabase.from('audit_logs').insert({
+          action: 'certificate_payment_blocked_duplicate',
+          entity_type: 'payment_certificate',
+          entity_id: input.certificate_id,
+          user_id: blockUserId,
+          description: `Duplicate payment attempt blocked for certificate ${certificate.certificate_number} — a payment record already exists`,
+          new_values: {
+            certificate_id: input.certificate_id,
+            certificate_number: certificate.certificate_number,
+            payment_method: input.payment_method,
+            existing_payment_id: existingPayments[0].id,
+          },
+        })
+      }
       return {
         success: false,
-        error: `Payment amount ($${(input.amount_cents / 100).toFixed(2)}) exceeds certificate certified amount ($${(certificate.certified_amount_cents / 100).toFixed(2)})`
+        error: `Certificate ${certificate.certificate_number} has already been paid and is locked. No further payment actions are permitted.`,
+      }
+    }
+
+    // 4. Full-amount enforcement.
+    //    Certificate payments are always the full net_payable_cents amount.
+    //    The amount field is a display value only — the system always uses
+    //    the certificate amount, never a caller-provided partial amount.
+    const requiredAmount = certificate.net_payable_cents
+
+    if (requiredAmount <= 0) {
+      return { success: false, error: 'Certificate net payable amount is zero or invalid.' }
+    }
+
+    // If the caller supplied an amount, it must exactly match net_payable_cents.
+    // This guards against any UI that might pass an incorrect value.
+    if (input.amount_cents !== requiredAmount) {
+      return {
+        success: false,
+        error: `Payment amount ($${(input.amount_cents / 100).toFixed(2)}) does not match certificate net payable ($${(requiredAmount / 100).toFixed(2)}). Certificate payments must be for the full certified amount.`,
+      }
+    }
+
+    // ── Stage 2: Hard banking gate ────────────────────────────────────────────
+    const bankingGate = await evaluateBankingGate(supabase, certificate.contractor_id, input.payment_method)
+    if (!bankingGate.allowed) {
+      // Resolve reviewer ID for audit log (best-effort)
+      const { data: reviewer } = await supabase
+        .from('users')
+        .select('id')
+        .eq('auth_user_id', userData.id)
+        .maybeSingle()
+      if (reviewer?.id) {
+        await supabase.from('audit_logs').insert({
+          action: 'banking_payment_blocked',
+          entity_type: 'payment_certificate',
+          entity_id: input.certificate_id,
+          user_id: reviewer.id,
+          description: bankingGate.message,
+          new_values: {
+            certificate_id: input.certificate_id,
+            contractor_id: certificate.contractor_id,
+            payment_method: input.payment_method,
+            reason: bankingGate.message,
+          },
+        })
+      }
+      return { success: false, error: bankingGate.message }
+    }
+
+    // ── Stage 5: Compliance gate ──────────────────────────────────────────────
+    // Certificate payments require the same compliance checks as direct payments.
+    // BUG-004: Collect invoice-specific overrides used to unblock this cert.
+    let certComplianceOverrideIds: string[] = []
+    if (certificate.invoice_id) {
+      const complianceResult = await validateComplianceDocsForPayment({
+        contractorId: certificate.contractor_id,
+        invoiceId: certificate.invoice_id,
+        paymentMethod: input.payment_method,
+      })
+      if (!complianceResult.valid) {
+        const complianceError = await formatComplianceError(complianceResult)
+        const { data: reviewer } = await supabase
+          .from('users').select('id').eq('auth_user_id', userData.id).maybeSingle()
+        if (reviewer?.id) {
+          await supabase.from('audit_logs').insert({
+            action: 'payment_blocked_compliance',
+            entity_type: 'payment_certificate',
+            entity_id: input.certificate_id,
+            user_id: reviewer.id,
+            description: complianceError,
+            new_values: {
+              certificate_id: input.certificate_id,
+              invoice_id: certificate.invoice_id,
+              contractor_id: certificate.contractor_id,
+              payment_method: input.payment_method,
+              failures: complianceResult.failures,
+              reason: complianceError,
+            },
+          })
+        }
+        // Resolve invoice number and contractor name for notification
+        const [invRowResult, contractorRowResult] = await Promise.all([
+          supabase.from('invoices').select('invoice_number').eq('id', certificate.invoice_id).maybeSingle(),
+          supabase.from('contractors').select('company_name, contact_name').eq('id', certificate.contractor_id).maybeSingle(),
+        ])
+        void notifyComplianceBlock({
+          invoiceId: certificate.invoice_id,
+          invoiceNumber: invRowResult.data?.invoice_number || certificate.invoice_id || 'unknown',
+          contractorName: contractorRowResult.data?.company_name || contractorRowResult.data?.contact_name || certificate.contractor_id || 'unknown',
+          reason: complianceError,
+          projectId: certificate.project_id ?? null,
+          actorUserId: userData.id,
+        })
+        return { success: false, error: complianceError }
+      }
+      // Payment passes — collect override IDs for post-commit consumption
+      if (complianceResult.overriddenIssues.length > 0) {
+        certComplianceOverrideIds = complianceResult.overriddenIssues.map(o => o.overrideId)
       }
     }
 
@@ -1595,15 +2121,33 @@ export async function recordCertificatePayment(input: {
       return { success: false, error: 'Could not resolve internal user ID' }
     }
 
-    // 4. Create the payment record
-    // Note: payment_request_id is intentionally omitted — cert payments use
-    // payment_certificate_id instead (migration 041 makes payment_request_id nullable)
+    // 5. Audit: payment method selected for this certificate
+    await supabase.from('audit_logs').insert({
+      action: 'certificate_payment_method_selected',
+      entity_type: 'payment_certificate',
+      entity_id: input.certificate_id,
+      user_id: internalUserId,
+      description: `Payment method ${input.payment_method.toUpperCase()} selected for certificate ${certificate.certificate_number}`,
+      new_values: {
+        certificate_id: input.certificate_id,
+        certificate_number: certificate.certificate_number,
+        payment_method: input.payment_method,
+        invoice_id: certificate.invoice_id,
+        contractor_id: certificate.contractor_id,
+      },
+    })
+
+    // 6. Create the payment record.
+    //    payment_request_id intentionally omitted — cert payments use
+    //    payment_certificate_id (migration 041 makes payment_request_id nullable).
+    //    amount_cents is always requiredAmount (net_payable_cents) — enforced above.
+    const paymentDate = new Date().toISOString()
     const { data: payment, error: paymentError } = await supabase
       .from('payments')
       .insert({
         payment_certificate_id: input.certificate_id,
         contractor_id: certificate.contractor_id,
-        amount_cents: input.amount_cents,
+        amount_cents: requiredAmount,
         payment_method: input.payment_method,
         payment_date: input.payment_date,
         status: 'cleared',
@@ -1621,18 +2165,36 @@ export async function recordCertificatePayment(input: {
       return { success: false, error: paymentError.message }
     }
     
-    // 5. Update certificate status to paid if fully paid (based on net payable amount)
-    if (input.amount_cents >= certificate.net_payable_cents) {
-      await supabase
-        .from('payment_certificates')
-        .update({
-          status: 'paid',
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', input.certificate_id)
-    }
-    
-    // 6. Update invoice total_paid_cents
+    // 7. Lock the certificate: status = 'paid', paid_at/paid_by stamped.
+    //    Certificate payments are always full — every cert payment fully settles
+    //    the certificate. The immutability lock is unconditional.
+    await supabase
+      .from('payment_certificates')
+      .update({
+        status: 'paid',
+        paid_at: paymentDate,
+        paid_by: internalUserId,
+        updated_at: paymentDate,
+      })
+      .eq('id', input.certificate_id)
+
+    // Audit: certificate locked after payment
+    await supabase.from('audit_logs').insert({
+      action: 'certificate_locked_after_payment',
+      entity_type: 'payment_certificate',
+      entity_id: input.certificate_id,
+      user_id: internalUserId,
+      description: `Certificate ${certificate.certificate_number} locked after payment — no further payment actions permitted`,
+      new_values: {
+        certificate_id: input.certificate_id,
+        certificate_number: certificate.certificate_number,
+        paid_at: paymentDate,
+        invoice_id: certificate.invoice_id,
+        contractor_id: certificate.contractor_id,
+      },
+    })
+
+    // 8. Update invoice total_paid_cents
     const { data: invoice } = await supabase
       .from('invoices')
       .select('total_paid_cents, net_payable_cents, status')
@@ -1641,7 +2203,7 @@ export async function recordCertificatePayment(input: {
     
     let invoiceFullyPaid = false
     if (invoice) {
-      const newTotalPaid = (invoice.total_paid_cents || 0) + input.amount_cents
+      const newTotalPaid = (invoice.total_paid_cents || 0) + requiredAmount
       invoiceFullyPaid = newTotalPaid >= (invoice.net_payable_cents || 0)
       await supabase
         .from('invoices')
@@ -1649,13 +2211,13 @@ export async function recordCertificatePayment(input: {
           total_paid_cents: newTotalPaid,
           amount_paid_cents: newTotalPaid,
           amount_remaining_cents: Math.max(0, invoice.net_payable_cents - newTotalPaid),
-          updated_at: new Date().toISOString(),
+          updated_at: paymentDate,
         })
         .eq('id', certificate.invoice_id)
     }
 
-    // 6b. Flip the invoice status (paid / partially_paid) through the centralized
-    //     status engine so audit + history + notifications fire consistently.
+    // 8b. Flip the invoice status through the centralized status engine
+    //     so audit + history + notifications fire consistently.
     if (invoice && invoice.status !== 'paid') {
       try {
         await applyInvoiceStatusChange({
@@ -1667,7 +2229,7 @@ export async function recordCertificatePayment(input: {
             role: userData.role ?? 'accountant',
             authUserId: userData.id,
           },
-          reason: `Payment of $${(input.amount_cents / 100).toFixed(2)} recorded for certificate ${certificate.certificate_number}`,
+          reason: `Payment of $${(requiredAmount / 100).toFixed(2)} recorded for certificate ${certificate.certificate_number}`,
         })
       } catch (statusErr) {
         // Non-fatal — payment is already recorded.
@@ -1676,63 +2238,77 @@ export async function recordCertificatePayment(input: {
     }
     
     // 7. Create a holdback ledger entry if this certificate withholds a holdback.
-    //    Idempotent: only one ledger row per invoice. Starts a 45-day statutory
-    //    countdown from the payment date.
-    if (certificate.holdback_amount_cents && certificate.holdback_amount_cents > 0) {
-      const { data: existingHoldback } = await supabase
-        .from('holdback_ledgers')
-        .select('id')
-        .eq('invoice_id', certificate.invoice_id)
+    //    BUG-FIX (Issue A): Previous inline insert omitted holdback_percent (NOT NULL
+    //    column), causing a silent DB error. Now delegates to createHoldbackLedger()
+    //    from the holdback engine which handles idempotency, holdback_percent, and
+    //    audit logging correctly.
+    if (certificate.holdback_amount_cents && certificate.holdback_amount_cents > 0 && certificate.invoice_id) {
+      // Fetch holdback_percent from invoice (needed for the ledger row)
+      const { data: invForHoldback } = await supabase
+        .from('invoices')
+        .select('holdback_percent, project_id')
+        .eq('id', certificate.invoice_id)
         .maybeSingle()
 
-      if (!existingHoldback) {
-        const countdownStart = new Date(input.payment_date)
-        const releaseDue = new Date(countdownStart)
-        releaseDue.setDate(releaseDue.getDate() + 45)
+      const holdbackPct = (invForHoldback?.holdback_percent as number) ?? 0
 
-        const { error: holdbackError } = await supabase
-          .from('holdback_ledgers')
-          .insert({
-            contractor_id: certificate.contractor_id,
-            project_id: certificate.project_id,
-            invoice_id: certificate.invoice_id,
-            holdback_amount_cents: certificate.holdback_amount_cents,
-            status: 'countdown_started',
-            countdown_start_date: countdownStart.toISOString().split('T')[0],
-            release_due_date: releaseDue.toISOString().split('T')[0],
-            released_amount_cents: 0,
-          })
+      const holdbackResult = await createHoldbackLedger(supabase, {
+        invoiceId: certificate.invoice_id,
+        contractorId: certificate.contractor_id,
+        projectId: (invForHoldback?.project_id ?? certificate.project_id) as string,
+        holdbackAmountCents: certificate.holdback_amount_cents,
+        holdbackPercent: holdbackPct,
+        paymentDate: input.payment_date,
+        holdbackReleaseDays: 45,
+        processedByUserId: internalUserId,
+      })
 
-        if (holdbackError) {
-          // Non-fatal: payment already recorded. Log for follow-up.
-          console.error('Create holdback ledger error:', holdbackError)
-        }
+      if (holdbackResult.status === 'failed') {
+        // Non-fatal: payment already recorded. Engine audit-logged the failure.
+        console.error('Create holdback ledger error (certificate payment):', holdbackResult.error)
       }
     }
 
-    // 8. Log the action
-    const auditUserId = await resolveInternalUserId(userData.id, supabase)
+    // 9. Emit certificate_payment_completed — the primary accounting event
+    //    for this transaction. internalUserId was resolved above; re-use it.
     await supabase.from('audit_logs').insert({
-      action: 'payment_recorded',
-      entity_type: 'payment',
-      entity_id: payment.id,
-      user_id: auditUserId,
-      description: `Recorded payment of $${(input.amount_cents / 100).toFixed(2)} for certificate ${certificate.certificate_number}`,
+      action: 'certificate_payment_completed',
+      entity_type: 'payment_certificate',
+      entity_id: input.certificate_id,
+      user_id: internalUserId,
+      description: `Certificate ${certificate.certificate_number} payment completed — $${(requiredAmount / 100).toFixed(2)} via ${input.payment_method.toUpperCase()}`,
       new_values: {
-        amount_cents: input.amount_cents,
-        payment_method: input.payment_method,
+        payment_id: payment.id,
+        certificate_id: input.certificate_id,
         certificate_number: certificate.certificate_number,
+        amount_cents: requiredAmount,
+        payment_method: input.payment_method,
+        invoice_id: certificate.invoice_id,
+        contractor_id: certificate.contractor_id,
+        payment_date: input.payment_date,
       },
     })
-    
+
     revalidatePath('/accountant/payments')
     revalidatePath('/accountant/queue')
     revalidatePath('/accountant/holdbacks')
+    revalidatePath(`/invoices/${certificate.invoice_id}`)
+
+    // BUG-004: Consume any invoice-specific compliance overrides used to unblock
+    // this certificate payment. Fire-and-forget, non-fatal.
+    if (certComplianceOverrideIds.length > 0 && certificate.invoice_id) {
+      void consumeInvoiceOverrides({
+        contractorId: certificate.contractor_id,
+        invoiceId: certificate.invoice_id,
+        overrideIds: certComplianceOverrideIds,
+        actorUserId: internalUserId,
+      })
+    }
     
     return { 
       success: true, 
       payment,
-      message: `Payment of $${(input.amount_cents / 100).toFixed(2)} recorded successfully`
+      message: `Payment of $${(requiredAmount / 100).toFixed(2)} recorded successfully. Certificate ${certificate.certificate_number} is now locked.`
     }
   })
 }
@@ -1804,24 +2380,116 @@ export async function recordDirectInvoicePayment(input: {
       }
     }
     
-    // 4. Validate invoice status
-    if (!['approved', 'payment_processing', 'paid'].includes(invoice.status)) {
+    // ── Stage 2: Hard banking gate ────────────────────────────────────────────
+    const bankingGate = await evaluateBankingGate(supabase, invoice.contractor_id, input.payment_method)
+    if (!bankingGate.allowed) {
+      const { data: reviewer } = await supabase
+        .from('users')
+        .select('id')
+        .eq('auth_user_id', userData.id)
+        .maybeSingle()
+      if (reviewer?.id) {
+        await supabase.from('audit_logs').insert({
+          action: 'banking_payment_blocked',
+          entity_type: 'invoice',
+          entity_id: input.invoice_id,
+          user_id: reviewer.id,
+          description: bankingGate.message,
+          new_values: {
+            invoice_id: input.invoice_id,
+            contractor_id: invoice.contractor_id,
+            payment_method: input.payment_method,
+            reason: bankingGate.message,
+          },
+        })
+      }
+      return { success: false, error: bankingGate.message }
+    }
+
+    // ── Stage 5: Compliance gate ──────────────────────────────────────────────
+    // BUG-004: directComplianceOverrideIds captures invoice-specific override IDs
+    // used to unblock this payment so they can be consumed post-commit.
+    let directComplianceOverrideIds: string[] = []
+    const complianceResult = await validateComplianceDocsForPayment({
+      contractorId: invoice.contractor_id,
+      invoiceId: input.invoice_id,
+      paymentMethod: input.payment_method,
+    })
+    if (!complianceResult.valid) {
+      const complianceError = await formatComplianceError(complianceResult)
+      const { data: reviewer } = await supabase
+        .from('users').select('id').eq('auth_user_id', userData.id).maybeSingle()
+      if (reviewer?.id) {
+        await supabase.from('audit_logs').insert({
+          action: 'payment_blocked_compliance',
+          entity_type: 'invoice',
+          entity_id: input.invoice_id,
+          user_id: reviewer.id,
+          description: complianceError,
+          new_values: {
+            invoice_id: input.invoice_id,
+            contractor_id: invoice.contractor_id,
+            payment_method: input.payment_method,
+            failures: complianceResult.failures,
+            reason: complianceError,
+          },
+        })
+      }
+      // Notify Admin, Accountant, assigned PM
+      const { data: contractorRow } = await supabase
+        .from('contractors')
+        .select('company_name, contact_name')
+        .eq('id', invoice.contractor_id)
+        .maybeSingle()
+      void notifyComplianceBlock({
+        invoiceId: input.invoice_id,
+        invoiceNumber: invoice.invoice_number || input.invoice_id,
+        contractorName: contractorRow?.company_name || contractorRow?.contact_name || invoice.contractor_id,
+        reason: complianceError,
+        projectId: invoice.project_id ?? null,
+        actorUserId: userData.id,
+      })
+      return { success: false, error: complianceError }
+    }
+    // Payment passes — collect override IDs for post-commit consumption
+    if (complianceResult.overriddenIssues.length > 0) {
+      directComplianceOverrideIds = complianceResult.overriddenIssues.map(o => o.overrideId)
+    }
+
+    // 4. Validate invoice status — 'paid' is intentionally excluded.
+    //    An invoice that has already been fully paid must never receive another
+    //    payment through any code path. This is a hard server-side block.
+    if (invoice.status === 'paid') {
+      return { success: false, error: 'Invoice is already paid and cannot receive another payment.' }
+    }
+    if (!['approved', 'payment_processing'].includes(invoice.status)) {
       return { success: false, error: `Cannot process payment for invoice with status: ${invoice.status}` }
     }
-    
-    // 5. Calculate remaining balance
-    const currentPaid = invoice.amount_paid_cents || invoice.total_paid_cents || 0
-    const remainingBalance = invoice.net_payable_cents - currentPaid
-    
+
+    // 5. Calculate remaining balance from authoritative payment records.
+    //    Never trust the stale denormalised fields on the invoice row —
+    //    query the payments table directly to get the true paid total.
+    const balance = await getInvoicePaymentBalance(
+      supabase,
+      input.invoice_id,
+      invoice.net_payable_cents,
+    )
+
+    if (balance.isFullyPaid) {
+      return { success: false, error: 'Invoice is already paid and cannot receive another payment.' }
+    }
+
+    const remainingBalance = balance.remainingPayableCents
+
     // 6. Validate payment amount
     if (input.amount_cents <= 0) {
       return { success: false, error: 'Payment amount must be greater than 0' }
     }
-    
+
     if (input.amount_cents > remainingBalance) {
-      return { 
-        success: false, 
-        error: `Payment amount ($${(input.amount_cents / 100).toFixed(2)}) exceeds remaining balance ($${(remainingBalance / 100).toFixed(2)})` 
+      return {
+        success: false,
+        error: `Payment amount ($${(input.amount_cents / 100).toFixed(2)}) exceeds remaining balance ($${(remainingBalance / 100).toFixed(2)})`,
       }
     }
     
@@ -1884,70 +2552,121 @@ export async function recordDirectInvoicePayment(input: {
       return { success: false, error: paymentError.message }
     }
 
-    // 9. Update invoice payment totals
-    const newTotalPaid = currentPaid + input.amount_cents
+    // 9. Update invoice payment totals.
+    //    Use balance.totalPaidCents (authoritative, from payment records) not
+    //    the stale invoice fields, so concurrent payments are handled correctly.
+    const newTotalPaid = balance.totalPaidCents + input.amount_cents
     const newRemainingAmount = invoice.net_payable_cents - newTotalPaid
     const isFullyPaid = newRemainingAmount <= 0
-    
+
     await supabase
       .from('invoices')
       .update({
         total_paid_cents: newTotalPaid,
         amount_paid_cents: newTotalPaid,
         amount_remaining_cents: Math.max(0, newRemainingAmount),
-        status: isFullyPaid ? 'paid' : 'payment_processing',
         updated_at: new Date().toISOString(),
       })
       .eq('id', input.invoice_id)
-    
-    // 9b. Create a holdback ledger entry once the invoice is fully paid and it
-    //     carries a holdback. Idempotent: one ledger row per invoice. Starts the
-    //     45-day statutory countdown from the payment date.
+
+    // 9b. Route the status change through the centralized status engine so that
+    //     audit + invoice_history + contractor/PM notifications fire consistently.
+    //     BUG-FIX (Issue D): Previously used raw .update({ status }) which
+    //     bypassed applyInvoiceStatusChange — no history, no payment confirmation.
+    try {
+      await applyInvoiceStatusChange({
+        invoiceId: input.invoice_id,
+        newStatus: isFullyPaid ? 'paid' : 'partially_paid',
+        actor: {
+          userId: internalUserId,
+          name: userData.email || 'Accountant',
+          role: userData.role ?? 'accountant',
+          authUserId: userData.id,
+        },
+        reason: `Direct payment of $${(input.amount_cents / 100).toFixed(2)} recorded via ${input.payment_method.toUpperCase()}`,
+      })
+    } catch (statusErr) {
+      // Non-fatal — payment is already recorded. Log and continue.
+      console.error('[recordDirectInvoicePayment] Status transition failed:', statusErr)
+    }
+
+    // 9c. Create a holdback ledger entry once the invoice is fully paid and it
+    //     carries a holdback. BUG-FIX (Issue A): Previous inline insert omitted
+    //     holdback_percent (NOT NULL column). Delegated to createHoldbackLedger()
+    //     which handles idempotency, holdback_percent, and audit logging correctly.
     if (isFullyPaid && invoice.holdback_cents && invoice.holdback_cents > 0) {
-      const { data: existingHoldback } = await supabase
-        .from('holdback_ledgers')
-        .select('id')
-        .eq('invoice_id', input.invoice_id)
+      // Fetch holdback_percent from invoice for the ledger row
+      const { data: invForHoldback } = await supabase
+        .from('invoices')
+        .select('holdback_percent')
+        .eq('id', input.invoice_id)
         .maybeSingle()
 
-      if (!existingHoldback) {
-        const countdownStart = new Date(input.payment_date)
-        const releaseDue = new Date(countdownStart)
-        releaseDue.setDate(releaseDue.getDate() + 45)
+      const holdbackPct = (invForHoldback?.holdback_percent as number) ?? 0
 
-        const { error: holdbackError } = await supabase
-          .from('holdback_ledgers')
-          .insert({
-            contractor_id: invoice.contractor_id,
-            project_id: invoice.project_id,
-            invoice_id: input.invoice_id,
-            holdback_amount_cents: invoice.holdback_cents,
-            status: 'countdown_started',
-            countdown_start_date: countdownStart.toISOString().split('T')[0],
-            release_due_date: releaseDue.toISOString().split('T')[0],
-            released_amount_cents: 0,
-          })
+      const holdbackResult = await createHoldbackLedger(supabase, {
+        invoiceId: input.invoice_id,
+        contractorId: invoice.contractor_id,
+        projectId: invoice.project_id as string,
+        holdbackAmountCents: invoice.holdback_cents,
+        holdbackPercent: holdbackPct,
+        paymentDate: input.payment_date,
+        holdbackReleaseDays: 45,
+        processedByUserId: internalUserId,
+      })
 
-        if (holdbackError) {
-          console.error('Create holdback ledger error (direct payment):', holdbackError)
-        }
+      if (holdbackResult.status === 'failed') {
+        // Non-fatal: payment already recorded. Engine audit-logged the failure.
+        console.error('Create holdback ledger error (direct payment):', holdbackResult.error)
       }
     }
-    
+
+    // 9d. Dispatch branded payment-confirmation email/notification to contractor.
+    //     BUG-FIX (Issue H): Previously missing — contractors received no confirmation
+    //     for direct invoice payments.
+    void dispatchPaymentConfirmation({
+      invoiceId: input.invoice_id,
+      invoiceNumber: invoice.invoice_number || input.invoice_id,
+      totalCents: invoice.net_payable_cents || 0,
+      contractorId: invoice.contractor_id ?? null,
+      projectId: invoice.project_id ?? null,
+      status: isFullyPaid ? 'paid' : 'partially_paid',
+      actor: { userId: internalUserId, name: userData.email || 'Accountant', role: userData.role ?? 'accountant', authUserId: userData.id },
+      payment: {
+        paymentDate: input.payment_date,
+        paymentReference: input.payment_reference || `Direct payment for ${invoice.invoice_number}`,
+        paymentMethod: input.payment_method,
+        issuedByName: userData.email || 'Accountant',
+        amountPaidCents: input.amount_cents,
+      },
+    })
+
     // 10. Log the action
     await supabase.from('audit_logs').insert({
       action: 'direct_invoice_payment',
       entity_type: 'invoice',
       entity_id: input.invoice_id,
-      user_id: userData.id,
+      user_id: internalUserId,
       description: `Recorded direct payment of $${(input.amount_cents / 100).toFixed(2)} for invoice ${invoice.invoice_number}`,
       new_values: {
         amount_cents: input.amount_cents,
         payment_method: input.payment_method,
         invoice_number: invoice.invoice_number,
         payment_type: 'direct_invoice',
+        is_fully_paid: isFullyPaid,
       },
     })
+
+    // BUG-004: Consume any invoice-specific compliance overrides used to unblock
+    // this direct payment. internalUserId is already resolved above — reuse it.
+    if (directComplianceOverrideIds.length > 0 && internalUserId) {
+      void consumeInvoiceOverrides({
+        contractorId: invoice.contractor_id,
+        invoiceId: input.invoice_id,
+        overrideIds: directComplianceOverrideIds,
+        actorUserId: internalUserId,
+      })
+    }
     
     revalidatePath('/accountant/payments')
     revalidatePath('/accountant/queue')
@@ -2176,6 +2895,117 @@ export async function executeCertificateEFTBatch(input: {
       }
     }
 
+    // ── Stage 2: Hard banking gate ────────────────────────────────────────────
+    // Every unique contractor in this batch must have approved banking before any
+    // payment record is created. A single failure blocks the entire batch.
+    const uniqueContractorIds = [...new Set((certificates || []).map(c => c.contractor_id).filter(Boolean))]
+    for (const contractorId of uniqueContractorIds) {
+      const bankingGate = await evaluateBankingGate(supabase, contractorId, input.payment_method)
+      if (!bankingGate.allowed) {
+        const { data: reviewer } = await supabase
+          .from('users')
+          .select('id')
+          .eq('auth_user_id', userData.id)
+          .maybeSingle()
+        if (reviewer?.id) {
+          await supabase.from('audit_logs').insert({
+            action: 'banking_payment_blocked',
+            entity_type: 'payment_certificate_batch',
+            entity_id: contractorId,
+            user_id: reviewer.id,
+            description: bankingGate.message,
+            new_values: {
+              contractor_id: contractorId,
+              certificate_ids: input.certificate_ids,
+              payment_method: input.payment_method,
+              reason: bankingGate.message,
+            },
+          })
+        }
+        return { success: false, error: `Banking gate: ${bankingGate.message}` }
+      }
+    }
+
+    // ── Stage 5: Compliance gate ──────────────────────────────────────────────
+    // Every unique invoice in this batch must pass compliance validation before any
+    // payment record is created. Overrides are collected per-invoice.
+    // BUG-004: certBatchOverrideConsumptions collects invoice-specific override IDs
+    // to consume after the payment records are committed.
+    const certBatchOverrideConsumptions: Array<{
+      invoiceId: string
+      contractorId: string
+      overrideIds: string[]
+    }> = []
+
+    for (const invoiceId of uniqueInvoiceIds) {
+      const certForInvoice = (certificates || []).find(c => c.invoice_id === invoiceId)
+      if (!certForInvoice?.contractor_id) continue
+
+      const complianceResult = await validateComplianceDocsForPayment({
+        contractorId: certForInvoice.contractor_id,
+        invoiceId,
+        paymentMethod: input.payment_method,
+      })
+      if (!complianceResult.valid) {
+        const complianceError = await formatComplianceError(complianceResult)
+        // Resolve invoice number for user-facing message and audit log
+        const { data: invRow } = await supabase
+          .from('invoices')
+          .select('invoice_number')
+          .eq('id', invoiceId)
+          .maybeSingle()
+        const { data: reviewer } = await supabase
+          .from('users')
+          .select('id')
+          .eq('auth_user_id', userData.id)
+          .maybeSingle()
+        if (reviewer?.id) {
+          await supabase.from('audit_logs').insert({
+            action: 'payment_blocked_compliance',
+            entity_type: 'payment_certificate_batch',
+            entity_id: invoiceId,
+            user_id: reviewer.id,
+            description: complianceError,
+            new_values: {
+              invoice_id: invoiceId,
+              invoice_number: invRow?.invoice_number ?? invoiceId,
+              contractor_id: certForInvoice.contractor_id,
+              certificate_ids: input.certificate_ids,
+              payment_method: input.payment_method,
+              failures: complianceResult.failures,
+              reason: complianceError,
+            },
+          })
+        }
+        // Notify Admin, Accountant, assigned PM — best-effort, non-fatal
+        const { data: contractorRow } = await supabase
+          .from('contractors')
+          .select('company_name, contact_name')
+          .eq('id', certForInvoice.contractor_id)
+          .maybeSingle()
+        void notifyComplianceBlock({
+          invoiceId,
+          invoiceNumber: invRow?.invoice_number ?? invoiceId,
+          contractorName: contractorRow?.company_name || contractorRow?.contact_name || certForInvoice.contractor_id,
+          reason: complianceError,
+          projectId: null,
+          actorUserId: userData.id,
+        })
+        return {
+          success: false,
+          error: `Compliance gate: Invoice ${invRow?.invoice_number ?? invoiceId}: ${complianceError}`,
+        }
+      }
+      // Payment passes — collect invoice-specific overrides for post-commit consumption
+      if (complianceResult.overriddenIssues.length > 0) {
+        certBatchOverrideConsumptions.push({
+          invoiceId,
+          contractorId: certForInvoice.contractor_id,
+          overrideIds: complianceResult.overriddenIssues.map(o => o.overrideId),
+        })
+      }
+    }
+
     const batchReference = input.batch_reference || `EFT-CERT-${Date.now()}`
     const totalAmount = certificates?.reduce((sum, c) => sum + (c.net_payable_cents || 0), 0) || 0
 
@@ -2337,6 +3167,22 @@ export async function executeCertificateEFTBatch(input: {
     
     revalidatePath('/accountant/payments')
     revalidatePath('/accountant/queue')
+
+    // BUG-004: Consume any invoice-specific compliance overrides used to unblock
+    // certificates in this batch. Fire-and-forget, non-fatal.
+    // internalUserId was resolved earlier in this function (before the payment loop).
+    if (certBatchOverrideConsumptions.length > 0) {
+      void Promise.all(
+        certBatchOverrideConsumptions.map(c =>
+          consumeInvoiceOverrides({
+            contractorId: c.contractorId,
+            invoiceId: c.invoiceId,
+            overrideIds: c.overrideIds,
+            actorUserId: internalUserId,
+          })
+        )
+      )
+    }
     
     return { 
       success: true,

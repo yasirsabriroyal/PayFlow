@@ -42,6 +42,8 @@ import { AppHeader } from '@/components/app-header'
 import { RoleTabBar } from '@/components/role-tab-bar'
 import { useListStatePreservation, useWorkflowNavigation } from '@/lib/workflow-navigation'
 import { WorkflowLink } from '@/components/workflow-link'
+import { getQueueReadinessSummaries, type QueueReadinessSummary } from '@/app/accountant/readiness/actions'
+import { PaymentReadinessBadge } from '@/components/payments/payment-readiness-badge'
 
 // Shape of an invoice row as rendered in the queue (mapped from the server action)
 type QueueInvoice = {
@@ -141,6 +143,10 @@ function AccountantQueueContent() {
   // Fetch ALL invoices on mount for stats calculation
   const [allInvoices, setAllInvoices] = useState<QueueInvoice[]>([])
 
+  // Payment readiness summaries keyed by invoice ID
+  const [readinessSummaries, setReadinessSummaries] = useState<Record<string, QueueReadinessSummary>>({})
+  const [readinessLoading, setReadinessLoading] = useState(false)
+
   // Reusable loader so inline/batch actions can refresh the list after a mutation
   const loadInvoices = useCallback(async () => {
     try {
@@ -166,6 +172,20 @@ function AccountantQueueContent() {
         dueDate: inv.due_date as string,
       }))
       setAllInvoices(mapped)
+
+      // Load readiness summaries for approved invoices (the ones that can be paid)
+      const approvedIds = mapped
+        .filter(inv => ['approved', 'payment_initiated', 'partially_paid'].includes(inv.status))
+        .map(inv => inv.id)
+
+      if (approvedIds.length > 0) {
+        setReadinessLoading(true)
+        const readinessResult = await getQueueReadinessSummaries(approvedIds)
+        if (readinessResult.success) {
+          setReadinessSummaries(readinessResult.summaries)
+        }
+        setReadinessLoading(false)
+      }
     } else {
       setAllInvoices([])
     }
@@ -666,6 +686,17 @@ return (
                       </div>
                     )}
 
+                    {/* Readiness badge for approved invoices */}
+                    {['approved', 'payment_initiated', 'partially_paid'].includes(invoice.status) && (
+                      <div className="pt-2">
+                        <PaymentReadinessBadge
+                          summary={readinessSummaries[invoice.id]}
+                          loading={readinessLoading && !readinessSummaries[invoice.id]}
+                          size="md"
+                        />
+                      </div>
+                    )}
+
                     {/* Approved invoices: shortcut to pay */}
                     {invoice.status === 'approved' && canPay && (
                       <div
@@ -712,6 +743,7 @@ return (
                     <th className="text-right text-xs font-medium text-muted-foreground uppercase tracking-wider px-6 py-4">Holdback</th>
                     <th className="text-right text-xs font-medium text-muted-foreground uppercase tracking-wider px-6 py-4">Net Payable</th>
                     <th className="text-left text-xs font-medium text-muted-foreground uppercase tracking-wider px-6 py-4">Status</th>
+                    <th className="text-left text-xs font-medium text-muted-foreground uppercase tracking-wider px-6 py-4">Readiness</th>
                     <th className="text-right text-xs font-medium text-muted-foreground uppercase tracking-wider px-6 py-4">Actions</th>
                   </tr>
                 </thead>
@@ -764,6 +796,17 @@ return (
                             <StatusIcon className="w-3 h-3 mr-1" />
                             {status.label}
                           </Badge>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          {['approved', 'payment_initiated', 'partially_paid'].includes(invoice.status) ? (
+                            <PaymentReadinessBadge
+                              summary={readinessSummaries[invoice.id]}
+                              loading={readinessLoading && !readinessSummaries[invoice.id]}
+                              size="sm"
+                            />
+                          ) : (
+                            <span className="text-xs text-muted-foreground">—</span>
+                          )}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-right" onClick={(e) => e.stopPropagation()}>
                           <div className="flex items-center justify-end gap-1">

@@ -39,6 +39,7 @@ import { AppHeader } from '@/components/app-header'
 import { PaymentReceiptModal } from '@/components/payment-receipt-modal'
 import { InvoiceStatusTimeline } from '@/components/invoice-status-timeline'
 import { SETTLED_OR_SENT_STATUSES } from '@/lib/payments/status'
+import { PaymentReadinessPanel } from '@/components/payments/payment-readiness-panel'
 import { 
   getInvoiceById, 
   approveInvoice, 
@@ -1181,6 +1182,11 @@ export default function InvoiceDetailPage() {
 
           {/* Right Column - Sidebar */}
           <div className="space-y-6">
+            {/* Payment Readiness Panel — shown for invoices in payable states */}
+            {['approved', 'payment_initiated', 'partially_paid'].includes(invoice.status) && (
+              <PaymentReadinessPanel invoiceId={invoiceId} />
+            )}
+
             {/* Contractor Info */}
             <div className="bg-card border border-border rounded-xl p-6">
               <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">

@@ -1,6 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect, notFound } from 'next/navigation'
-import { ArrowLeft, Download, FileText } from 'lucide-react'
+import { AlertCircle, ArrowLeft, Download, FileText } from 'lucide-react'
 import { AppHeader } from '@/components/app-header'
 import { RoleTabBar } from '@/components/role-tab-bar'
 import { WorkflowLink } from '@/components/workflow-link'
@@ -62,6 +62,22 @@ export default async function VendorInvoiceDetailPage({
           </div>
           <StatusBadge status={invoice.status} />
         </div>
+
+        {/* Rejection reason banner — shown prominently when status = rejected so
+            the contractor can see the reason without scrolling to the timeline. */}
+        {invoice.status === 'rejected' && (
+          <div className="flex items-start gap-3 p-4 mb-6 rounded-xl border border-destructive/30 bg-destructive/8">
+            <AlertCircle className="w-5 h-5 text-destructive mt-0.5 shrink-0" />
+            <div className="space-y-1 min-w-0">
+              <p className="text-sm font-semibold text-destructive">Invoice Rejected</p>
+              <p className="text-sm text-foreground">
+                {invoice.rejectionReason
+                  ? invoice.rejectionReason
+                  : 'No reason was provided. Please contact your project manager for details.'}
+              </p>
+            </div>
+          </div>
+        )}
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Amount breakdown */}

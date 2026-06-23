@@ -88,25 +88,26 @@ const DEFAULT_COMPANY = 'PayFlow AP'
  * Wrapped in React cache to deduplicate during the server render pass.
  */
 export const getActiveBranding = cache(async (): Promise<BrandingConfig> => {
-  const supabaseAdmin = getSupabaseAdmin()
+  try {
+    const supabaseAdmin = getSupabaseAdmin()
 
-  const { data, error } = await supabaseAdmin
-    .from('company_settings')
-    .select('company_name, logo_url')
-    .limit(1)
-    .single()
+    const { data, error } = await supabaseAdmin
+      .from('company_settings')
+      .select('company_name, logo_url')
+      .limit(1)
+      .single()
 
-  if (error || !data) {
-    // Fallback if settings don't exist yet
-    return {
-      company_name: DEFAULT_COMPANY,
-      logo_url: null,
+    if (error || !data) {
+      return { company_name: DEFAULT_COMPANY, logo_url: null }
     }
-  }
 
-  return {
-    company_name: data.company_name || DEFAULT_COMPANY,
-    logo_url: data.logo_url,
+    return {
+      company_name: data.company_name || DEFAULT_COMPANY,
+      logo_url: data.logo_url,
+    }
+  } catch {
+    // Credentials not available at dev startup — return safe defaults
+    return { company_name: DEFAULT_COMPANY, logo_url: null }
   }
 })
 

@@ -35,6 +35,7 @@ const TAB_MAP: Record<Role, Tab[]> = {
     { label: 'Payments',        href: ROUTES.accountant.payments },
     { label: 'Holdbacks',       href: ROUTES.accountant.holdbacks },
     { label: 'Banking Changes', href: ROUTES.accountant.bankingChanges },
+    { label: 'Compliance',      href: ROUTES.accountant.compliance },
     { label: 'Feedback',        href: ROUTES.shared.feedback },
   ],
   project_manager: [

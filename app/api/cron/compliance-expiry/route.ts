@@ -3,7 +3,6 @@ import { getSupabaseAdmin } from '@/lib/supabase/admin'
 import { sendGenericAlert } from '@/lib/notifications/server-dispatch'
 import {
   COMPLIANCE_DOC_LABELS as DOC_LABELS,
-  COMPLIANCE_EXPIRY_LEAD_DAYS,
 } from '@/lib/compliance/constants'
 
 // Cron runs on the Node runtime so it can use the service-role client.
@@ -11,13 +10,35 @@ export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 /**
- * Daily scan for compliance documents that are expiring within
- * COMPLIANCE_EXPIRY_LEAD_DAYS or already expired. Sends one in-app + email/SMS
- * alert per document per stage (expiring, then expired), deduped via the
- * compliance_expiry_alerts table so contractors aren't spammed daily.
+ * Alert stages with their lead-day thresholds.
+ * The cron scans any document expiring within MAX_LEAD_DAYS and determines
+ * which stages need to be sent. Each (document_id, alert_stage) pair is only
+ * ever sent once, enforced by the unique constraint on compliance_expiry_alerts.
+ */
+const ALERT_STAGES = [
+  { key: 'expiring_30d', daysMin: 22, daysMax: 30 }, // fire when 22–30 days remain
+  { key: 'expiring_14d', daysMin: 10, daysMax: 14 }, // fire when 10–14 days remain
+  { key: 'expiring_7d',  daysMin: 5,  daysMax: 7  }, // fire when 5–7 days remain
+  { key: 'expiring_1d',  daysMin: 0,  daysMax: 1  }, // fire on expiry day
+  { key: 'expired',      daysMin: -Infinity, daysMax: -1 }, // fire day after expiry
+] as const
+
+type AlertStageKey = typeof ALERT_STAGES[number]['key']
+
+/** The furthest out we look when scanning documents. */
+const MAX_LEAD_DAYS = 31
+
+/**
+ * Daily compliance expiry scan.
+ *
+ * For each verified document expiring within MAX_LEAD_DAYS (including already
+ * expired), determines all applicable alert stages and sends each one exactly
+ * once. Sends to:
+ *   - The contractor themselves (in-app + email + SMS)
+ *   - All internal accountant + admin users (in-app only)
+ *   - The project manager(s) assigned to the contractor's active invoices
  */
 export async function GET(request: Request) {
-  // Authorize: Vercel Cron sends the configured CRON_SECRET as a Bearer token.
   const cronSecret = process.env.CRON_SECRET
   if (cronSecret) {
     const auth = request.headers.get('authorization')
@@ -28,44 +49,52 @@ export async function GET(request: Request) {
 
   const admin = getSupabaseAdmin()
   const today = new Date()
-  const horizon = new Date()
-  horizon.setDate(horizon.getDate() + COMPLIANCE_EXPIRY_LEAD_DAYS)
+  today.setHours(0, 0, 0, 0)
 
-  // Verified docs with an expiry within the warning horizon (includes overdue).
-  const { data: docs, error } = await admin
+  const horizon = new Date(today)
+  horizon.setDate(horizon.getDate() + MAX_LEAD_DAYS)
+
+  // Fetch all verified docs expiring within horizon (includes overdue)
+  // BUG-FIX (Issue G): 'expiring' is not a valid kyc_document_status enum value.
+  // Only 'verified' documents should be scanned for expiry — 'pending' and
+  // 'rejected' documents have not passed review and should not trigger alerts.
+  const { data: docs, error: docsError } = await admin
     .from('vendor_kyc_documents')
     .select('id, contractor_id, document_type, expiry_date, status')
     .eq('status', 'verified')
     .not('expiry_date', 'is', null)
     .lte('expiry_date', horizon.toISOString().split('T')[0])
 
-  if (error) {
-    console.error('[cron/compliance-expiry] query error:', error)
-    return NextResponse.json({ error: error.message }, { status: 500 })
+  if (docsError) {
+    console.error('[cron/compliance-expiry] query error:', docsError)
+    return NextResponse.json({ error: docsError.message }, { status: 500 })
   }
+
+  // Fetch all internal users (admin + accountant) for broadcast alerts
+  const { data: internalUsers } = await admin
+    .from('users')
+    .select('id, email, display_name, role')
+    .in('role', ['admin', 'accountant'])
 
   let sent = 0
   let skipped = 0
+  let errors = 0
 
-  for (const doc of docs || []) {
+  for (const doc of docs ?? []) {
     const expiry = new Date(doc.expiry_date as string)
+    expiry.setHours(0, 0, 0, 0)
     const daysUntil = Math.ceil((expiry.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
-    const stage: 'expiring' | 'expired' = daysUntil < 0 ? 'expired' : 'expiring'
 
-    // Dedupe: skip if we already alerted for this doc + stage.
-    const { data: existing } = await admin
-      .from('compliance_expiry_alerts')
-      .select('id')
-      .eq('document_id', doc.id)
-      .eq('alert_stage', stage)
-      .maybeSingle()
-
-    if (existing) {
+    // Determine which stage(s) apply to this document today
+    const applicableStages = ALERT_STAGES.filter(
+      s => daysUntil >= s.daysMin && daysUntil <= s.daysMax
+    )
+    if (applicableStages.length === 0) {
       skipped++
       continue
     }
 
-    // Resolve the contractor + their portal user (if any) for delivery.
+    // Resolve contractor record once per doc
     const { data: contractor } = await admin
       .from('contractors')
       .select('id, auth_user_id, company_name, contact_name, email, phone')
@@ -77,50 +106,113 @@ export async function GET(request: Request) {
       continue
     }
 
-    let recipientUserId: string | null = null
+    // Resolve the contractor's portal users.id for in-app notifications
+    let contractorUserId: string | null = null
     if (contractor.auth_user_id) {
       const { data: cu } = await admin
         .from('users')
         .select('id')
         .eq('auth_user_id', contractor.auth_user_id)
         .maybeSingle()
-      recipientUserId = cu?.id ?? null
+      contractorUserId = cu?.id ?? null
     }
 
-    const label = DOC_LABELS[doc.document_type] || 'Compliance document'
-    const title =
-      stage === 'expired'
+    const label = DOC_LABELS[doc.document_type as string] ?? 'Compliance document'
+    const companyName = contractor.company_name ?? contractor.contact_name ?? 'Contractor'
+
+    for (const stage of applicableStages) {
+      // Deduplicate: skip if already sent for this doc + stage
+      const { data: existing } = await admin
+        .from('compliance_expiry_alerts')
+        .select('id')
+        .eq('document_id', doc.id)
+        .eq('alert_stage', stage.key)
+        .maybeSingle()
+
+      if (existing) {
+        skipped++
+        continue
+      }
+
+      // Build messaging based on stage
+      const isExpired = stage.key === 'expired'
+      const daysLabel = isExpired
+        ? `expired on ${expiry.toLocaleDateString('en-CA')}`
+        : daysUntil === 0
+          ? 'expires today'
+          : `expires in ${daysUntil} day${daysUntil === 1 ? '' : 's'}`
+
+      const contractorTitle = isExpired
         ? `${label} has expired`
-        : `${label} expires in ${daysUntil} day${daysUntil === 1 ? '' : 's'}`
-    const body =
-      stage === 'expired'
-        ? `Your ${label.toLowerCase()} expired on ${expiry.toLocaleDateString('en-CA')}. Upload a current document to avoid payment holds.`
-        : `Your ${label.toLowerCase()} expires on ${expiry.toLocaleDateString('en-CA')}. Please upload a renewal to stay compliant.`
+        : `${label} ${daysLabel}`
+      const contractorBody = isExpired
+        ? `Your ${label.toLowerCase()} expired on ${expiry.toLocaleDateString('en-CA')}. Upload a renewed document immediately to avoid payment holds.`
+        : `Your ${label.toLowerCase()} ${daysLabel} (${expiry.toLocaleDateString('en-CA')}). Please upload a renewal to remain compliant and avoid payment interruptions.`
 
-    await sendGenericAlert({
-      recipientUserId,
-      recipient: {
-        id: contractor.id,
-        name: contractor.contact_name || contractor.company_name || 'Contractor',
-        email: contractor.email ?? undefined,
-        phone: contractor.phone ?? undefined,
-        role: 'contractor',
-      },
-      type: 'compliance_expiry',
-      title,
-      body,
-      link: '/vendor/compliance',
-    })
+      const internalTitle = isExpired
+        ? `${companyName} — ${label} has expired`
+        : `${companyName} — ${label} ${daysLabel}`
+      const internalBody = isExpired
+        ? `${companyName}'s ${label.toLowerCase()} expired on ${expiry.toLocaleDateString('en-CA')}. Payments to this contractor are blocked until a valid document is on file.`
+        : `${companyName}'s ${label.toLowerCase()} ${daysLabel}. Payments will be blocked if not renewed by ${expiry.toLocaleDateString('en-CA')}.`
 
-    await admin.from('compliance_expiry_alerts').insert({
-      document_id: doc.id,
-      contractor_id: contractor.id,
-      alert_stage: stage,
-      expiry_date: doc.expiry_date,
-    })
+      try {
+        // 1. Notify the contractor
+        await sendGenericAlert({
+          recipientUserId: contractorUserId,
+          recipient: {
+            id: contractor.id,
+            name: contractor.contact_name ?? companyName,
+            email: contractor.email ?? undefined,
+            phone: contractor.phone ?? undefined,
+            role: 'contractor',
+          },
+          type: isExpired ? 'compliance_document_expired' : `compliance_expiry_${stage.key}`,
+          title: contractorTitle,
+          body: contractorBody,
+          link: '/vendor/compliance',
+        })
 
-    sent++
+        // 2. Notify all internal admins + accountants (in-app only — no email spam)
+        for (const internal of internalUsers ?? []) {
+          await sendGenericAlert({
+            recipientUserId: internal.id,
+            recipient: {
+              id: internal.id,
+              name: internal.display_name ?? 'Team member',
+              // No email/phone — internal broadcast is in-app only
+              emailEnabled: false,
+              smsEnabled: false,
+            },
+            type: isExpired ? 'compliance_document_expired' : `compliance_expiry_${stage.key}`,
+            title: internalTitle,
+            body: internalBody,
+            link: '/accountant/compliance',
+          })
+        }
+
+        // 3. Record the deduplication row
+        await admin.from('compliance_expiry_alerts').insert({
+          document_id: doc.id,
+          document_type: doc.document_type,
+          contractor_id: contractor.id,
+          alert_stage: stage.key as AlertStageKey,
+          sent_at: new Date().toISOString(),
+        })
+
+        sent++
+      } catch (err) {
+        console.error(`[cron/compliance-expiry] stage=${stage.key} doc=${doc.id}`, err)
+        errors++
+      }
+    }
   }
 
-  return NextResponse.json({ ok: true, scanned: docs?.length ?? 0, sent, skipped })
+  return NextResponse.json({
+    ok: true,
+    scanned: docs?.length ?? 0,
+    sent,
+    skipped,
+    errors,
+  })
 }

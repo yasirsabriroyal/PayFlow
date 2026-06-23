@@ -161,6 +161,10 @@ export async function getVendorPortalStats() {
 
     return {
       success: true,
+      // contractorStatus is used by the portal page to redirect pending_kyc
+      // contractors back to /vendor/onboarding if their session expired
+      // mid-onboarding and they re-authenticated to /vendor/portal directly.
+      contractorStatus: contractor.status as string,
       stats: {
         pendingReviewCount,
         approvedCount,

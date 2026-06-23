@@ -7,16 +7,13 @@
  * invoices and payments. PMs create certificates to certify amounts for payment.
  */
 
-import { createClient } from '@supabase/supabase-js'
+// BUG-FIX (Issue E): Previously defined a local getSupabaseAdmin() using raw
+// createClient() which could silently fall back to an anon-key client if env
+// vars were undefined. Now uses the shared singleton from lib/supabase/admin.ts
+// which includes proper env-var assertions and caching.
+import { getSupabaseAdmin } from '@/lib/supabase/admin'
 import { withPermission } from '@/lib/permissions'
 import { PERMISSIONS } from '@/lib/permissions/constants'
-
-function getSupabaseAdmin() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  )
-}
 
 // =====================================================
 // TYPES
@@ -179,13 +176,31 @@ export async function getPaymentCertificateById(certificateId: string) {
         created_at,
         approved_at,
         approved_by,
+        paid_at,
+        paid_by,
         invoice:invoices(
           id,
           invoice_number,
           total_cents,
           holdback_percent,
-          contractor:contractors(company_name),
+          contractor:contractors(
+            company_name,
+            preferred_payment_method,
+            etransfer_email
+          ),
           project:projects(name, project_number)
+        ),
+        payment:payments(
+          id,
+          payment_method,
+          amount_cents,
+          payment_date,
+          cheque_number,
+          etransfer_reference,
+          wire_reference,
+          eft_file_id,
+          status,
+          created_at
         )
       `)
       .eq('id', certificateId)

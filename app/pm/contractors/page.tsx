@@ -37,6 +37,18 @@ type Contractor = {
   trade?: string
 }
 
+const contractorStatusLabels: Record<string, string> = {
+  active: 'Active',
+  inactive: 'Inactive',
+  pending_kyc: 'Pending KYC',
+  suspended: 'Suspended',
+  archived: 'Archived',
+}
+
+function formatContractorStatus(status: string): string {
+  return contractorStatusLabels[status] ?? status.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+}
+
 export default function PMContractorsPage() {
   const [contractors, setContractors] = useState<Contractor[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -128,7 +140,7 @@ export default function PMContractorsPage() {
                         </div>
                       </div>
                       <Badge variant={contractor.status === 'active' ? 'default' : 'secondary'}>
-                        {contractor.status}
+                        {formatContractorStatus(contractor.status)}
                       </Badge>
                     </div>
                   </CardHeader>

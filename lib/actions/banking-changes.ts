@@ -216,6 +216,8 @@ export async function approveBankingChangeRequest(requestId: string) {
     if (req.status !== 'pending') return { success: false, error: 'This request has already been decided.' }
 
     // Apply encrypted values; clear legacy plaintext columns.
+    // Also set banking_approval_status = 'approved' — this is the authoritative
+    // column the payment gate reads. Without this the gate would still block payment.
     const { error: applyError } = await admin
       .from('contractors')
       .update({
@@ -227,6 +229,7 @@ export async function approveBankingChangeRequest(requestId: string) {
         bank_account_number: null,
         bank_transit_number: null,
         bank_institution_number: null,
+        banking_approval_status: 'approved',
         updated_at: new Date().toISOString(),
       })
       .eq('id', req.contractor_id)
@@ -243,14 +246,14 @@ export async function approveBankingChangeRequest(requestId: string) {
 
     // Audit trail (no account numbers — masked only).
     await admin.from('audit_logs').insert({
-      action: 'update',
+      action: 'banking_approved',
       entity_type: 'contractor_banking',
-      entity_id: req.contractor_id,
+      entity_id: req.contractor_id as string,
       user_id: reviewer.id,
       user_role: reviewer.role,
-      description: `Approved banking change (••••${req.new_account_last4 ?? '????'}) for contractor ${req.contractor_id}`,
-      old_values: { bank_name: req.old_bank_name, account_last4: req.old_account_last4 },
-      new_values: { bank_name: req.new_bank_name, account_last4: req.new_account_last4 },
+      description: `Approved banking change (••••${req.new_account_last4 ?? '????'}) for contractor ${req.contractor_id}. Banking approval status set to approved.`,
+      old_values: { bank_name: req.old_bank_name, account_last4: req.old_account_last4, banking_approval_status: 'pending_review' },
+      new_values: { bank_name: req.new_bank_name, account_last4: req.new_account_last4, banking_approval_status: 'approved' },
     })
 
     await notifyContractor(
@@ -305,13 +308,25 @@ export async function rejectBankingChangeRequest(requestId: string, reason: stri
       })
       .eq('id', requestId)
 
+    // Set banking_approval_status = 'rejected' on the contractor.
+    // This is the authoritative column the payment gate reads.
+    // Contractor banking remains unchanged — only the status is updated.
+    await admin
+      .from('contractors')
+      .update({
+        banking_approval_status: 'rejected',
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', req.contractor_id as string)
+
     await admin.from('audit_logs').insert({
-      action: 'update',
+      action: 'banking_rejected',
       entity_type: 'contractor_banking',
-      entity_id: req.contractor_id,
+      entity_id: req.contractor_id as string,
       user_id: reviewer.id,
       user_role: reviewer.role,
-      description: `Rejected banking change request for contractor ${req.contractor_id}: ${reason.trim()}`,
+      description: `Rejected banking change request for contractor ${req.contractor_id as string}: ${reason.trim()}. Banking approval status set to rejected.`,
+      new_values: { banking_approval_status: 'rejected', rejection_reason: reason.trim() },
     })
 
     await notifyContractor(
@@ -409,5 +424,193 @@ async function notifyContractor(
     })
   } catch (e) {
     console.error('notifyContractor error:', e)
+  }
+}
+
+// =============================================================================
+// DIRECT BANKING PROFILE REVIEW
+// For contractors that have banking data on file (from backfill or direct entry)
+// but have no associated banking_change_request to review.
+// This covers the "pending_review" state that was set during the Stage 2 backfill.
+// =============================================================================
+
+export interface ContractorBankingStatusRow {
+  id: string
+  companyName: string
+  contactName: string | null
+  email: string | null
+  bankName: string | null
+  bankAccountMasked: string | null
+  bankingApprovalStatus: string
+  updatedAt: string
+}
+
+/**
+ * List all contractors with their banking approval status.
+ * Used by the banking review UI to show which contractors need approval.
+ * Requires: admin or accountant role.
+ */
+export async function listContractorsBankingStatus(): Promise<{
+  success: boolean
+  contractors: ContractorBankingStatusRow[]
+  error?: string
+}> {
+  try {
+    const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return { success: false, contractors: [], error: 'Unauthorized' }
+
+    const admin = getSupabaseAdmin()
+    const reviewer = await resolveInternalReviewer(admin, user.id)
+    if (!reviewer) return { success: false, contractors: [], error: 'Forbidden' }
+
+    const { data, error } = await admin
+      .from('contractors')
+      .select('id, company_name, contact_name, email, bank_name, bank_account_last4, banking_approval_status, updated_at')
+      .order('updated_at', { ascending: false })
+      .limit(200)
+
+    if (error) {
+      console.error('listContractorsBankingStatus error:', error)
+      return { success: false, contractors: [] }
+    }
+
+    const contractors: ContractorBankingStatusRow[] = (data || []).map((c) => ({
+      id: c.id as string,
+      companyName: (c.company_name as string) || 'Unknown',
+      contactName: (c.contact_name as string) ?? null,
+      email: (c.email as string) ?? null,
+      bankName: (c.bank_name as string) ?? null,
+      bankAccountMasked: c.bank_account_last4 ? `••••${c.bank_account_last4}` : null,
+      bankingApprovalStatus: (c.banking_approval_status as string) || 'not_submitted',
+      updatedAt: c.updated_at as string,
+    }))
+
+    return { success: true, contractors }
+  } catch (err) {
+    console.error('listContractorsBankingStatus error:', err)
+    return { success: false, contractors: [] }
+  }
+}
+
+/**
+ * Approve a contractor's banking profile directly (no change request involved).
+ * Used for contractors that were backfilled to 'pending_review' and need approval.
+ * Requires: admin or accountant role.
+ */
+export async function approveBankingProfile(contractorId: string): Promise<{ success: boolean; error?: string }> {
+  try {
+    const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return { success: false, error: 'Unauthorized' }
+
+    const admin = getSupabaseAdmin()
+    const reviewer = await resolveInternalReviewer(admin, user.id)
+    if (!reviewer) return { success: false, error: 'Forbidden' }
+
+    // Fetch current status
+    const { data: contractor } = await admin
+      .from('contractors')
+      .select('id, company_name, bank_account_encrypted, bank_account_last4, banking_approval_status')
+      .eq('id', contractorId)
+      .single()
+
+    if (!contractor) return { success: false, error: 'Contractor not found' }
+
+    // Must have banking data to approve
+    if (!contractor.bank_account_encrypted && !contractor.bank_account_last4) {
+      return { success: false, error: 'Cannot approve banking: no encrypted banking data on file.' }
+    }
+
+    const previousStatus = (contractor.banking_approval_status as string) || 'pending_review'
+
+    const { error: updateError } = await admin
+      .from('contractors')
+      .update({
+        banking_approval_status: 'approved',
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', contractorId)
+
+    if (updateError) {
+      console.error('approveBankingProfile error:', updateError)
+      return { success: false, error: updateError.message }
+    }
+
+    await admin.from('audit_logs').insert({
+      action: 'banking_approved',
+      entity_type: 'contractor_banking',
+      entity_id: contractorId,
+      user_id: reviewer.id,
+      user_role: reviewer.role,
+      description: `Approved banking profile for contractor ${contractor.company_name as string || contractorId}. Status changed from '${previousStatus}' to 'approved'.`,
+      old_values: { banking_approval_status: previousStatus },
+      new_values: { banking_approval_status: 'approved' },
+    })
+
+    revalidatePath('/accountant/banking-changes')
+    return { success: true }
+  } catch (err) {
+    console.error('approveBankingProfile error:', err)
+    return { success: false, error: 'An unexpected error occurred' }
+  }
+}
+
+/**
+ * Reject a contractor's banking profile directly.
+ * Sets status to 'rejected' and requires a reason.
+ * Requires: admin or accountant role.
+ */
+export async function rejectBankingProfile(contractorId: string, reason: string): Promise<{ success: boolean; error?: string }> {
+  try {
+    if (!reason?.trim()) return { success: false, error: 'A rejection reason is required.' }
+
+    const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return { success: false, error: 'Unauthorized' }
+
+    const admin = getSupabaseAdmin()
+    const reviewer = await resolveInternalReviewer(admin, user.id)
+    if (!reviewer) return { success: false, error: 'Forbidden' }
+
+    const { data: contractor } = await admin
+      .from('contractors')
+      .select('id, company_name, banking_approval_status')
+      .eq('id', contractorId)
+      .single()
+
+    if (!contractor) return { success: false, error: 'Contractor not found' }
+
+    const previousStatus = (contractor.banking_approval_status as string) || 'pending_review'
+
+    const { error: updateError } = await admin
+      .from('contractors')
+      .update({
+        banking_approval_status: 'rejected',
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', contractorId)
+
+    if (updateError) {
+      console.error('rejectBankingProfile error:', updateError)
+      return { success: false, error: updateError.message }
+    }
+
+    await admin.from('audit_logs').insert({
+      action: 'banking_rejected',
+      entity_type: 'contractor_banking',
+      entity_id: contractorId,
+      user_id: reviewer.id,
+      user_role: reviewer.role,
+      description: `Rejected banking profile for contractor ${contractor.company_name as string || contractorId}: ${reason.trim()}`,
+      old_values: { banking_approval_status: previousStatus },
+      new_values: { banking_approval_status: 'rejected', rejection_reason: reason.trim() },
+    })
+
+    revalidatePath('/accountant/banking-changes')
+    return { success: true }
+  } catch (err) {
+    console.error('rejectBankingProfile error:', err)
+    return { success: false, error: 'An unexpected error occurred' }
   }
 }

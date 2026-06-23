@@ -10,7 +10,8 @@ import {
   FileText, 
   Settings,
   ChevronLeft,
-  DollarSign
+  DollarSign,
+  RefreshCw,
 } from 'lucide-react'
 import { Logo } from '@/components/ui/logo'
 import { Button } from '@/components/ui/button'
@@ -161,6 +162,12 @@ export function AppShell({
             icon={FileText} 
             label="Invoices" 
             active={pathname.startsWith('/accountant')} 
+          />
+          <NavItem 
+            href="/admin/recurring-expenses" 
+            icon={RefreshCw} 
+            label="Recurring" 
+            active={pathname.startsWith('/admin/recurring-expenses')} 
           />
           <NavItem 
             href="/settings" 

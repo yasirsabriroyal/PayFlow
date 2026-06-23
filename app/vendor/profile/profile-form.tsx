@@ -42,6 +42,7 @@ const PROVINCES = [
 
 const PAYMENT_METHODS = [
   { value: 'eft', label: 'EFT / Direct Deposit' },
+  { value: 'etransfer', label: 'eTransfer' },
   { value: 'cheque', label: 'Cheque' },
   { value: 'wire', label: 'Wire Transfer' },
 ]
@@ -72,6 +73,7 @@ export function ProfileForm({ profile }: { profile: VendorProfile }) {
     tradeSubcategory: profile.tradeSubcategory ?? '',
     businessNumber: profile.businessNumber ?? '',
     preferredPaymentMethod: profile.preferredPaymentMethod ?? '',
+    etransferEmail: profile.etransferEmail ?? '',
   })
 
   const set = (k: keyof typeof form, v: string) => setForm((p) => ({ ...p, [k]: v }))
@@ -100,6 +102,7 @@ export function ProfileForm({ profile }: { profile: VendorProfile }) {
     const res = await updateVendorProfile({
       ...form,
       tradeSubcategory: form.tradeSubcategory ?? '',
+      etransferEmail: form.etransferEmail ?? '',
     })
     if (res.success) {
       toast({ title: 'Profile updated', description: 'Your company details have been saved.' })
@@ -300,6 +303,24 @@ export function ProfileForm({ profile }: { profile: VendorProfile }) {
               </SelectContent>
             </Select>
           </div>
+          {form.preferredPaymentMethod === 'etransfer' && (
+            <div className="space-y-2 sm:col-span-2">
+              <Label htmlFor="etransferEmail">
+                eTransfer Email Address <span className="text-destructive">*</span>
+              </Label>
+              <Input
+                id="etransferEmail"
+                type="email"
+                value={form.etransferEmail}
+                onChange={(e) => set('etransferEmail', e.target.value)}
+                placeholder="payments@yourcompany.ca"
+              />
+              <p className="text-xs text-muted-foreground">
+                This email will be used to send eTransfer payments to your company. It must be a valid Interac eTransfer recipient address.
+              </p>
+            </div>
+          )}
+
           <div className="space-y-2">
             <Label className="flex items-center gap-1">
               <Lock className="w-3 h-3" /> Bank Account

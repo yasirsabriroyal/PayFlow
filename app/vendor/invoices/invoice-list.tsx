@@ -12,10 +12,15 @@ const STATUS_MAP: Record<string, { label: string; className: string }> = {
   submitted: { label: 'Submitted', className: 'bg-amber-100 text-amber-700 border-amber-200' },
   pending_approval: { label: 'Pending Approval', className: 'bg-amber-100 text-amber-700 border-amber-200' },
   approved: { label: 'Approved', className: 'bg-blue-100 text-blue-700 border-blue-200' },
+  // In-flight payment statuses — previously fell through to raw snake_case display.
+  payment_processing: { label: 'Processing Payment', className: 'bg-violet-100 text-violet-700 border-violet-200' },
+  payment_initiated: { label: 'Payment Sent', className: 'bg-indigo-100 text-indigo-700 border-indigo-200' },
   paid: { label: 'Paid', className: 'bg-green-100 text-green-700 border-green-200' },
   partially_paid: { label: 'Partially Paid', className: 'bg-teal-100 text-teal-700 border-teal-200' },
   rejected: { label: 'Rejected', className: 'bg-red-100 text-red-700 border-red-200' },
   disputed: { label: 'Disputed', className: 'bg-orange-100 text-orange-700 border-orange-200' },
+  void: { label: 'Voided', className: 'bg-gray-100 text-gray-500 border-gray-200' },
+  cancelled: { label: 'Cancelled', className: 'bg-gray-100 text-gray-500 border-gray-200' },
 }
 
 export function StatusBadge({ status }: { status: string }) {

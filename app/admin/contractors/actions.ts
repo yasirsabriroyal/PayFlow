@@ -111,6 +111,8 @@ export interface CreateVendorInput {
   gst_number?: string
   trade_category?: string
   trade_subcategory?: string
+  /** Discriminates contractors (portal users) from suppliers (system-generated invoices). */
+  vendor_type?: 'contractor' | 'supplier' | 'both'
 }
 
 /**
@@ -172,6 +174,7 @@ export const createVendor = secureAction(
         business_number: input.business_number?.trim() || null,
         trade_category: input.trade_category?.trim() || null,
         trade_subcategory: input.trade_subcategory?.trim() || null,
+        vendor_type: input.vendor_type ?? 'contractor',
         status: 'pending_kyc',
         created_by: userData?.id,
       })
