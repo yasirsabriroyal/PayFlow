@@ -29,7 +29,7 @@ export async function getVendorLienWaivers() {
         total_cents,
         invoice_date,
         project:projects(name),
-        payment_requests(id, status, lien_waivers(id, is_signed, waiver_type, signed_at, signature_data))
+        payment_requests(id, status, lien_waivers(id, is_signed, waiver_type, signed_at, signature_data, signer_ip_address, signer_user_agent))
       `)
       .eq('contractor_id', contractor.id)
       .eq('status', 'paid')
@@ -56,7 +56,9 @@ export async function getVendorLienWaivers() {
         status: lw && lw.is_signed ? 'signed' : 'pending',
         waiver_type: lw ? lw.waiver_type : 'progress',
         signed_at: lw ? lw.signed_at : null,
-        signature_data: lw ? lw.signature_data : null
+        signature_data: lw ? lw.signature_data : null,
+        signer_ip_address: lw ? lw.signer_ip_address : null,
+        signer_user_agent: lw ? lw.signer_user_agent : null,
       }
     })
 
@@ -67,7 +69,12 @@ export async function getVendorLienWaivers() {
   }
 }
 
-export async function signLienWaiver(paymentRequestId: string, signatureData: string) {
+export async function signLienWaiver(
+  paymentRequestId: string,
+  signatureData: string,
+  signerIp?: string,
+  signerUserAgent?: string
+) {
   try {
     const supabase = await createClient()
     const { data: { user } } = await supabase.auth.getUser()
@@ -120,7 +127,9 @@ export async function signLienWaiver(paymentRequestId: string, signatureData: st
         .update({
           is_signed: true,
           signed_at: new Date().toISOString(),
-          signature_data: signatureData
+          signature_data: signatureData,
+          ...(signerIp ? { signer_ip_address: signerIp } : {}),
+          ...(signerUserAgent ? { signer_user_agent: signerUserAgent } : {}),
         })
         .eq('id', existing.id)
 
@@ -140,7 +149,9 @@ export async function signLienWaiver(paymentRequestId: string, signatureData: st
           is_signed: true,
           signed_at: new Date().toISOString(),
           signature_data: signatureData,
-          valid_through_date: new Date().toISOString().split('T')[0]
+          valid_through_date: new Date().toISOString().split('T')[0],
+          ...(signerIp ? { signer_ip_address: signerIp } : {}),
+          ...(signerUserAgent ? { signer_user_agent: signerUserAgent } : {}),
         })
 
       if (insertError) {
