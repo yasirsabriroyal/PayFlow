@@ -437,7 +437,7 @@ export async function getContractorPortalStatus(
 
     const { data: contractor, error } = await supabase
       .from('contractors')
-      .select('id, auth_user_id')
+      .select('id, auth_user_id, status')
       .eq('id', contractorId)
       .single()
 
@@ -454,10 +454,17 @@ export async function getContractorPortalStatus(
       .limit(1)
       .maybeSingle()
 
+    // A contractor has a portal login if their auth_user_id is set OR if their
+    // status indicates they have already gone through the onboarding flow
+    // (pending_kyc, active, suspended). This handles the case where auth_user_id
+    // is not yet written back at the time of the invite-button check.
+    const accountStatuses = ['pending_kyc', 'active', 'suspended']
+    const hasLogin = !!contractor.auth_user_id || accountStatuses.includes(contractor.status ?? '')
+
     return {
       success: true,
       status: {
-        hasLogin: !!contractor.auth_user_id,
+        hasLogin,
         pendingInvitation: invitation
           ? {
               id: invitation.id,

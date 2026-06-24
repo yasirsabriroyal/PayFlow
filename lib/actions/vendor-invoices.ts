@@ -195,7 +195,12 @@ export async function submitVendorInvoice(formData: FormData) {
       .single()
 
     if (invoiceError || !invoice) {
-      console.error('[v0] Create invoice error:', invoiceError)
+      if ((invoiceError as { code?: string })?.code === '23505') {
+        return {
+          success: false,
+          error: `Invoice number "${invoiceNumber}" has already been submitted. Please check your invoice number and enter a unique one before resubmitting.`,
+        }
+      }
       return { success: false, error: invoiceError?.message || 'Failed to create invoice' }
     }
 

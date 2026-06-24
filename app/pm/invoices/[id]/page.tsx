@@ -940,7 +940,7 @@ export default function PMInvoiceDetailPage() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <InvoiceStatusTimeline invoiceId={invoiceId} />
+              <InvoiceStatusTimeline invoiceId={invoiceId} currentStatus={invoice.status} />
             </CardContent>
           </Card>
 

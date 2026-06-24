@@ -816,7 +816,7 @@ export default function InvoiceDetailPage() {
                 <History className="w-5 h-5 text-primary" />
                 Status History
               </h2>
-              <InvoiceStatusTimeline invoiceId={invoiceId} />
+              <InvoiceStatusTimeline invoiceId={invoiceId} currentStatus={invoice.status} />
             </div>
 
             {/* Payment Mode Section */}

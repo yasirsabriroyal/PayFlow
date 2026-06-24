@@ -17,6 +17,7 @@ import { Separator } from '@/components/ui/separator'
 import { 
   ArrowLeft,
   Building2,
+  HardHat,
   Mail,
   Phone,
   MapPin,
@@ -50,6 +51,7 @@ import { AppHeader } from '@/components/app-header'
 import { RoleTabBar } from '@/components/role-tab-bar'
 import { getPMContractorById } from '@/app/pm/actions'
 import { updateVendor } from '@/app/admin/contractors/actions'
+import { verifyKycDocument, rejectKycDocument } from '@/lib/actions/vendor-kyc'
 import { usePermissions } from '@/hooks/use-permissions'
 import { SETTLED_OR_SENT_STATUSES } from '@/lib/payments/status'
 import { InviteToPortalButton } from './invite-to-portal-button'
@@ -170,6 +172,12 @@ export default function PMContractorProfilePage({ params }: { params: Promise<{ 
   const [isLoading, setIsLoading] = useState(true)
   const [activeTab, setActiveTab] = useState('overview')
   
+  // KYC document action state
+  const [kycActionLoading, setKycActionLoading] = useState<string | null>(null)
+  const [rejectDocId, setRejectDocId] = useState<string | null>(null)
+  const [rejectReason, setRejectReason] = useState('')
+  const [rejectSubmitting, setRejectSubmitting] = useState(false)
+
   // Edit modal state
   const [isEditOpen, setIsEditOpen] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
@@ -322,6 +330,33 @@ export default function PMContractorProfilePage({ params }: { params: Promise<{ 
     return configs[status] || { color: 'text-gray-700', bgColor: 'bg-gray-100', label: status }
   }
 
+  const handleVerifyDocument = async (docId: string) => {
+    setKycActionLoading(docId)
+    try {
+      await verifyKycDocument(docId)
+      setDocuments((prev) =>
+        prev.map((d) => (d.id === docId ? { ...d, status: 'verified', verified_at: new Date().toISOString() } : d))
+      )
+    } finally {
+      setKycActionLoading(null)
+    }
+  }
+
+  const handleRejectDocument = async () => {
+    if (!rejectDocId || !rejectReason.trim()) return
+    setRejectSubmitting(true)
+    try {
+      await rejectKycDocument(rejectDocId, rejectReason.trim())
+      setDocuments((prev) =>
+        prev.map((d) => (d.id === rejectDocId ? { ...d, status: 'rejected' } : d))
+      )
+      setRejectDocId(null)
+      setRejectReason('')
+    } finally {
+      setRejectSubmitting(false)
+    }
+  }
+
   if (isLoading) {
     return (
       <div className="min-h-screen bg-background">
@@ -375,7 +410,7 @@ export default function PMContractorProfilePage({ params }: { params: Promise<{ 
                   <ArrowLeft className="w-5 h-5" />
                 </Button>
                 <div className="w-14 h-14 bg-primary/10 rounded-xl flex items-center justify-center flex-shrink-0">
-                  <Building2 className="w-7 h-7 text-primary" />
+                  <HardHat className="w-7 h-7 text-primary" />
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-3 flex-wrap">
@@ -962,15 +997,41 @@ export default function PMContractorProfilePage({ params }: { params: Promise<{ 
                               )}
                             </div>
                           </div>
-                          <div className="text-right">
-                            <Badge className={`${statusCfg.bgColor} ${statusCfg.color} border-0`}>
-                              {statusCfg.label}
-                            </Badge>
-                            {doc.verified_at && (
-                              <p className="text-xs text-muted-foreground mt-1">
-                                Verified {formatDate(doc.verified_at)}
-                              </p>
+                          <div className="flex items-center gap-2">
+                            {(doc.status === 'pending_review' || doc.status === 'pending') && (
+                              <>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="text-destructive border-destructive/40 hover:bg-destructive/10"
+                                  disabled={kycActionLoading === doc.id}
+                                  onClick={() => { setRejectDocId(doc.id); setRejectReason('') }}
+                                >
+                                  Reject
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  disabled={kycActionLoading === doc.id}
+                                  onClick={() => handleVerifyDocument(doc.id)}
+                                >
+                                  {kycActionLoading === doc.id ? (
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                  ) : (
+                                    'Verify'
+                                  )}
+                                </Button>
+                              </>
                             )}
+                            <div className="text-right">
+                              <Badge className={`${statusCfg.bgColor} ${statusCfg.color} border-0`}>
+                                {statusCfg.label}
+                              </Badge>
+                              {doc.verified_at && (
+                                <p className="text-xs text-muted-foreground mt-1">
+                                  Verified {formatDate(doc.verified_at)}
+                                </p>
+                              )}
+                            </div>
                           </div>
                         </div>
                       )
@@ -994,6 +1055,42 @@ export default function PMContractorProfilePage({ params }: { params: Promise<{ 
           </Card>
         )}
       </main>
+
+      {/* KYC Document Reject Dialog */}
+      <Dialog open={!!rejectDocId} onOpenChange={(open) => { if (!open) { setRejectDocId(null); setRejectReason('') } }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Reject Document</DialogTitle>
+            <DialogDescription>
+              Provide a reason for rejection. The contractor will be notified.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2 py-2">
+            <Label htmlFor="reject-reason">Reason <span className="text-destructive">*</span></Label>
+            <textarea
+              id="reject-reason"
+              rows={3}
+              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring resize-none"
+              placeholder="e.g. Document is expired, illegible, or incorrect type."
+              value={rejectReason}
+              onChange={(e) => setRejectReason(e.target.value)}
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setRejectDocId(null); setRejectReason('') }}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={!rejectReason.trim() || rejectSubmitting}
+              onClick={handleRejectDocument}
+            >
+              {rejectSubmitting ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+              Reject Document
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Edit Contractor Dialog */}
       <Dialog open={isEditOpen} onOpenChange={setIsEditOpen}>
