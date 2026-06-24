@@ -522,7 +522,8 @@ export default function PMContractorProfilePage({ params }: { params: Promise<{ 
 
         {/* Tabs for different sections */}
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="grid w-full grid-cols-5 lg:w-auto lg:inline-grid">
+          <div className="overflow-x-auto -mx-4 px-4 md:mx-0 md:px-0">
+          <TabsList className="flex w-max min-w-full md:grid md:w-full md:grid-cols-5">
             <TabsTrigger value="overview" className="gap-2">
               <Building2 className="w-4 h-4 hidden sm:block" />
               Overview
@@ -550,6 +551,7 @@ export default function PMContractorProfilePage({ params }: { params: Promise<{ 
               Documents
             </TabsTrigger>
           </TabsList>
+          </div>
 
           {/* Overview Tab */}
           <TabsContent value="overview" className="space-y-6 mt-6">
