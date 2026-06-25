@@ -523,34 +523,34 @@ export default function PMContractorProfilePage({ params }: { params: Promise<{ 
         {/* Tabs for different sections */}
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <div className="overflow-x-auto -mx-4 px-4 md:mx-0 md:px-0">
-          <TabsList className="flex w-max min-w-full md:grid md:w-full md:grid-cols-5">
-            <TabsTrigger value="overview" className="gap-1.5 px-3 text-xs sm:text-sm">
-              <Building2 className="w-4 h-4 hidden sm:block" />
-              Overview
-            </TabsTrigger>
-            <TabsTrigger value="projects" className="gap-1.5 px-3 text-xs sm:text-sm">
-              <FolderOpen className="w-4 h-4 hidden sm:block" />
-              Projects
-              {projects.length > 0 && (
-                <Badge variant="secondary" className="ml-0.5 text-xs">{projects.length}</Badge>
-              )}
-            </TabsTrigger>
-            <TabsTrigger value="invoices" className="gap-1.5 px-3 text-xs sm:text-sm">
-              <FileText className="w-4 h-4 hidden sm:block" />
-              Invoices
-              {invoices.length > 0 && (
-                <Badge variant="secondary" className="ml-0.5 text-xs">{invoices.length}</Badge>
-              )}
-            </TabsTrigger>
-            <TabsTrigger value="payments" className="gap-1.5 px-3 text-xs sm:text-sm">
-              <Banknote className="w-4 h-4 hidden sm:block" />
-              Payments
-            </TabsTrigger>
-            <TabsTrigger value="documents" className="gap-1.5 px-3 text-xs sm:text-sm">
-              <FileCheck className="w-4 h-4 hidden sm:block" />
-              Documents
-            </TabsTrigger>
-          </TabsList>
+            <TabsList className="flex w-max md:grid md:w-full md:grid-cols-5">
+              <TabsTrigger value="overview" className="flex-none shrink-0 gap-1.5 px-4 py-1.5 text-sm whitespace-nowrap">
+                <Building2 className="w-4 h-4 hidden sm:block" />
+                Overview
+              </TabsTrigger>
+              <TabsTrigger value="projects" className="flex-none shrink-0 gap-1.5 px-4 py-1.5 text-sm whitespace-nowrap">
+                <FolderOpen className="w-4 h-4 hidden sm:block" />
+                Projects
+                {projects.length > 0 && (
+                  <Badge variant="secondary" className="ml-1 text-xs px-1.5">{projects.length}</Badge>
+                )}
+              </TabsTrigger>
+              <TabsTrigger value="invoices" className="flex-none shrink-0 gap-1.5 px-4 py-1.5 text-sm whitespace-nowrap">
+                <FileText className="w-4 h-4 hidden sm:block" />
+                Invoices
+                {invoices.length > 0 && (
+                  <Badge variant="secondary" className="ml-1 text-xs px-1.5">{invoices.length}</Badge>
+                )}
+              </TabsTrigger>
+              <TabsTrigger value="payments" className="flex-none shrink-0 gap-1.5 px-4 py-1.5 text-sm whitespace-nowrap">
+                <Banknote className="w-4 h-4 hidden sm:block" />
+                Payments
+              </TabsTrigger>
+              <TabsTrigger value="documents" className="flex-none shrink-0 gap-1.5 px-4 py-1.5 text-sm whitespace-nowrap">
+                <FileCheck className="w-4 h-4 hidden sm:block" />
+                Documents
+              </TabsTrigger>
+            </TabsList>
           </div>
 
           {/* Overview Tab */}
