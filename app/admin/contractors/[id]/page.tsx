@@ -524,29 +524,29 @@ export default function PMContractorProfilePage({ params }: { params: Promise<{ 
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <div className="overflow-x-auto -mx-4 px-4 md:mx-0 md:px-0">
           <TabsList className="flex w-max min-w-full md:grid md:w-full md:grid-cols-5">
-            <TabsTrigger value="overview" className="gap-2">
+            <TabsTrigger value="overview" className="gap-1.5 px-3 text-xs sm:text-sm">
               <Building2 className="w-4 h-4 hidden sm:block" />
               Overview
             </TabsTrigger>
-            <TabsTrigger value="projects" className="gap-2">
+            <TabsTrigger value="projects" className="gap-1.5 px-3 text-xs sm:text-sm">
               <FolderOpen className="w-4 h-4 hidden sm:block" />
               Projects
               {projects.length > 0 && (
-                <Badge variant="secondary" className="ml-1 text-xs">{projects.length}</Badge>
+                <Badge variant="secondary" className="ml-0.5 text-xs">{projects.length}</Badge>
               )}
             </TabsTrigger>
-            <TabsTrigger value="invoices" className="gap-2">
+            <TabsTrigger value="invoices" className="gap-1.5 px-3 text-xs sm:text-sm">
               <FileText className="w-4 h-4 hidden sm:block" />
               Invoices
               {invoices.length > 0 && (
-                <Badge variant="secondary" className="ml-1 text-xs">{invoices.length}</Badge>
+                <Badge variant="secondary" className="ml-0.5 text-xs">{invoices.length}</Badge>
               )}
             </TabsTrigger>
-            <TabsTrigger value="payments" className="gap-2">
+            <TabsTrigger value="payments" className="gap-1.5 px-3 text-xs sm:text-sm">
               <Banknote className="w-4 h-4 hidden sm:block" />
               Payments
             </TabsTrigger>
-            <TabsTrigger value="documents" className="gap-2">
+            <TabsTrigger value="documents" className="gap-1.5 px-3 text-xs sm:text-sm">
               <FileCheck className="w-4 h-4 hidden sm:block" />
               Documents
             </TabsTrigger>
