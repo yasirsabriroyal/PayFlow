@@ -201,6 +201,46 @@ if (invites && invites.length > 0) {
     return matchesSearch && matchesRole
   })
 
+  const copyToClipboard = async (text: string, successTitle: string) => {
+    let succeeded = false
+    // Prefer the async Clipboard API when available; it can be blocked by an
+    // iframe permissions policy, so guard with try/catch and a legacy fallback.
+    try {
+      if (navigator.clipboard?.writeText && window.isSecureContext) {
+        await navigator.clipboard.writeText(text)
+        succeeded = true
+      }
+    } catch {
+      // Fall through to legacy fallback below
+    }
+
+    if (!succeeded) {
+      try {
+        const textarea = document.createElement('textarea')
+        textarea.value = text
+        textarea.setAttribute('readonly', '')
+        textarea.style.position = 'fixed'
+        textarea.style.opacity = '0'
+        document.body.appendChild(textarea)
+        textarea.select()
+        succeeded = document.execCommand('copy')
+        document.body.removeChild(textarea)
+      } catch {
+        succeeded = false
+      }
+    }
+
+    toast(
+      succeeded
+        ? { title: successTitle }
+        : {
+            title: 'Could not copy automatically',
+            description: 'Please select and copy the value manually.',
+            variant: 'destructive',
+          },
+    )
+  }
+
   const handleAddMember = async () => {
     if (!newMember.email || !newMember.firstName || !newMember.lastName || !newMember.temporaryPassword) {
       toast({
@@ -878,10 +918,7 @@ if (invites && invites.length > 0) {
                     <Button
                       variant="ghost"
                       size="sm"
-                      onClick={() => {
-                        navigator.clipboard.writeText(createdCredentials.email)
-                        toast({ title: 'Email copied to clipboard' })
-                      }}
+                      onClick={() => copyToClipboard(createdCredentials.email, 'Email copied to clipboard')}
                     >
                       <Copy className="w-4 h-4" />
                     </Button>
@@ -904,10 +941,7 @@ if (invites && invites.length > 0) {
                       <Button
                         variant="ghost"
                         size="sm"
-                        onClick={() => {
-                          navigator.clipboard.writeText(createdCredentials.password)
-                          toast({ title: 'Password copied to clipboard' })
-                        }}
+                        onClick={() => copyToClipboard(createdCredentials.password, 'Password copied to clipboard')}
                       >
                         <Copy className="w-4 h-4" />
                       </Button>

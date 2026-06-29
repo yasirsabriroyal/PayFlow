@@ -437,7 +437,7 @@ export async function getContractorPortalStatus(
 
     const { data: contractor, error } = await supabase
       .from('contractors')
-      .select('id, auth_user_id, status')
+      .select('id, auth_user_id')
       .eq('id', contractorId)
       .single()
 
@@ -454,12 +454,21 @@ export async function getContractorPortalStatus(
       .limit(1)
       .maybeSingle()
 
-    // A contractor has a portal login if their auth_user_id is set OR if their
-    // status indicates they have already gone through the onboarding flow
-    // (pending_kyc, active, suspended). This handles the case where auth_user_id
-    // is not yet written back at the time of the invite-button check.
-    const accountStatuses = ['pending_kyc', 'active', 'suspended']
-    const hasLogin = !!contractor.auth_user_id || accountStatuses.includes(contractor.status ?? '')
+    // A contractor has a portal login only when there is concrete proof of an
+    // account: either auth_user_id is set, or an invitation has been accepted
+    // (the accept-invite flow creates the auth user and marks the invitation
+    // accepted in the same step). Status alone is NOT proof — a contractor can
+    // be created directly as 'active'/'pending_kyc' without ever being invited,
+    // and must still be invitable.
+    const { data: acceptedInvitation } = await supabase
+      .from('contractor_invitations')
+      .select('id')
+      .eq('contractor_id', contractorId)
+      .eq('status', 'accepted')
+      .limit(1)
+      .maybeSingle()
+
+    const hasLogin = !!contractor.auth_user_id || !!acceptedInvitation
 
     return {
       success: true,

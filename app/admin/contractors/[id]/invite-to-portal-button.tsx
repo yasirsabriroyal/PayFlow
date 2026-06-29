@@ -68,9 +68,40 @@ export function InviteToPortalButton({
 
   const handleCopy = async () => {
     if (!inviteUrl) return
-    await navigator.clipboard.writeText(inviteUrl)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
+
+    let succeeded = false
+    try {
+      // Preferred path — may be blocked by iframe/permissions policy
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(inviteUrl)
+        succeeded = true
+      }
+    } catch {
+      // Fall through to the legacy fallback below
+    }
+
+    if (!succeeded) {
+      try {
+        const textarea = document.createElement('textarea')
+        textarea.value = inviteUrl
+        textarea.style.position = 'fixed'
+        textarea.style.opacity = '0'
+        document.body.appendChild(textarea)
+        textarea.focus()
+        textarea.select()
+        succeeded = document.execCommand('copy')
+        document.body.removeChild(textarea)
+      } catch {
+        succeeded = false
+      }
+    }
+
+    if (succeeded) {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } else {
+      setError('Could not copy automatically. Please copy the link manually.')
+    }
   }
 
   // Already has a login — nothing to invite
