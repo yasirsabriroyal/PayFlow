@@ -426,23 +426,23 @@ export default function PMContractorProfilePage({ params }: { params: Promise<{ 
                   {contractor.contact_name && (
                     <p className="text-muted-foreground mt-1">{contractor.contact_name}</p>
                   )}
-                  <div className="flex items-center gap-4 mt-2 text-sm text-muted-foreground">
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-2 text-sm text-muted-foreground">
                     {contractor.email && (
-                      <a href={`mailto:${contractor.email}`} className="flex items-center gap-1 hover:text-primary">
-                        <Mail className="w-3.5 h-3.5" />
-                        {contractor.email}
+                      <a href={`mailto:${contractor.email}`} className="flex items-center gap-1 hover:text-primary min-w-0">
+                        <Mail className="w-3.5 h-3.5 shrink-0" />
+                        <span className="truncate">{contractor.email}</span>
                       </a>
                     )}
                     {contractor.phone && (
-                      <a href={`tel:${contractor.phone}`} className="flex items-center gap-1 hover:text-primary">
-                        <Phone className="w-3.5 h-3.5" />
+                      <a href={`tel:${contractor.phone}`} className="flex items-center gap-1 hover:text-primary shrink-0">
+                        <Phone className="w-3.5 h-3.5 shrink-0" />
                         {contractor.phone}
                       </a>
                     )}
                   </div>
                 </div>
               </div>
-              <div className="flex gap-2 sm:flex-col">
+              <div className="flex flex-wrap gap-2 sm:flex-nowrap sm:flex-col">
                 {canEditVendor && (
                   <Button size="sm" variant="outline" className="gap-2" onClick={openEditModal}>
                     <Pencil className="w-4 h-4" />
@@ -526,7 +526,7 @@ export default function PMContractorProfilePage({ params }: { params: Promise<{ 
 
         {/* Tabs for different sections */}
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <div className="overflow-x-auto -mx-4 px-4 md:mx-0 md:px-0">
+          <div className="overflow-x-auto -mx-4 px-4 md:mx-0 md:px-0 [scrollbar-width:none] [-ms-overflow-style:none] [-webkit-overflow-scrolling:touch]">
             <TabsList className="flex w-max md:grid md:w-full md:grid-cols-5">
               <TabsTrigger value="overview" className="flex-none shrink-0 gap-1.5 px-4 py-1.5 text-sm whitespace-nowrap">
                 <Building2 className="w-4 h-4 hidden sm:block" />
@@ -983,16 +983,17 @@ export default function PMContractorProfilePage({ params }: { params: Promise<{ 
                     {documents.map((doc) => {
                       const statusCfg = getDocumentStatusConfig(doc.status)
                       return (
-                        <div 
+                        <div
                           key={doc.id}
-                          className="flex items-center justify-between p-4 bg-muted/50 rounded-lg"
+                          className="flex flex-col gap-3 p-4 bg-muted/50 rounded-lg sm:flex-row sm:items-center sm:justify-between"
                         >
-                          <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 bg-primary/10 rounded-lg flex items-center justify-center">
+                          {/* Document info */}
+                          <div className="flex items-start gap-3 min-w-0">
+                            <div className="w-10 h-10 bg-primary/10 rounded-lg flex items-center justify-center shrink-0">
                               <FileCheck className="w-5 h-5 text-primary" />
                             </div>
-                            <div>
-                              <p className="font-medium">{doc.file_name}</p>
+                            <div className="min-w-0">
+                              <p className="font-medium break-words">{doc.file_name}</p>
                               <p className="text-sm text-muted-foreground capitalize">
                                 {doc.document_type?.replace(/_/g, ' ')}
                               </p>
@@ -1003,7 +1004,9 @@ export default function PMContractorProfilePage({ params }: { params: Promise<{ 
                               )}
                             </div>
                           </div>
-                          <div className="flex items-center gap-2">
+
+                          {/* Actions + status */}
+                          <div className="flex flex-wrap items-center gap-2">
                             {doc.document_url && (
                               <>
                                 <Button
@@ -1056,12 +1059,12 @@ export default function PMContractorProfilePage({ params }: { params: Promise<{ 
                                 </Button>
                               </>
                             )}
-                            <div className="text-right">
+                            <div>
                               <Badge className={`${statusCfg.bgColor} ${statusCfg.color} border-0`}>
                                 {statusCfg.label}
                               </Badge>
                               {doc.verified_at && (
-                                <p className="text-xs text-muted-foreground mt-1">
+                                <p className="text-xs text-muted-foreground mt-1 whitespace-nowrap">
                                   Verified {formatDate(doc.verified_at)}
                                 </p>
                               )}

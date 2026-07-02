@@ -528,8 +528,8 @@ function ContractorDirectoryContent() {
                         <span className="truncate">{contractor.email}</span>
                       </div>
                       <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                        <Phone className="w-4 h-4" />
-                        <span>{contractor.phone}</span>
+                        <Phone className="w-4 h-4 shrink-0" />
+                        <span className="break-all">{contractor.phone}</span>
                       </div>
                     </div>
 
