@@ -1263,6 +1263,8 @@ export async function getPMContractorById(contractorId: string) {
         id,
         document_type,
         file_name,
+        document_url,
+        mime_type,
         status,
         expiry_date,
         uploaded_at,
