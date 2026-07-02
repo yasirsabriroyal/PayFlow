@@ -41,7 +41,9 @@ import {
   History,
   Pencil,
   Save,
-  Loader2
+  Loader2,
+  Eye,
+  Download
 } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -124,6 +126,8 @@ type KYCDocument = {
   id: string
   document_type: string
   file_name: string
+  document_url?: string
+  mime_type?: string
   status: string
   expiry_date?: string
   uploaded_at?: string
@@ -1000,6 +1004,34 @@ export default function PMContractorProfilePage({ params }: { params: Promise<{ 
                             </div>
                           </div>
                           <div className="flex items-center gap-2">
+                            {doc.document_url && (
+                              <>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  asChild
+                                >
+                                  <a
+                                    href={`/api/kyc-documents/${doc.id}?inline=1`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                  >
+                                    <Eye className="w-4 h-4 mr-1" />
+                                    View
+                                  </a>
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  asChild
+                                >
+                                  <a href={`/api/kyc-documents/${doc.id}`} download={doc.file_name}>
+                                    <Download className="w-4 h-4 mr-1" />
+                                    Download
+                                  </a>
+                                </Button>
+                              </>
+                            )}
                             {(doc.status === 'pending_review' || doc.status === 'pending') && (
                               <>
                                 <Button
