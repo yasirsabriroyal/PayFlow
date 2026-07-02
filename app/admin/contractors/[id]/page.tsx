@@ -983,16 +983,17 @@ export default function PMContractorProfilePage({ params }: { params: Promise<{ 
                     {documents.map((doc) => {
                       const statusCfg = getDocumentStatusConfig(doc.status)
                       return (
-                        <div 
+                        <div
                           key={doc.id}
-                          className="flex items-center justify-between p-4 bg-muted/50 rounded-lg"
+                          className="flex flex-col gap-3 p-4 bg-muted/50 rounded-lg sm:flex-row sm:items-center sm:justify-between"
                         >
-                          <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 bg-primary/10 rounded-lg flex items-center justify-center">
+                          {/* Document info */}
+                          <div className="flex items-start gap-3 min-w-0">
+                            <div className="w-10 h-10 bg-primary/10 rounded-lg flex items-center justify-center shrink-0">
                               <FileCheck className="w-5 h-5 text-primary" />
                             </div>
-                            <div>
-                              <p className="font-medium">{doc.file_name}</p>
+                            <div className="min-w-0">
+                              <p className="font-medium break-words">{doc.file_name}</p>
                               <p className="text-sm text-muted-foreground capitalize">
                                 {doc.document_type?.replace(/_/g, ' ')}
                               </p>
@@ -1003,7 +1004,9 @@ export default function PMContractorProfilePage({ params }: { params: Promise<{ 
                               )}
                             </div>
                           </div>
-                          <div className="flex items-center gap-2">
+
+                          {/* Actions + status */}
+                          <div className="flex flex-wrap items-center gap-2">
                             {doc.document_url && (
                               <>
                                 <Button
@@ -1056,12 +1059,12 @@ export default function PMContractorProfilePage({ params }: { params: Promise<{ 
                                 </Button>
                               </>
                             )}
-                            <div className="text-right">
+                            <div>
                               <Badge className={`${statusCfg.bgColor} ${statusCfg.color} border-0`}>
                                 {statusCfg.label}
                               </Badge>
                               {doc.verified_at && (
-                                <p className="text-xs text-muted-foreground mt-1">
+                                <p className="text-xs text-muted-foreground mt-1 whitespace-nowrap">
                                   Verified {formatDate(doc.verified_at)}
                                 </p>
                               )}
