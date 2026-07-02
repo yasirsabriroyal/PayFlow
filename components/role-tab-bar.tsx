@@ -75,7 +75,7 @@ export function RoleTabBar({ role }: RoleTabBarProps) {
       className="w-full bg-muted/30 border-b border-border px-6"
       style={{ overflowX: 'auto', scrollbarWidth: 'none', msOverflowStyle: 'none' }}
     >
-      <div className="flex flex-row gap-0">
+      <div className="flex flex-row gap-0" style={{ width: 'max-content', minWidth: '100%' }}>
         {tabs.map((tab: Tab) => {
           const isActive = pathname.startsWith(tab.href)
           const isFeedbackAdmin = role === 'admin' && tab.href === ROUTES.admin.feedbackInbox
@@ -84,7 +84,7 @@ export function RoleTabBar({ role }: RoleTabBarProps) {
               key={tab.href}
               href={tab.href}
               className={
-                'relative px-4 py-3 text-sm font-medium no-underline transition-colors ' +
+                'relative px-4 py-3 text-sm font-medium no-underline transition-colors whitespace-nowrap ' +
                 (isActive
                   ? 'text-primary border-b-2 border-primary'
                   : 'text-muted-foreground hover:text-foreground')

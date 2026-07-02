@@ -415,12 +415,12 @@ export default function AdminProjectsPage() {
       <AppHeader pageTitle="Projects" />
       <RoleTabBar role="admin" />
       <div className="p-8">
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex flex-wrap items-start justify-between gap-3 mb-6">
         <div>
           <h1 className="text-2xl font-bold">Projects</h1>
           <p className="text-muted-foreground">Manage construction projects and assignments</p>
         </div>
-        <Button onClick={openCreateModal}>
+        <Button onClick={openCreateModal} className="shrink-0">
           <Plus className="h-4 w-4 mr-2" />
           New Project
         </Button>
@@ -471,8 +471,8 @@ export default function AdminProjectsPage() {
       </div>
 
       {/* Filters */}
-      <div className="flex gap-4 mb-6">
-        <div className="relative flex-1">
+      <div className="flex flex-wrap gap-3 mb-6">
+        <div className="relative flex-1 min-w-0" style={{ minWidth: '180px' }}>
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
             placeholder="Search projects..."
@@ -482,7 +482,7 @@ export default function AdminProjectsPage() {
           />
         </div>
         <Select value={statusFilter} onValueChange={setStatusFilter}>
-          <SelectTrigger className="w-40">
+          <SelectTrigger className="w-36 shrink-0">
             <SelectValue placeholder="Status" />
           </SelectTrigger>
           <SelectContent>
@@ -507,6 +507,7 @@ export default function AdminProjectsPage() {
               {totalCount === 0 ? 'No projects found' : 'No projects match your filters'}
             </div>
           ) : (
+            <div className="overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -602,6 +603,7 @@ export default function AdminProjectsPage() {
                 ))}
               </TableBody>
             </Table>
+            </div>
           )}
         </CardContent>
       </Card>

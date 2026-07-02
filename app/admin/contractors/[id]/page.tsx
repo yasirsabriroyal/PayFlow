@@ -426,23 +426,23 @@ export default function PMContractorProfilePage({ params }: { params: Promise<{ 
                   {contractor.contact_name && (
                     <p className="text-muted-foreground mt-1">{contractor.contact_name}</p>
                   )}
-                  <div className="flex items-center gap-4 mt-2 text-sm text-muted-foreground">
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-2 text-sm text-muted-foreground">
                     {contractor.email && (
-                      <a href={`mailto:${contractor.email}`} className="flex items-center gap-1 hover:text-primary">
-                        <Mail className="w-3.5 h-3.5" />
-                        {contractor.email}
+                      <a href={`mailto:${contractor.email}`} className="flex items-center gap-1 hover:text-primary min-w-0">
+                        <Mail className="w-3.5 h-3.5 shrink-0" />
+                        <span className="truncate">{contractor.email}</span>
                       </a>
                     )}
                     {contractor.phone && (
-                      <a href={`tel:${contractor.phone}`} className="flex items-center gap-1 hover:text-primary">
-                        <Phone className="w-3.5 h-3.5" />
+                      <a href={`tel:${contractor.phone}`} className="flex items-center gap-1 hover:text-primary shrink-0">
+                        <Phone className="w-3.5 h-3.5 shrink-0" />
                         {contractor.phone}
                       </a>
                     )}
                   </div>
                 </div>
               </div>
-              <div className="flex gap-2 sm:flex-col">
+              <div className="flex flex-wrap gap-2 sm:flex-nowrap sm:flex-col">
                 {canEditVendor && (
                   <Button size="sm" variant="outline" className="gap-2" onClick={openEditModal}>
                     <Pencil className="w-4 h-4" />
@@ -526,7 +526,7 @@ export default function PMContractorProfilePage({ params }: { params: Promise<{ 
 
         {/* Tabs for different sections */}
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <div className="overflow-x-auto -mx-4 px-4 md:mx-0 md:px-0">
+          <div className="overflow-x-auto -mx-4 px-4 md:mx-0 md:px-0 [scrollbar-width:none] [-ms-overflow-style:none] [-webkit-overflow-scrolling:touch]">
             <TabsList className="flex w-max md:grid md:w-full md:grid-cols-5">
               <TabsTrigger value="overview" className="flex-none shrink-0 gap-1.5 px-4 py-1.5 text-sm whitespace-nowrap">
                 <Building2 className="w-4 h-4 hidden sm:block" />
