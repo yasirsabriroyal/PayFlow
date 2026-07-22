@@ -109,7 +109,7 @@ export function ContractorBankingReviewList({ contractors, showAll = false }: Pr
       <div className="flex flex-col gap-3">
         {visible.map((c) => {
           const statusConfig = STATUS_CONFIG[c.bankingApprovalStatus] ?? STATUS_CONFIG.not_submitted
-          const isActionable = c.bankingApprovalStatus === 'pending_review' || c.bankingApprovalStatus === 'rejected'
+          const isActionable = c.bankingApprovalStatus !== 'approved'
           const hasBankingData = Boolean(c.bankName || c.bankAccountMasked)
 
           return (
