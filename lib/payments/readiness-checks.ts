@@ -119,7 +119,6 @@ export async function fetchInvoiceContractorData(
       total_cents,
       holdback_cents,
       contractor_id,
-      approved_by,
       contractors (
         id,
         bank_account_encrypted,
@@ -161,7 +160,7 @@ export async function fetchInvoiceContractorData(
     // The engine handles null bankingApprovalStatus via the Stage 1 path.
     bankingApprovalStatus: (contractor?.banking_approval_status as string | null) ?? null,
     wcbClearanceExpiry: contractor?.wcb_clearance_expiry ?? null,
-    approvedByUserId: invoice.approved_by ?? null,
+    approvedByUserId: null,
   }
 }
 
