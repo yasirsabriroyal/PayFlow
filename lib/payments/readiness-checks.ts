@@ -148,6 +148,22 @@ export async function fetchInvoiceContractorData(
     contractor?.bank_account_encrypted != null ||
     contractor?.bank_account_last4 != null
 
+  let wcbExpiry = contractor?.wcb_clearance_expiry ?? null
+  if (!wcbExpiry && invoice.contractor_id) {
+    const { data: wcbDoc } = await supabase
+      .from('vendor_kyc_documents')
+      .select('expiry_date')
+      .eq('contractor_id', invoice.contractor_id)
+      .eq('document_type', 'wcb_clearance')
+      .eq('status', 'verified')
+      .order('expiry_date', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    if (wcbDoc) {
+      wcbExpiry = wcbDoc.expiry_date ?? '2099-12-31'
+    }
+  }
+
   return {
     invoiceId: invoice.id,
     invoiceStatus: invoice.status,
@@ -155,11 +171,8 @@ export async function fetchInvoiceContractorData(
     holdbackCents: invoice.holdback_cents ?? 0,
     contractorId: invoice.contractor_id,
     hasBankingData,
-    // banking_approval_status does not exist yet (Stage 2 migration).
-    // The column select will return undefined/null — that's intentional.
-    // The engine handles null bankingApprovalStatus via the Stage 1 path.
     bankingApprovalStatus: (contractor?.banking_approval_status as string | null) ?? null,
-    wcbClearanceExpiry: contractor?.wcb_clearance_expiry ?? null,
+    wcbClearanceExpiry: wcbExpiry,
     approvedByUserId: null,
   }
 }
@@ -192,20 +205,18 @@ export async function fetchInsuranceCertificateExpiry(
 ): Promise<string | null> {
   const supabase = getSupabaseAdmin()
 
-  // BUG-002 fix: 'expiring' is not a valid kyc_document_status value.
-  // Query only 'verified' documents and let the engine compute expiry proximity.
   const { data, error } = await supabase
     .from('vendor_kyc_documents')
     .select('expiry_date, status')
     .eq('contractor_id', contractorId)
     .eq('document_type', 'insurance_certificate')
     .eq('status', 'verified')
-    .order('expiry_date', { ascending: false })
+    .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle()
 
   if (error || !data) return null
-  return data.expiry_date ?? null
+  return data.expiry_date ?? '2099-12-31'
 }
 
 // ============================================
@@ -217,19 +228,18 @@ export async function fetchBusinessLicenseExpiry(
 ): Promise<string | null> {
   const supabase = getSupabaseAdmin()
 
-  // BUG-002 fix: 'expiring' is not a valid kyc_document_status value.
   const { data, error } = await supabase
     .from('vendor_kyc_documents')
     .select('expiry_date, status')
     .eq('contractor_id', contractorId)
     .eq('document_type', 'business_license')
     .eq('status', 'verified')
-    .order('expiry_date', { ascending: false })
+    .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle()
 
   if (error || !data) return null
-  return data.expiry_date ?? null
+  return data.expiry_date ?? '2099-12-31'
 }
 
 // ============================================
@@ -241,19 +251,18 @@ export async function fetchSafetyCertExpiry(
 ): Promise<string | null> {
   const supabase = getSupabaseAdmin()
 
-  // BUG-002 fix: 'expiring' is not a valid kyc_document_status value.
   const { data, error } = await supabase
     .from('vendor_kyc_documents')
     .select('expiry_date, status')
     .eq('contractor_id', contractorId)
     .eq('document_type', 'safety_certification')
     .eq('status', 'verified')
-    .order('expiry_date', { ascending: false })
+    .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle()
 
   if (error || !data) return null
-  return data.expiry_date ?? null
+  return data.expiry_date ?? '2099-12-31'
 }
 
 // ============================================
