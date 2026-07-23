@@ -697,7 +697,10 @@ export function evaluateReadiness(input: ReadinessInput): ReadinessReport {
   }
 
   // Lien waiver — nuanced failure reason: missing / unsigned / expired
-  if (input.hasSignedLienWaiver === false && input.requireLienWaiver) {
+  // Lien waivers are collected at final invoice settlement, not on individual
+  // progress certificate payments. Skip this check when paying a certificate —
+  // the waiver will still be enforced when the invoice balance is settled directly.
+  if (input.hasSignedLienWaiver === false && input.requireLienWaiver && !input.isCertificatePayment) {
     switch (input.lienWaiverFailureReason) {
       case 'unsigned':
         issues.push(READINESS_ISSUES.LIEN_WAIVER_UNSIGNED())
