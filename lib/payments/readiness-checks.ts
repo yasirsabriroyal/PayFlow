@@ -76,14 +76,14 @@ export async function fetchReadinessSystemSettings(): Promise<ReadinessSystemSet
   return {
     // Lien waiver: check both old and new key names
     requireLienWaiver:
-      settingEnabled(map['require_lien_waiver_for_payment'], true) ||
-      settingEnabled(map['require_lien_waiver'], true),
+      settingEnabled(map['require_lien_waiver_for_payment'], false) ||
+      settingEnabled(map['require_lien_waiver'], false),
     // WCB: check both old and new key names
     blockWcbExpired:
-      settingEnabled(map['payment_wcb_block'], true) ||
-      settingEnabled(map['block_wcb_expired'], true),
-    requireBusinessLicense: settingEnabled(map['require_business_license'], true),
-    requireInsurance: settingEnabled(map['require_insurance_certificate'], true),
+      settingEnabled(map['payment_wcb_block'], false) ||
+      settingEnabled(map['block_wcb_expired'], false),
+    requireBusinessLicense: settingEnabled(map['require_business_license'], false),
+    requireInsurance: settingEnabled(map['require_insurance_certificate'], false),
     requireSafetyCert: settingEnabled(map['require_safety_certification'], false),
   }
 }

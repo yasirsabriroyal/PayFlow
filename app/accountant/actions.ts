@@ -735,7 +735,7 @@ export const executeEFTPayment = secureAction(
           },
         })
       }
-      return { success: false, error: bankingError }
+      throw new Error(bankingError)
     }
 
     // ── Stage 5: Compliance gate ──────────────────────────────────────────────
@@ -789,7 +789,7 @@ export const executeEFTPayment = secureAction(
           projectId: inv.project_id ?? null,
           actorUserId: userData.id,
         })
-        return { success: false, error: `Invoice ${inv.invoice_number || inv.id}: ${complianceError}` }
+        throw new Error(`Invoice ${inv.invoice_number || inv.id}: ${complianceError}`)
       }
       // Collect any invoice-specific overrides used so we can consume them post-payment
       if (complianceResult.overriddenIssues.length > 0) {
@@ -888,7 +888,7 @@ export const executeEFTPayment = secureAction(
                 .in('id', processedCertIds)
               if (rbCertErr) console.error('Rollback failed (certificates):', rbCertErr)
             }
-            return { success: false, error: `Payment failed for certificate ${cert.certificate_number}: ${paymentError.message}` }
+            throw new Error(`Payment failed for certificate ${cert.certificate_number}: ${paymentError.message}`)
           }
 
           if (newPayment) processedPaymentIds.push(newPayment.id)
