@@ -1,6 +1,8 @@
 import { listBankingChangeRequests, listContractorsBankingStatus } from '@/lib/actions/banking-changes'
 import { BankingChangesList } from './banking-changes-list'
 import { ContractorBankingReviewList } from './contractor-banking-review-list'
+import { AppHeader } from '@/components/app-header'
+import { RoleTabBar } from '@/components/role-tab-bar'
 
 export const dynamic = 'force-dynamic'
 
@@ -12,11 +14,15 @@ export default async function BankingChangesPage() {
 
   if (!changeRequests.success && !contractorStatuses.success) {
     return (
-      <main className="max-w-5xl mx-auto px-4 py-8">
-        <div className="rounded-lg border border-border bg-card p-8 text-center text-muted-foreground">
-          You don&apos;t have permission to review banking information.
-        </div>
-      </main>
+      <div className="min-h-screen bg-background">
+        <AppHeader pageTitle="Banking Review" />
+        <RoleTabBar role="accountant" />
+        <main className="max-w-5xl mx-auto px-4 py-8">
+          <div className="rounded-lg border border-border bg-card p-8 text-center text-muted-foreground">
+            You don&apos;t have permission to review banking information.
+          </div>
+        </main>
+      </div>
     )
   }
 
@@ -27,14 +33,13 @@ export default async function BankingChangesPage() {
   )
 
   return (
-    <main className="max-w-5xl mx-auto px-4 py-8">
-      <header className="mb-6">
-        <h1 className="text-2xl font-semibold text-balance">Banking Review</h1>
-        <p className="text-muted-foreground mt-1">
-          Review and approve contractor banking information. Account numbers are encrypted and never shown in full.
-          Contractors must be approved before EFT payments can be processed.
-        </p>
-      </header>
+    <div className="min-h-screen bg-background">
+      <AppHeader
+        pageTitle="Banking Review"
+        pageDescription="Review and approve contractor banking information. Account numbers are encrypted and never shown in full."
+      />
+      <RoleTabBar role="accountant" />
+      <main className="max-w-5xl mx-auto px-4 py-8">
 
       {/* Direct contractor banking profile review (backfill + direct entry) */}
       {contractorsPendingDirectReview.length > 0 && (
@@ -75,6 +80,7 @@ export default async function BankingChangesPage() {
           />
         </section>
       )}
-    </main>
+      </main>
+    </div>
   )
 }
