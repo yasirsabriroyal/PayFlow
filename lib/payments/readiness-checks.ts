@@ -58,9 +58,9 @@ export async function fetchReadinessSystemSettings(): Promise<ReadinessSystemSet
     ])
 
   if (error || !data) {
-    // Safe defaults — all required except safety cert (off by default)
+    // Safe defaults — lien waiver off by default; WCB, license, insurance on
     return {
-      requireLienWaiver: true,
+      requireLienWaiver: false,
       blockWcbExpired: true,
       requireBusinessLicense: true,
       requireInsurance: true,
