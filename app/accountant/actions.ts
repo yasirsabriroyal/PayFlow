@@ -2071,6 +2071,10 @@ export async function recordCertificatePayment(input: {
         contractorId: certificate.contractor_id,
         invoiceId: certificate.invoice_id,
         paymentMethod: input.payment_method,
+        // Certificate payments must not be blocked by their own 'approved' status
+        // on the invoice. The UNPAID_CERTIFICATES_EXIST check is suppressed here
+        // and remains active for direct invoice payments (isCertificatePayment: false).
+        isCertificatePayment: true,
       })
       if (!complianceResult.valid) {
         const complianceError = await formatComplianceError(complianceResult)

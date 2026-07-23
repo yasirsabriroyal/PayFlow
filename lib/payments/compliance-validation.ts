@@ -70,6 +70,10 @@ export interface ValidateComplianceInput {
   contractorId: string
   invoiceId: string
   paymentMethod?: string
+  /** When true, suppresses the UNPAID_CERTIFICATES_EXIST blocker so a certificate
+   *  payment is not blocked by its own 'approved' status on the invoice. Direct
+   *  invoice payments must leave this false (default) to keep the block active. */
+  isCertificatePayment?: boolean
 }
 
 // ============================================
@@ -132,7 +136,9 @@ export async function validateComplianceForPayment(
   const { contractorId, invoiceId } = input
 
   // 1. Build the full readiness input (runs all data fetches in parallel)
-  const readinessInputOrError = await buildReadinessInput(invoiceId)
+  const readinessInputOrError = await buildReadinessInput(invoiceId, {
+    isCertificatePayment: input.isCertificatePayment ?? false,
+  })
 
   if ('error' in readinessInputOrError) {
     // Invoice not found or access denied — block payment

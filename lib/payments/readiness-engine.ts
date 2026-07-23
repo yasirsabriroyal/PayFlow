@@ -231,6 +231,16 @@ export interface ReadinessInput {
   requireBusinessLicense: boolean
   requireInsurance: boolean
   requireSafetyCert: boolean
+
+  // --- Payment context ---
+  /**
+   * Set to true when the readiness check is being run on behalf of a certificate
+   * payment (not a direct invoice payment). When true, the UNPAID_CERTIFICATES_EXIST
+   * blocker is suppressed — a certificate cannot be blocked by itself being unpaid.
+   * Direct invoice payments always have this as false (default) and remain blocked
+   * by any unpaid certificates on the invoice.
+   */
+  isCertificatePayment?: boolean
 }
 
 // ============================================
@@ -555,7 +565,10 @@ export function evaluateReadiness(input: ReadinessInput): ReadinessReport {
     issues.push(READINESS_ISSUES.INVOICE_NOT_APPROVED())
   }
 
-  if (input.hasUnpaidCertificates && input.invoiceStatus === 'approved') {
+  // Skip this check when paying a certificate: the certificate's own 'approved'
+  // status would trigger a self-blocking loop. Direct invoice payments (isCertificatePayment
+  // is false/undefined) are still hard-blocked if any certificate is unpaid.
+  if (input.hasUnpaidCertificates && input.invoiceStatus === 'approved' && !input.isCertificatePayment) {
     issues.push(READINESS_ISSUES.UNPAID_CERTIFICATES_EXIST())
   }
 

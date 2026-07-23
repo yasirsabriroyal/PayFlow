@@ -450,7 +450,8 @@ export async function fetchApprovalLimitState(
 // ============================================
 
 export async function buildReadinessInput(
-  invoiceId: string
+  invoiceId: string,
+  options?: { isCertificatePayment?: boolean }
 ): Promise<ReadinessInput | { error: string }> {
   // Step 1: Core invoice + contractor data (serial — everything else depends on this)
   const invoiceData = await fetchInvoiceContractorData(invoiceId)
@@ -509,5 +510,6 @@ export async function buildReadinessInput(
     requireBusinessLicense: systemSettings.requireBusinessLicense,
     requireInsurance: systemSettings.requireInsurance,
     requireSafetyCert: systemSettings.requireSafetyCert,
+    isCertificatePayment: options?.isCertificatePayment ?? false,
   }
 }
