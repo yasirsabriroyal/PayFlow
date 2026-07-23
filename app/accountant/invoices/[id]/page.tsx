@@ -393,11 +393,13 @@ export default function InvoiceDetailPage() {
         
         // Process each selected certificate
         let successCount = 0
+        let lastError = ''
         for (const certId of selectedCertificates) {
           const cert = paymentInfo.certificates.find(c => c.id === certId)
           if (!cert || cert.is_fully_paid) continue
           
-          const certPaymentAmount = Math.max(0, cert.certified_amount_cents - cert.total_paid_cents)
+          // Always send net_payable_cents — the server enforces full-amount only
+          const certPaymentAmount = cert.net_payable_cents
           
           const result = await recordCertificatePayment({
             certificate_id: certId,
@@ -410,6 +412,8 @@ export default function InvoiceDetailPage() {
           
           if (result.success) {
             successCount++
+          } else {
+            lastError = result.error || 'Unknown error'
           }
         }
         
@@ -430,7 +434,7 @@ export default function InvoiceDetailPage() {
             setPaymentInfo(paymentInfoResult as PaymentInfo)
           }
         } else {
-          toast({ title: 'Error', description: 'Failed to process certificate payments', variant: 'destructive' })
+          toast({ title: 'Payment Failed', description: lastError || 'Failed to process certificate payments', variant: 'destructive' })
         }
       }
     } catch {
