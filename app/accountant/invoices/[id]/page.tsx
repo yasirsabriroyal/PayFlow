@@ -109,6 +109,8 @@ interface Invoice {
   document_url: string
   created_at: string
   updated_at: string
+  description?: string | null
+  notes?: string | null
   contractor: {
     id: string
     company_name: string
@@ -896,6 +898,31 @@ export default function InvoiceDetailPage() {
                 )
               })()}
             </div>
+
+            {/* Notes & Description Card */}
+            {(invoice.description || invoice.notes) && (
+              <div className="bg-card border border-border rounded-xl p-6">
+                <h2 className="text-lg font-semibold flex items-center gap-2 mb-4">
+                  <FileText className="w-5 h-5 text-primary" />
+                  Notes & Description
+                </h2>
+                <div className="space-y-4">
+                  {invoice.description && (
+                    <div>
+                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Description</p>
+                      <p className="text-sm mt-1 whitespace-pre-wrap">{invoice.description}</p>
+                    </div>
+                  )}
+                  {invoice.description && invoice.notes && <Separator className="my-3" />}
+                  {invoice.notes && (
+                    <div>
+                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Internal Notes</p>
+                      <p className="text-sm mt-1 whitespace-pre-wrap">{invoice.notes}</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
 
             {/* Status History */}
             <div className="bg-card border border-border rounded-xl p-6">

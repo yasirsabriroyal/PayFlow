@@ -1458,6 +1458,8 @@ export async function getInvoiceById(invoiceId: string) {
         document_url,
         created_at,
         updated_at,
+        description,
+        notes,
         contractor:contractors(
           id, 
           company_name,

@@ -1046,6 +1046,8 @@ export async function createPMInvoice(input: {
         total_paid_cents: 0,
         amount_remaining_cents: netPayableCents,
         amount_paid_cents: 0,
+        description: input.description || null,
+        notes: input.notes || null,
       })
       .select()
       .single()
@@ -1352,6 +1354,8 @@ export async function getPMInvoiceById(invoiceId: string) {
         status,
         document_url,
         project_id,
+        description,
+        notes,
         contractor:contractors(
           id,
           company_name,

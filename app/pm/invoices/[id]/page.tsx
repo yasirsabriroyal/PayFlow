@@ -3,7 +3,7 @@
 import React, { useEffect, useState, useRef } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, FileText, Calendar, Building2, DollarSign, Clock, CheckCircle, XCircle, AlertCircle, Send, RotateCcw, Pencil, Mail, Phone, MapPin, FolderOpen, Shield, Plus, History, Upload, Trash2 } from 'lucide-react'
+import { ArrowLeft, FileText, Calendar, Building2, DollarSign, Clock, CheckCircle, XCircle, AlertCircle, Send, RotateCcw, Pencil, Mail, Phone, MapPin, FolderOpen, Shield, Plus, History, Upload, Trash2, Info } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -49,6 +49,8 @@ type Invoice = {
   holdback_cents: number
   net_payable_cents: number
   status: string
+  description?: string | null
+  notes?: string | null
   contractor: {
     id: string
     company_name: string
@@ -563,6 +565,33 @@ export default function PMInvoiceDetailPage() {
               </div>
             </CardContent>
           </Card>
+
+          {/* Notes & Description */}
+          {(invoice.description || invoice.notes) && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Info className="w-5 h-5 text-primary" />
+                  Notes & Description
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {invoice.description && (
+                  <div>
+                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Description</p>
+                    <p className="text-sm mt-1 whitespace-pre-wrap">{invoice.description}</p>
+                  </div>
+                )}
+                {invoice.description && invoice.notes && <hr className="border-t border-border" />}
+                {invoice.notes && (
+                  <div>
+                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Internal Notes</p>
+                    <p className="text-sm mt-1 whitespace-pre-wrap">{invoice.notes}</p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
 
           {/* Invoice Documents */}
           <Card>
