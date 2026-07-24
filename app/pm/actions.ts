@@ -1206,14 +1206,33 @@ export async function getPMContractorById(contractorId: string) {
         .in('project_id', scope.projectIds)
       const scopedCertIds = (scopedCerts || []).map((c) => c.id)
 
-      if (scopedCertIds.length > 0) {
-        const { data: scopedPayments, error: paymentsError } = await supabase
+      // Collect all payment request ids for this contractor on assigned projects.
+      const { data: scopedReqs } = await supabase
+        .from('payment_requests')
+        .select('id')
+        .eq('contractor_id', contractorId)
+        .in('project_id', scope.projectIds)
+      const scopedReqIds = (scopedReqs || []).map((r) => r.id)
+
+      if (scopedCertIds.length > 0 || scopedReqIds.length > 0) {
+        let query = supabase
           .from('payments')
           .select(`id, amount_cents, payment_method, payment_date, status, created_at`)
           .eq('contractor_id', contractorId)
-          .in('payment_certificate_id', scopedCertIds)
+
+        const conditions: string[] = []
+        if (scopedCertIds.length > 0) {
+          conditions.push(`payment_certificate_id.in.(${scopedCertIds.join(',')})`)
+        }
+        if (scopedReqIds.length > 0) {
+          conditions.push(`payment_request_id.in.(${scopedReqIds.join(',')})`)
+        }
+        query = query.or(conditions.join(','))
+
+        const { data: scopedPayments, error: paymentsError } = await query
           .order('created_at', { ascending: false })
           .limit(20)
+
         if (paymentsError) {
           console.error('Get contractor payments error:', paymentsError)
         }
