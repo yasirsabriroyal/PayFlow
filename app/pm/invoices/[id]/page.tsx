@@ -37,6 +37,7 @@ import {
   pmDisputeInvoice,
   getPMInvoiceById,
   getPMInvoiceDocuments,
+  updateInvoiceDescriptionAndNotes,
 } from '../../actions'
 import { deleteInvoiceDocument } from '@/lib/actions/invoice-documents'
 
@@ -177,6 +178,12 @@ export default function PMInvoiceDetailPage() {
   })
   const [editLoading, setEditLoading] = useState(false)
 
+  // Edit Description & Notes State
+  const [isEditingNotes, setIsEditingNotes] = useState(false)
+  const [editDesc, setEditDesc] = useState('')
+  const [editNotesText, setEditNotesText] = useState('')
+  const [isSavingNotes, setIsSavingNotes] = useState(false)
+
   useEffect(() => {
     async function fetchInvoice() {
       // Scoped server action enforces PM assignment access; an out-of-scope
@@ -285,6 +292,45 @@ export default function PMInvoiceDetailPage() {
         variant: 'destructive',
       })
     }
+  }
+
+  const handleSaveNotes = async () => {
+    setIsSavingNotes(true)
+    try {
+      const result = await updateInvoiceDescriptionAndNotes(invoiceId, editDesc, editNotesText)
+      if (result.success) {
+        toast({
+          title: 'Notes & Description updated',
+          description: 'The invoice details have been saved.',
+        })
+        // Refresh invoice details
+        const fetchResult = await getPMInvoiceById(invoiceId)
+        if (fetchResult.success && fetchResult.invoice) {
+          setInvoice(fetchResult.invoice as unknown as Invoice)
+        }
+        setIsEditingNotes(false)
+      } else {
+        toast({
+          title: 'Save failed',
+          description: result.error || 'Failed to save description and notes.',
+          variant: 'destructive',
+        })
+      }
+    } catch (error) {
+      toast({
+        title: 'Save error',
+        description: 'An error occurred while saving.',
+        variant: 'destructive',
+      })
+    } finally {
+      setIsSavingNotes(false)
+    }
+  }
+
+  const handleStartEditingNotes = () => {
+    setEditDesc(invoice?.description || '')
+    setEditNotesText(invoice?.notes || '')
+    setIsEditingNotes(true)
   }
 
   useEffect(() => {
@@ -567,31 +613,78 @@ export default function PMInvoiceDetailPage() {
           </Card>
 
           {/* Notes & Description */}
-          {(invoice.description || invoice.notes) && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Info className="w-5 h-5 text-primary" />
-                  Notes & Description
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {invoice.description && (
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
+              <CardTitle className="flex items-center gap-2">
+                <Info className="w-5 h-5 text-primary" />
+                Notes & Description
+              </CardTitle>
+              {!isEditingNotes && (
+                <Button variant="ghost" size="sm" onClick={handleStartEditingNotes}>
+                  <Pencil className="w-4 h-4 mr-1" />
+                  Edit
+                </Button>
+              )}
+            </CardHeader>
+            <CardContent>
+              {isEditingNotes ? (
+                <div className="space-y-4">
                   <div>
-                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Description</p>
-                    <p className="text-sm mt-1 whitespace-pre-wrap">{invoice.description}</p>
+                    <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block mb-1">
+                      Description
+                    </label>
+                    <Textarea
+                      placeholder="Description of work..."
+                      value={editDesc}
+                      onChange={(e) => setEditDesc(e.target.value)}
+                      rows={3}
+                    />
                   </div>
-                )}
-                {invoice.description && invoice.notes && <hr className="border-t border-border" />}
-                {invoice.notes && (
                   <div>
-                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Internal Notes</p>
-                    <p className="text-sm mt-1 whitespace-pre-wrap">{invoice.notes}</p>
+                    <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block mb-1">
+                      Internal Notes
+                    </label>
+                    <Textarea
+                      placeholder="Internal notes..."
+                      value={editNotesText}
+                      onChange={(e) => setEditNotesText(e.target.value)}
+                      rows={3}
+                    />
                   </div>
-                )}
-              </CardContent>
-            </Card>
-          )}
+                  <div className="flex justify-end gap-2">
+                    <Button variant="outline" size="sm" onClick={() => setIsEditingNotes(false)} disabled={isSavingNotes}>
+                      Cancel
+                    </Button>
+                    <Button size="sm" onClick={handleSaveNotes} disabled={isSavingNotes}>
+                      {isSavingNotes ? 'Saving...' : 'Save'}
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {!invoice?.description && !invoice?.notes ? (
+                    <p className="text-sm text-muted-foreground italic">No description or internal notes on file. Click Edit to add.</p>
+                  ) : (
+                    <>
+                      {invoice?.description && (
+                        <div>
+                          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Description</p>
+                          <p className="text-sm mt-1 whitespace-pre-wrap">{invoice.description}</p>
+                        </div>
+                      )}
+                      {invoice?.description && invoice?.notes && <hr className="border-t border-border" />}
+                      {invoice?.notes && (
+                        <div>
+                          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Internal Notes</p>
+                          <p className="text-sm mt-1 whitespace-pre-wrap">{invoice.notes}</p>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
+            </CardContent>
+          </Card>
 
           {/* Invoice Documents */}
           <Card>

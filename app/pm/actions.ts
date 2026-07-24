@@ -1438,3 +1438,50 @@ export async function getPMInvoiceDocuments(invoiceId: string) {
     return { success: true as const, documents: documents || [] }
   })
 }
+
+export async function updateInvoiceDescriptionAndNotes(
+  invoiceId: string,
+  description: string | null,
+  notes: string | null
+) {
+  return withPermission(PERMISSIONS.INVOICES.VIEW_AP_QUEUE, async (userData) => {
+    const supabase = getSupabaseAdmin()
+
+    // 1. Fetch parent invoice status
+    const { data: invoice, error: fetchError } = await supabase
+      .from('invoices')
+      .select('status, invoice_number')
+      .eq('id', invoiceId)
+      .single()
+
+    if (fetchError || !invoice) {
+      return { success: false, error: 'Invoice not found' }
+    }
+
+    // 2. Update the invoice
+    const { error: updateError } = await supabase
+      .from('invoices')
+      .update({
+        description: description || null,
+        notes: notes || null,
+      })
+      .eq('id', invoiceId)
+
+    if (updateError) {
+      console.error('Update invoice notes/description error:', updateError)
+      return { success: false, error: updateError.message }
+    }
+
+    // 3. Log the action
+    await supabase.from('audit_logs').insert({
+      action: 'invoice_updated',
+      entity_type: 'invoice',
+      entity_id: invoiceId,
+      user_id: userData.id,
+      description: `Updated description/notes for invoice ${invoice.invoice_number}`,
+      new_values: { description, notes },
+    })
+
+    return { success: true }
+  })
+}

@@ -8,7 +8,7 @@ import {
   CheckCircle2, Clock, AlertTriangle, XCircle, Download,
   Send, CreditCard, Banknote, History, Paperclip, User,
   MapPin, Phone, Mail, Hash, RefreshCw, Printer, MoreHorizontal,
-  ChevronRight, ChevronDown, ExternalLink, Shield, Receipt, RotateCcw, Upload, Trash2
+  ChevronRight, ChevronDown, ExternalLink, Shield, Receipt, RotateCcw, Upload, Trash2, Pencil
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -49,6 +49,7 @@ import {
   recordCertificatePayment
 } from '../../actions'
 import { deleteInvoiceDocument } from '@/lib/actions/invoice-documents'
+import { updateInvoiceDescriptionAndNotes } from '@/app/pm/actions'
 
 // Helper function to format currency
 function formatCurrency(amount: number) {
@@ -275,6 +276,12 @@ export default function InvoiceDetailPage() {
   const [rejectReason, setRejectReason] = useState('')
   const [actionLoading, setActionLoading] = useState(false)
   
+  // Edit Description & Notes State
+  const [isEditingNotes, setIsEditingNotes] = useState(false)
+  const [editDesc, setEditDesc] = useState('')
+  const [editNotesText, setEditNotesText] = useState('')
+  const [isSavingNotes, setIsSavingNotes] = useState(false)
+  
   // Payment state
   const [paymentInfo, setPaymentInfo] = useState<PaymentInfo | null>(null)
   const [expandedPaymentId, setExpandedPaymentId] = useState<string | null>(null)
@@ -351,6 +358,45 @@ export default function InvoiceDetailPage() {
         variant: 'destructive',
       })
     }
+  }
+
+  const handleSaveNotes = async () => {
+    setIsSavingNotes(true)
+    try {
+      const result = await updateInvoiceDescriptionAndNotes(invoiceId, editDesc, editNotesText)
+      if (result.success) {
+        toast({
+          title: 'Notes & Description updated',
+          description: 'The invoice details have been saved.',
+        })
+        // Refresh invoice details
+        const fetchResult = await getInvoiceById(invoiceId)
+        if (fetchResult.success && fetchResult.invoice) {
+          setInvoice(fetchResult.invoice as unknown as Invoice)
+        }
+        setIsEditingNotes(false)
+      } else {
+        toast({
+          title: 'Save failed',
+          description: result.error || 'Failed to save description and notes.',
+          variant: 'destructive',
+        })
+      }
+    } catch (error) {
+      toast({
+        title: 'Save error',
+        description: 'An error occurred while saving.',
+        variant: 'destructive',
+      })
+    } finally {
+      setIsSavingNotes(false)
+    }
+  }
+
+  const handleStartEditingNotes = () => {
+    setEditDesc(invoice?.description || '')
+    setEditNotesText(invoice?.notes || '')
+    setIsEditingNotes(true)
   }
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -900,29 +946,78 @@ export default function InvoiceDetailPage() {
             </div>
 
             {/* Notes & Description Card */}
-            {(invoice.description || invoice.notes) && (
-              <div className="bg-card border border-border rounded-xl p-6">
-                <h2 className="text-lg font-semibold flex items-center gap-2 mb-4">
+            <div className="bg-card border border-border rounded-xl p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-semibold flex items-center gap-2">
                   <FileText className="w-5 h-5 text-primary" />
                   Notes & Description
                 </h2>
-                <div className="space-y-4">
-                  {invoice.description && (
-                    <div>
-                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Description</p>
-                      <p className="text-sm mt-1 whitespace-pre-wrap">{invoice.description}</p>
-                    </div>
-                  )}
-                  {invoice.description && invoice.notes && <Separator className="my-3" />}
-                  {invoice.notes && (
-                    <div>
-                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Internal Notes</p>
-                      <p className="text-sm mt-1 whitespace-pre-wrap">{invoice.notes}</p>
-                    </div>
-                  )}
-                </div>
+                {!isEditingNotes && (
+                  <Button variant="ghost" size="sm" onClick={handleStartEditingNotes}>
+                    <Pencil className="w-4 h-4 mr-1" />
+                    Edit
+                  </Button>
+                )}
               </div>
-            )}
+              <div>
+                {isEditingNotes ? (
+                  <div className="space-y-4">
+                    <div>
+                      <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide block mb-1">
+                        Description
+                      </label>
+                      <Textarea
+                        placeholder="Description of work..."
+                        value={editDesc}
+                        onChange={(e) => setEditDesc(e.target.value)}
+                        rows={3}
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide block mb-1">
+                        Internal Notes
+                      </label>
+                      <Textarea
+                        placeholder="Internal notes..."
+                        value={editNotesText}
+                        onChange={(e) => setEditNotesText(e.target.value)}
+                        rows={3}
+                      />
+                    </div>
+                    <div className="flex justify-end gap-2">
+                      <Button variant="outline" size="sm" onClick={() => setIsEditingNotes(false)} disabled={isSavingNotes}>
+                        Cancel
+                      </Button>
+                      <Button size="sm" onClick={handleSaveNotes} disabled={isSavingNotes}>
+                        {isSavingNotes ? 'Saving...' : 'Save'}
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {!invoice?.description && !invoice?.notes ? (
+                      <p className="text-sm text-muted-foreground italic">No description or internal notes on file. Click Edit to add.</p>
+                    ) : (
+                      <>
+                        {invoice?.description && (
+                          <div>
+                            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Description</p>
+                            <p className="text-sm mt-1 whitespace-pre-wrap">{invoice.description}</p>
+                          </div>
+                        )}
+                        {invoice?.description && invoice?.notes && <Separator className="my-3" />}
+                        {invoice?.notes && (
+                          <div>
+                            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Internal Notes</p>
+                            <p className="text-sm mt-1 whitespace-pre-wrap">{invoice.notes}</p>
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
 
             {/* Status History */}
             <div className="bg-card border border-border rounded-xl p-6">
