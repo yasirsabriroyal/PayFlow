@@ -66,7 +66,7 @@ export async function POST(request: NextRequest) {
         file_size_bytes: file.size,
         file_url: blob.pathname, // Store pathname for private blob access via get()
         document_type: documentType,
-        uploaded_by: user.id,
+        uploaded_by_auth_id: user.id,
       })
       .select()
       .single()
