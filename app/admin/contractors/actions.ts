@@ -228,6 +228,7 @@ export interface UpdateVendorInput {
   wcb_clearance_expiry?: string
   trade_category?: string
   trade_subcategory?: string
+  vendor_type?: 'contractor' | 'supplier' | 'both'
 }
 
 /**
@@ -278,6 +279,7 @@ export const updateVendor = secureAction(
     if (input.wcb_clearance_expiry !== undefined) updates.wcb_clearance_expiry = input.wcb_clearance_expiry || null
     if (input.trade_category !== undefined) updates.trade_category = input.trade_category?.trim() || null
     if (input.trade_subcategory !== undefined) updates.trade_subcategory = input.trade_subcategory?.trim() || null
+    if (input.vendor_type !== undefined) updates.vendor_type = input.vendor_type
 
     updates.updated_at = new Date().toISOString()
     

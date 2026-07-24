@@ -74,6 +74,7 @@ type Contractor = {
   is_corporation?: boolean
   wcb_clearance_expiry?: string
   notes?: string
+  vendor_type?: 'contractor' | 'supplier' | 'both'
   created_at: string
 }
 
@@ -197,6 +198,7 @@ export default function PMContractorProfilePage({ params }: { params: Promise<{ 
     business_number: '',
     status: '' as 'active' | 'pending_kyc' | 'suspended' | 'inactive' | '',
     wcb_clearance_expiry: '',
+    vendor_type: '' as 'contractor' | 'supplier' | 'both' | '',
   })
 
   useEffect(() => {
@@ -250,6 +252,7 @@ export default function PMContractorProfilePage({ params }: { params: Promise<{ 
         business_number: contractor.business_number || '',
         status: (contractor.status as 'active' | 'pending_kyc' | 'suspended' | 'inactive') || '',
         wcb_clearance_expiry: contractor.wcb_clearance_expiry || '',
+        vendor_type: contractor.vendor_type || 'contractor',
       })
       setIsEditOpen(true)
     }
@@ -274,6 +277,7 @@ export default function PMContractorProfilePage({ params }: { params: Promise<{ 
         business_number: editForm.business_number || undefined,
         status: editForm.status || undefined,
         wcb_clearance_expiry: editForm.wcb_clearance_expiry || undefined,
+        vendor_type: editForm.vendor_type || undefined,
       })
       
       // Handle result - vendor is in result.data when success is true
@@ -1254,6 +1258,24 @@ export default function PMContractorProfilePage({ params }: { params: Promise<{ 
                   value={editForm.wcb_clearance_expiry}
                   onChange={(e) => setEditForm({ ...editForm, wcb_clearance_expiry: e.target.value })}
                 />
+              </div>
+              <div className="space-y-2 col-span-2">
+                <Label htmlFor="vendor_type">Vendor Type</Label>
+                <Select
+                  value={editForm.vendor_type}
+                  onValueChange={(value: 'contractor' | 'supplier' | 'both') => 
+                    setEditForm({ ...editForm, vendor_type: value })
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="contractor">Contractor (portal access, submits own invoices)</SelectItem>
+                    <SelectItem value="supplier">Supplier (no portal, direct/recurring payments)</SelectItem>
+                    <SelectItem value="both">Both (portal access + recurring templates)</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
             </div>
 

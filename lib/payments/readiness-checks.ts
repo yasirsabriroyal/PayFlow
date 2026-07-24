@@ -104,6 +104,7 @@ interface InvoiceContractorData {
   wcbClearanceExpiry: string | null
   // Approval
   approvedByUserId: string | null
+  vendorType: string | null
 }
 
 export async function fetchInvoiceContractorData(
@@ -124,7 +125,8 @@ export async function fetchInvoiceContractorData(
         bank_account_encrypted,
         bank_account_last4,
         banking_approval_status,
-        wcb_clearance_expiry
+        wcb_clearance_expiry,
+        vendor_type
       )
     `)
     .eq('id', invoiceId)
@@ -174,6 +176,7 @@ export async function fetchInvoiceContractorData(
     bankingApprovalStatus: (contractor?.banking_approval_status as string | null) ?? null,
     wcbClearanceExpiry: wcbExpiry,
     approvedByUserId: null,
+    vendorType: (contractor?.vendor_type as string | null) ?? null,
   }
 }
 
@@ -487,6 +490,7 @@ export async function buildReadinessInput(
     invoiceStatus: invoiceData.invoiceStatus,
     totalCents: invoiceData.totalCents,
     holdbackCents: invoiceData.holdbackCents,
+    vendorType: invoiceData.vendorType,
     bankingApprovalStatus: invoiceData.bankingApprovalStatus,
     hasBankingData: invoiceData.hasBankingData,
     hasPendingBankingChangeRequest,

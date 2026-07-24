@@ -130,6 +130,7 @@ export interface ReadinessInput {
   invoiceStatus: string
   totalCents: number
   holdbackCents: number
+  vendorType: string | null
 
   // --- Banking ---
   /** Populated in Stage 2. Currently always null until banking status column is added. */
@@ -578,40 +579,42 @@ export function evaluateReadiness(input: ReadinessInput): ReadinessReport {
 
   // Stage 2 will set bankingApprovalStatus from the DB column.
   // Stage 1: we use hasBankingData as a proxy signal.
-  if (input.bankingApprovalStatus !== null) {
-    // Stage 2+ path: use the authoritative status column
-    switch (input.bankingApprovalStatus) {
-      case 'not_submitted':
-        issues.push(READINESS_ISSUES.BANKING_NOT_SUBMITTED())
-        break
-      case 'pending_review':
-        issues.push(READINESS_ISSUES.BANKING_PENDING_REVIEW())
-        break
-      case 'rejected':
-        issues.push(READINESS_ISSUES.BANKING_REJECTED())
-        break
-      case 'approved':
-        // Approved — but verify the actual encrypted data is present
-        if (!input.hasBankingData) {
-          issues.push(READINESS_ISSUES.BANKING_NO_ENCRYPTED_DATA())
-        }
-        // Even if approved, a pending change request freezes payment
-        if (input.hasPendingBankingChangeRequest) {
+  if (input.vendorType !== 'supplier') {
+    if (input.bankingApprovalStatus !== null) {
+      // Stage 2+ path: use the authoritative status column
+      switch (input.bankingApprovalStatus) {
+        case 'not_submitted':
+          issues.push(READINESS_ISSUES.BANKING_NOT_SUBMITTED())
+          break
+        case 'pending_review':
+          issues.push(READINESS_ISSUES.BANKING_PENDING_REVIEW())
+          break
+        case 'rejected':
+          issues.push(READINESS_ISSUES.BANKING_REJECTED())
+          break
+        case 'approved':
+          // Approved — but verify the actual encrypted data is present
+          if (!input.hasBankingData) {
+            issues.push(READINESS_ISSUES.BANKING_NO_ENCRYPTED_DATA())
+          }
+          // Even if approved, a pending change request freezes payment
+          if (input.hasPendingBankingChangeRequest) {
+            issues.push(READINESS_ISSUES.BANKING_CHANGE_PENDING())
+          }
+          break
+        // 'superseded' maps to the same as pending_review (change request in progress)
+        case 'superseded':
           issues.push(READINESS_ISSUES.BANKING_CHANGE_PENDING())
-        }
-        break
-      // 'superseded' maps to the same as pending_review (change request in progress)
-      case 'superseded':
+          break
+      }
+    } else {
+      // Stage 1 path: bankingApprovalStatus column doesn't exist yet.
+      // Use hasBankingData as a proxy — if no encrypted account data, flag as not submitted.
+      if (!input.hasBankingData) {
+        issues.push(READINESS_ISSUES.BANKING_NOT_SUBMITTED())
+      } else if (input.hasPendingBankingChangeRequest) {
         issues.push(READINESS_ISSUES.BANKING_CHANGE_PENDING())
-        break
-    }
-  } else {
-    // Stage 1 path: bankingApprovalStatus column doesn't exist yet.
-    // Use hasBankingData as a proxy — if no encrypted account data, flag as not submitted.
-    if (!input.hasBankingData) {
-      issues.push(READINESS_ISSUES.BANKING_NOT_SUBMITTED())
-    } else if (input.hasPendingBankingChangeRequest) {
-      issues.push(READINESS_ISSUES.BANKING_CHANGE_PENDING())
+      }
     }
   }
 
@@ -619,6 +622,7 @@ export function evaluateReadiness(input: ReadinessInput): ReadinessReport {
   // 3. COMPLIANCE CHECKS
   // ------------------------------------------
 
+  if (input.vendorType !== 'supplier') {
   // WCB — hard block if expired (when block_wcb_expired = true)
   if (input.wcbClearanceExpiry === null) {
     if (input.blockWcbExpired) {
@@ -713,6 +717,7 @@ export function evaluateReadiness(input: ReadinessInput): ReadinessReport {
         issues.push(READINESS_ISSUES.LIEN_WAIVER_MISSING())
         break
     }
+  }
   }
 
   // ------------------------------------------
