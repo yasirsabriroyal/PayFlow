@@ -75,6 +75,8 @@ type Contractor = {
   wcb_clearance_expiry?: string
   notes?: string
   vendor_type?: 'contractor' | 'supplier' | 'both'
+  preferred_payment_method?: 'eft' | 'cheque' | 'wire' | 'etransfer' | null
+  etransfer_email?: string | null
   created_at: string
 }
 
@@ -199,6 +201,8 @@ export default function PMContractorProfilePage({ params }: { params: Promise<{ 
     status: '' as 'active' | 'pending_kyc' | 'suspended' | 'inactive' | '',
     wcb_clearance_expiry: '',
     vendor_type: '' as 'contractor' | 'supplier' | 'both' | '',
+    preferred_payment_method: '' as 'eft' | 'cheque' | 'wire' | 'etransfer' | '',
+    etransfer_email: '',
   })
 
   useEffect(() => {
@@ -253,6 +257,8 @@ export default function PMContractorProfilePage({ params }: { params: Promise<{ 
         status: (contractor.status as 'active' | 'pending_kyc' | 'suspended' | 'inactive') || '',
         wcb_clearance_expiry: contractor.wcb_clearance_expiry || '',
         vendor_type: contractor.vendor_type || 'contractor',
+        preferred_payment_method: contractor.preferred_payment_method || 'eft',
+        etransfer_email: contractor.etransfer_email || '',
       })
       setIsEditOpen(true)
     }
@@ -278,6 +284,8 @@ export default function PMContractorProfilePage({ params }: { params: Promise<{ 
         status: editForm.status || undefined,
         wcb_clearance_expiry: editForm.wcb_clearance_expiry || undefined,
         vendor_type: editForm.vendor_type || undefined,
+        preferred_payment_method: editForm.preferred_payment_method || undefined,
+        etransfer_email: editForm.etransfer_email,
       })
       
       // Handle result - vendor is in result.data when success is true
@@ -1276,6 +1284,36 @@ export default function PMContractorProfilePage({ params }: { params: Promise<{ 
                     <SelectItem value="both">Both (portal access + recurring templates)</SelectItem>
                   </SelectContent>
                 </Select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="preferred_payment_method">Preferred Payment Method</Label>
+                <Select
+                  value={editForm.preferred_payment_method}
+                  onValueChange={(value: 'eft' | 'cheque' | 'wire' | 'etransfer') => 
+                    setEditForm({ ...editForm, preferred_payment_method: value })
+                  }
+                >
+                  <SelectTrigger id="preferred_payment_method">
+                    <SelectValue placeholder="Select method" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="eft">EFT (Direct Deposit)</SelectItem>
+                    <SelectItem value="etransfer">e-Transfer</SelectItem>
+                    <SelectItem value="cheque">Cheque</SelectItem>
+                    <SelectItem value="wire">Wire Transfer</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="etransfer_email">e-Transfer Email</Label>
+                <Input
+                  id="etransfer_email"
+                  type="email"
+                  value={editForm.etransfer_email}
+                  onChange={(e) => setEditForm({ ...editForm, etransfer_email: e.target.value })}
+                  placeholder="etransfer@supplier.com"
+                  disabled={editForm.preferred_payment_method !== 'etransfer'}
+                />
               </div>
             </div>
 

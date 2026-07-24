@@ -1121,6 +1121,8 @@ export async function getPMContractorById(contractorId: string) {
         wcb_clearance_expiry,
         notes,
         vendor_type,
+        preferred_payment_method,
+        etransfer_email,
         created_at
       `)
       .eq('id', contractorId)

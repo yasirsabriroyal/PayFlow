@@ -229,6 +229,8 @@ export interface UpdateVendorInput {
   trade_category?: string
   trade_subcategory?: string
   vendor_type?: 'contractor' | 'supplier' | 'both'
+  preferred_payment_method?: 'eft' | 'cheque' | 'wire' | 'etransfer'
+  etransfer_email?: string
 }
 
 /**
@@ -280,6 +282,8 @@ export const updateVendor = secureAction(
     if (input.trade_category !== undefined) updates.trade_category = input.trade_category?.trim() || null
     if (input.trade_subcategory !== undefined) updates.trade_subcategory = input.trade_subcategory?.trim() || null
     if (input.vendor_type !== undefined) updates.vendor_type = input.vendor_type
+    if (input.preferred_payment_method !== undefined) updates.preferred_payment_method = input.preferred_payment_method
+    if (input.etransfer_email !== undefined) updates.etransfer_email = input.etransfer_email?.trim() || null
 
     updates.updated_at = new Date().toISOString()
     
