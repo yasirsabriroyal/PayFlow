@@ -1485,3 +1485,78 @@ export async function updateInvoiceDescriptionAndNotes(
     return { success: true }
   })
 }
+
+export async function updateInvoiceDetails(
+  invoiceId: string,
+  input: {
+    invoice_number: string
+    invoice_date: string
+    due_date: string
+    total_cents: number
+    holdback_percent: number
+  }
+) {
+  return withPermission(PERMISSIONS.INVOICES.VIEW_AP_QUEUE, async (userData) => {
+    const supabase = getSupabaseAdmin()
+
+    // 1. Fetch current invoice to verify status and current paid amount
+    const { data: invoice, error: fetchError } = await supabase
+      .from('invoices')
+      .select('status, amount_paid_cents, invoice_number')
+      .eq('id', invoiceId)
+      .single()
+
+    if (fetchError || !invoice) {
+      return { success: false, error: 'Invoice not found' }
+    }
+
+    // 2. Enforce status check
+    if (['approved', 'partially_paid', 'paid'].includes(invoice.status)) {
+      return { success: false, error: 'Cannot edit an approved or paid invoice' }
+    }
+
+    // 3. Perform calculations
+    const holdbackCents = Math.round((input.total_cents * input.holdback_percent) / 100)
+    const netPayableCents = input.total_cents - holdbackCents
+    const amountRemainingCents = netPayableCents - invoice.amount_paid_cents
+
+    // 4. Update the database
+    const { error: updateError } = await supabase
+      .from('invoices')
+      .update({
+        invoice_number: input.invoice_number,
+        invoice_date: input.invoice_date,
+        due_date: input.due_date,
+        subtotal_cents: input.total_cents,
+        total_cents: input.total_cents,
+        holdback_percent: input.holdback_percent,
+        holdback_cents: holdbackCents,
+        net_payable_cents: netPayableCents,
+        amount_remaining_cents: amountRemainingCents,
+      })
+      .eq('id', invoiceId)
+
+    if (updateError) {
+      console.error('Update invoice details error:', updateError)
+      return { success: false, error: updateError.message }
+    }
+
+    // 5. Log the action
+    await supabase.from('audit_logs').insert({
+      action: 'invoice_updated',
+      entity_type: 'invoice',
+      entity_id: invoiceId,
+      user_id: userData.id,
+      description: `Updated details for invoice ${invoice.invoice_number}`,
+      new_values: {
+        invoice_number: input.invoice_number,
+        invoice_date: input.invoice_date,
+        due_date: input.due_date,
+        total_cents: input.total_cents,
+        holdback_percent: input.holdback_percent,
+      },
+    })
+
+    return { success: true }
+  })
+}

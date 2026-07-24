@@ -38,6 +38,7 @@ import {
   getPMInvoiceById,
   getPMInvoiceDocuments,
   updateInvoiceDescriptionAndNotes,
+  updateInvoiceDetails,
 } from '../../actions'
 import { deleteInvoiceDocument } from '@/lib/actions/invoice-documents'
 
@@ -52,6 +53,7 @@ type Invoice = {
   status: string
   description?: string | null
   notes?: string | null
+  holdback_percent?: number
   contractor: {
     id: string
     company_name: string
@@ -183,6 +185,17 @@ export default function PMInvoiceDetailPage() {
   const [editDesc, setEditDesc] = useState('')
   const [editNotesText, setEditNotesText] = useState('')
   const [isSavingNotes, setIsSavingNotes] = useState(false)
+
+  // Edit Invoice Details State
+  const [editDetailsOpen, setEditDetailsOpen] = useState(false)
+  const [isSavingDetails, setIsSavingDetails] = useState(false)
+  const [editDetailsForm, setEditDetailsForm] = useState({
+    invoice_number: '',
+    invoice_date: '',
+    due_date: '',
+    total_amount: '',
+    holdback_percent: '10',
+  })
 
   useEffect(() => {
     async function fetchInvoice() {
@@ -331,6 +344,78 @@ export default function PMInvoiceDetailPage() {
     setEditDesc(invoice?.description || '')
     setEditNotesText(invoice?.notes || '')
     setIsEditingNotes(true)
+  }
+
+  const handleStartEditingDetails = () => {
+    if (!invoice) return
+    setEditDetailsForm({
+      invoice_number: invoice.invoice_number || '',
+      invoice_date: invoice.invoice_date || '',
+      due_date: invoice.due_date || '',
+      total_amount: (invoice.total_cents / 100).toFixed(2),
+      holdback_percent: (invoice.holdback_percent ?? 10).toString(),
+    })
+    setEditDetailsOpen(true)
+  }
+
+  const handleSaveDetails = async () => {
+    const totalAmountFloat = parseFloat(editDetailsForm.total_amount)
+    if (isNaN(totalAmountFloat) || totalAmountFloat <= 0) {
+      toast({
+        title: 'Validation failed',
+        description: 'Total amount must be greater than 0.',
+        variant: 'destructive',
+      })
+      return
+    }
+
+    const holdbackFloat = parseFloat(editDetailsForm.holdback_percent)
+    if (isNaN(holdbackFloat) || holdbackFloat < 0 || holdbackFloat > 100) {
+      toast({
+        title: 'Validation failed',
+        description: 'Holdback percentage must be between 0 and 100.',
+        variant: 'destructive',
+      })
+      return
+    }
+
+    setIsSavingDetails(true)
+    try {
+      const result = await updateInvoiceDetails(invoiceId, {
+        invoice_number: editDetailsForm.invoice_number,
+        invoice_date: editDetailsForm.invoice_date,
+        due_date: editDetailsForm.due_date,
+        total_cents: Math.round(totalAmountFloat * 100),
+        holdback_percent: holdbackFloat,
+      })
+
+      if (result.success) {
+        toast({
+          title: 'Invoice updated',
+          description: 'The invoice details have been saved successfully.',
+        })
+        // Refresh invoice details
+        const fetchResult = await getPMInvoiceById(invoiceId)
+        if (fetchResult.success && fetchResult.invoice) {
+          setInvoice(fetchResult.invoice as unknown as Invoice)
+        }
+        setEditDetailsOpen(false)
+      } else {
+        toast({
+          title: 'Save failed',
+          description: result.error || 'Failed to save invoice details.',
+          variant: 'destructive',
+        })
+      }
+    } catch (error) {
+      toast({
+        title: 'Save error',
+        description: 'An error occurred while saving details.',
+        variant: 'destructive',
+      })
+    } finally {
+      setIsSavingDetails(false)
+    }
   }
 
   useEffect(() => {
@@ -567,11 +652,17 @@ export default function PMInvoiceDetailPage() {
         <div className="grid gap-6">
           {/* Invoice Info */}
           <Card>
-            <CardHeader>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
               <CardTitle className="flex items-center gap-2">
                 <FileText className="w-5 h-5" />
                 Invoice Information
               </CardTitle>
+              {!['approved', 'partially_paid', 'paid'].includes(invoice.status) && (
+                <Button variant="ghost" size="sm" onClick={handleStartEditingDetails}>
+                  <Pencil className="w-4 h-4 mr-1" />
+                  Edit Details
+                </Button>
+              )}
             </CardHeader>
             <CardContent className="grid md:grid-cols-2 gap-6">
               <div className="space-y-4">
@@ -1369,6 +1460,92 @@ export default function PMInvoiceDetailPage() {
                 Download original
               </a>
             )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Invoice Details Dialog */}
+      <Dialog open={editDetailsOpen} onOpenChange={setEditDetailsOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Invoice Details</DialogTitle>
+            <DialogDescription>
+              Update the core metadata and financial info for invoice {invoice?.invoice_number}.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="details-number">Invoice Number</Label>
+              <Input
+                id="details-number"
+                type="text"
+                placeholder="Invoice Number"
+                value={editDetailsForm.invoice_number}
+                onChange={(e) => setEditDetailsForm(prev => ({ ...prev, invoice_number: e.target.value }))}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label htmlFor="details-date">Invoice Date</Label>
+                <Input
+                  id="details-date"
+                  type="date"
+                  value={editDetailsForm.invoice_date}
+                  onChange={(e) => setEditDetailsForm(prev => ({ ...prev, invoice_date: e.target.value }))}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="details-due">Due Date</Label>
+                <Input
+                  id="details-due"
+                  type="date"
+                  value={editDetailsForm.due_date}
+                  onChange={(e) => setEditDetailsForm(prev => ({ ...prev, due_date: e.target.value }))}
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label htmlFor="details-amount">Total Amount ($)</Label>
+                <Input
+                  id="details-amount"
+                  type="number"
+                  step="0.01"
+                  min="0.01"
+                  placeholder="0.00"
+                  value={editDetailsForm.total_amount}
+                  onChange={(e) => setEditDetailsForm(prev => ({ ...prev, total_amount: e.target.value }))}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="details-holdback">Holdback Percentage (%)</Label>
+                <Input
+                  id="details-holdback"
+                  type="number"
+                  step="0.1"
+                  min="0"
+                  max="100"
+                  placeholder="10"
+                  value={editDetailsForm.holdback_percent}
+                  onChange={(e) => setEditDetailsForm(prev => ({ ...prev, holdback_percent: e.target.value }))}
+                />
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setEditDetailsOpen(false)}
+              disabled={isSavingDetails}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSaveDetails}
+              disabled={isSavingDetails || !editDetailsForm.invoice_number || !editDetailsForm.invoice_date || !editDetailsForm.due_date}
+            >
+              {isSavingDetails ? 'Saving…' : 'Save Changes'}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
