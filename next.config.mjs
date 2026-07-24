@@ -13,8 +13,8 @@ const nextConfig = {
       {
         source: '/(.*)',
         headers: [
-          // Prevent clickjacking — disallows this app being embedded in any iframe
-          { key: 'X-Frame-Options', value: 'DENY' },
+          // Prevent clickjacking — allow framing only from the same origin
+          { key: 'X-Frame-Options', value: 'SAMEORIGIN' },
           // Prevent MIME-type sniffing
           { key: 'X-Content-Type-Options', value: 'nosniff' },
           // Enforce HTTPS for 1 year, including subdomains
@@ -40,8 +40,8 @@ const nextConfig = {
               "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://vitals.vercel-insights.com https://va.vercel-scripts.com https://vercel.com https://*.vercel-storage.com",
               // Vercel preview toolbar
               "frame-src 'self' https://vercel.live",
-              // Matches X-Frame-Options: DENY
-              "frame-ancestors 'none'",
+              // Matches X-Frame-Options: SAMEORIGIN
+              "frame-ancestors 'self'",
             ].join('; '),
           },
         ],
