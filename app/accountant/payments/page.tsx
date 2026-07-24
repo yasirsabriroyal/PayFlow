@@ -99,6 +99,7 @@ type ApprovedInvoice = {
   hasLienWaiver: boolean
   hasStatutoryDeclaration?: boolean
   hasUnpaidCerts?: boolean
+  vendorType?: string
 }
 
 // Default settings (fallback if DB fetch fails)
@@ -236,6 +237,7 @@ export default function PaymentsPage() {
           hasLienWaiver: true as boolean,
           hasStatutoryDeclaration: false as boolean,
           hasUnpaidCerts: (inv as Record<string, unknown>).has_unpaid_certs as boolean || false,
+          vendorType: (inv.contractor as Record<string, unknown>)?.vendor_type as string || 'contractor',
         }))
         setInvoices(mapped)
         setInvoicesLoading(false)
@@ -395,6 +397,7 @@ export default function PaymentsPage() {
   const checkCompliance = (invoice: ApprovedInvoice): InvoiceCompliance => {
     const issues: ComplianceIssue[] = []
 
+    if (invoice.vendorType !== 'supplier') {
     // Stage 2: Banking approval gate (EFT-specific, highest priority)
     // Mirrors the server-side evaluateBankingGate() logic for UI-layer gating.
     switch (invoice.bankingApprovalStatus) {
@@ -442,6 +445,7 @@ export default function PaymentsPage() {
         type: 'needs_statutory_declaration',
         message: `Invoice exceeds $${paymentSettings.statutory_declaration_threshold.toLocaleString()} - statutory declaration required`,
       })
+    }
     }
 
     // Check for unpaid payment certificates — cert payments must be processed first
