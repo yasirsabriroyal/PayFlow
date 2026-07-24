@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { 
@@ -8,7 +8,7 @@ import {
   CheckCircle2, Clock, AlertTriangle, XCircle, Download,
   Send, CreditCard, Banknote, History, Paperclip, User,
   MapPin, Phone, Mail, Hash, RefreshCw, Printer, MoreHorizontal,
-  ChevronRight, ChevronDown, ExternalLink, Shield, Receipt, RotateCcw
+  ChevronRight, ChevronDown, ExternalLink, Shield, Receipt, RotateCcw, Upload
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -264,6 +264,8 @@ export default function InvoiceDetailPage() {
   }>>([])
   const [holdbacks, setHoldbacks] = useState<Holdback[]>([])
   const [attachments, setAttachments] = useState<Attachment[]>([])
+  const [uploading, setUploading] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const [auditLog, setAuditLog] = useState<AuditEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false)
@@ -313,6 +315,59 @@ export default function InvoiceDetailPage() {
     }
     fetchInvoice()
   }, [invoiceId, toast])
+
+  const fetchAttachments = async () => {
+    const result = await getInvoiceById(invoiceId)
+    if (result.success && result.attachments) {
+      setAttachments(result.attachments as Attachment[])
+    }
+  }
+
+  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    setUploading(true)
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      formData.append('invoice_id', invoiceId)
+      const documentType = attachments.length === 0 ? 'original_invoice' : 'supporting_doc'
+      formData.append('document_type', documentType)
+
+      const response = await fetch('/api/documents/upload', {
+        method: 'POST',
+        body: formData,
+      })
+
+      const result = await response.json()
+
+      if (result.success) {
+        toast({
+          title: 'Document uploaded',
+          description: `${file.name} has been uploaded successfully.`,
+        })
+        fetchAttachments()
+      } else {
+        toast({
+          title: 'Upload failed',
+          description: result.error || 'Failed to upload document.',
+          variant: 'destructive',
+        })
+      }
+    } catch (error) {
+      toast({
+        title: 'Upload error',
+        description: 'An error occurred while uploading the document.',
+        variant: 'destructive',
+      })
+    } finally {
+      setUploading(false)
+      if (fileInputRef.current) {
+        fileInputRef.current.value = ''
+      }
+    }
+  }
 
   // Action handlers
   const handleApprove = async () => {
@@ -1152,12 +1207,37 @@ export default function InvoiceDetailPage() {
             )}
 
             {/* Attachments */}
-            {attachments.length > 0 && (
-              <div className="bg-card border border-border rounded-xl p-6">
-                <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+            <div className="bg-card border border-border rounded-xl p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-semibold flex items-center gap-2">
                   <Paperclip className="w-5 h-5 text-primary" />
                   Attachments
                 </h2>
+                <div>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    className="hidden"
+                    onChange={handleUpload}
+                    accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg"
+                  />
+                  <Button 
+                    variant="outline" 
+                    size="sm"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={uploading}
+                  >
+                    <Upload className="w-4 h-4 mr-2" />
+                    {uploading ? 'Uploading...' : 'Upload Document'}
+                  </Button>
+                </div>
+              </div>
+              
+              {attachments.length === 0 ? (
+                <div className="border border-dashed border-border rounded-lg p-6 text-center text-sm text-muted-foreground">
+                  No attachments on file for this invoice.
+                </div>
+              ) : (
                 <div className="space-y-2">
                   {attachments.map((attachment) => (
                     <a
@@ -1180,8 +1260,8 @@ export default function InvoiceDetailPage() {
                     </a>
                   ))}
                 </div>
-              </div>
-            )}
+              )}
+            </div>
           </div>
 
           {/* Right Column - Sidebar */}

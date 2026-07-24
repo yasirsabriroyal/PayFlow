@@ -1,9 +1,9 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, Receipt, Building2, Briefcase, Calculator, FileText, Upload, Info } from 'lucide-react'
+import { ArrowLeft, Receipt, Building2, Briefcase, Calculator, FileText, Upload, Info, Trash2, X, Paperclip } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -11,6 +11,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Separator } from '@/components/ui/separator'
+import { Badge } from '@/components/ui/badge'
 import { useToast } from '@/hooks/use-toast'
 import { getPMProjects, createPMInvoice } from '../../actions'
 import { getProjectContractors } from '@/app/projects/[id]/actions'
@@ -43,6 +44,8 @@ export default function NewInvoicePage() {
   const [holdbackPercentage, setHoldbackPercentage] = useState('10')
   const [description, setDescription] = useState('')
   const [notes, setNotes] = useState('')
+  const [files, setFiles] = useState<File[]>([])
+  const fileInputRef = useRef<HTMLInputElement>(null)
   
   const [projects, setProjects] = useState<Project[]>([])
   const [contractors, setContractors] = useState<Contractor[]>([])
@@ -116,6 +119,18 @@ export default function NewInvoicePage() {
   
   const selectedProject = projects.find(p => p.id === projectId)
   
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      const newFiles = Array.from(e.target.files)
+      setFiles((prev) => [...prev, ...newFiles])
+    }
+    e.target.value = ''
+  }
+
+  const removeFile = (index: number) => {
+    setFiles((prev) => prev.filter((_, i) => i !== index))
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     
@@ -144,8 +159,35 @@ export default function NewInvoicePage() {
     })
     
     if (result.success && result.invoice) {
+      const createdInvoice = result.invoice
+      
+      if (files.length > 0) {
+        try {
+          for (let i = 0; i < files.length; i++) {
+            const file = files[i]
+            const formData = new FormData()
+            formData.append('file', file)
+            formData.append('invoice_id', createdInvoice.id)
+            const documentType = i === 0 ? 'original_invoice' : 'supporting_doc'
+            formData.append('document_type', documentType)
+
+            await fetch('/api/documents/upload', {
+              method: 'POST',
+              body: formData,
+            })
+          }
+        } catch (uploadErr) {
+          console.error('Error uploading invoice attachments:', uploadErr)
+          toast({
+            title: 'Upload Warning',
+            description: 'Invoice was created, but some attachments failed to upload.',
+            variant: 'destructive',
+          })
+        }
+      }
+
       toast({ title: 'Success', description: 'Invoice created successfully' })
-      router.push(`/invoices/${result.invoice.id}`)
+      router.push(`/invoices/${createdInvoice.id}`)
     } else {
       toast({ title: 'Error', description: result.error || 'Failed to create invoice', variant: 'destructive' })
       setSubmitting(false)
@@ -323,17 +365,62 @@ export default function NewInvoicePage() {
             
             <Card className="border-dashed">
               <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-muted-foreground">
+                <CardTitle className="flex items-center gap-2">
                   <Upload className="w-5 h-5" />
                   Attachments (Optional)
                 </CardTitle>
-                <CardDescription>Upload supporting documents like contracts or receipts</CardDescription>
+                <CardDescription>Upload the original invoice document and any supporting files</CardDescription>
               </CardHeader>
-              <CardContent>
-                <div className="border-2 border-dashed border-border rounded-lg p-8 text-center">
+              <CardContent className="space-y-4">
+                <div 
+                  onClick={() => fileInputRef.current?.click()}
+                  className="border-2 border-dashed border-border rounded-lg p-8 text-center cursor-pointer hover:border-primary/50 transition-colors"
+                >
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    className="hidden"
+                    multiple
+                    onChange={handleFileChange}
+                    accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg"
+                  />
                   <Upload className="w-8 h-8 mx-auto text-muted-foreground mb-2" />
-                  <p className="text-sm text-muted-foreground">Document upload coming soon</p>
+                  <p className="text-sm font-medium">Click to select files</p>
+                  <p className="text-xs text-muted-foreground mt-1">PDF, Word, Excel, or Images up to 10MB</p>
                 </div>
+                
+                {files.length > 0 && (
+                  <div className="space-y-2 mt-4">
+                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Selected Files</p>
+                    <div className="divide-y divide-border border border-border rounded-lg bg-muted/20">
+                      {files.map((file, index) => (
+                        <div key={index} className="flex items-center justify-between p-3 text-sm">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <Paperclip className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                            <span className="truncate font-medium">{file.name}</span>
+                            <span className="text-xs text-muted-foreground flex-shrink-0">
+                              ({(file.size / 1024).toFixed(1)} KB)
+                            </span>
+                            {index === 0 && (
+                              <Badge variant="outline" className="text-[10px] uppercase font-bold py-0 h-4 border-primary text-primary bg-primary/5">
+                                Original Invoice
+                              </Badge>
+                            )}
+                          </div>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                            onClick={() => removeFile(index)}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </CardContent>
             </Card>
           </div>

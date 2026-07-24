@@ -1,9 +1,9 @@
 'use client'
 
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState, useRef } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, FileText, Calendar, Building2, DollarSign, Clock, CheckCircle, XCircle, AlertCircle, Send, RotateCcw, Pencil, Mail, Phone, MapPin, FolderOpen, Shield, Plus, History } from 'lucide-react'
+import { ArrowLeft, FileText, Calendar, Building2, DollarSign, Clock, CheckCircle, XCircle, AlertCircle, Send, RotateCcw, Pencil, Mail, Phone, MapPin, FolderOpen, Shield, Plus, History, Upload } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -193,18 +193,69 @@ export default function PMInvoiceDetailPage() {
     }
   }, [invoiceId])
 
-  useEffect(() => {
-    async function fetchDocuments() {
-      const result = await getPMInvoiceDocuments(invoiceId)
-      if (result.success) {
-        setDocuments(result.documents as InvoiceDocument[])
-      }
-      setDocsLoading(false)
+  const [uploading, setUploading] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const fetchDocuments = async () => {
+    setDocsLoading(true)
+    const result = await getPMInvoiceDocuments(invoiceId)
+    if (result.success) {
+      setDocuments(result.documents as InvoiceDocument[])
     }
+    setDocsLoading(false)
+  }
+
+  useEffect(() => {
     if (invoiceId) {
       fetchDocuments()
     }
   }, [invoiceId])
+
+  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    setUploading(true)
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      formData.append('invoice_id', invoiceId)
+      const documentType = documents.length === 0 ? 'original_invoice' : 'supporting_doc'
+      formData.append('document_type', documentType)
+
+      const response = await fetch('/api/documents/upload', {
+        method: 'POST',
+        body: formData,
+      })
+
+      const result = await response.json()
+
+      if (result.success) {
+        toast({
+          title: 'Document uploaded',
+          description: `${file.name} has been uploaded successfully.`,
+        })
+        fetchDocuments()
+      } else {
+        toast({
+          title: 'Upload failed',
+          description: result.error || 'Failed to upload document.',
+          variant: 'destructive',
+        })
+      }
+    } catch (error) {
+      toast({
+        title: 'Upload error',
+        description: 'An error occurred while uploading the document.',
+        variant: 'destructive',
+      })
+    } finally {
+      setUploading(false)
+      if (fileInputRef.current) {
+        fileInputRef.current.value = ''
+      }
+    }
+  }
 
   useEffect(() => {
     async function fetchCertificates() {
@@ -487,11 +538,29 @@ export default function PMInvoiceDetailPage() {
 
           {/* Invoice Documents */}
           <Card>
-            <CardHeader>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
               <CardTitle className="flex items-center gap-2">
                 <FileText className="w-5 h-5" />
                 Invoice Documents
               </CardTitle>
+              <div>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  className="hidden"
+                  onChange={handleUpload}
+                  accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg"
+                />
+                <Button 
+                  variant="outline" 
+                  size="sm"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={uploading}
+                >
+                  <Upload className="w-4 h-4 mr-2" />
+                  {uploading ? 'Uploading...' : 'Upload Document'}
+                </Button>
+              </div>
             </CardHeader>
             <CardContent>
               {docsLoading ? (
