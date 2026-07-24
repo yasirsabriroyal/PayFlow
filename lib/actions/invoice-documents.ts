@@ -255,16 +255,32 @@ export async function deleteInvoiceDocument(documentId: string) {
     // Fetch document to verify ownership
     const { data: document, error: fetchError } = await supabase
       .from('invoice_documents')
-      .select('id, file_name, uploaded_by, entity_type, invoice_id, payment_certificate_id, payment_id')
+      .select('id, file_name, uploaded_by, uploaded_by_auth_id, entity_type, invoice_id, payment_certificate_id, payment_id')
       .eq('id', documentId)
       .single()
     
     if (fetchError || !document) {
       return { success: false, error: 'Document not found' }
     }
+
+    // Check parent invoice status
+    if (document.invoice_id) {
+      const { data: invoice } = await supabase
+        .from('invoices')
+        .select('status')
+        .eq('id', document.invoice_id)
+        .single()
+
+      if (invoice && ['approved', 'partially_paid', 'paid'].includes(invoice.status)) {
+        return { success: false, error: 'Cannot delete documents from an approved or paid invoice' }
+      }
+    }
     
-    // Only uploader can delete (or admin - handled by permission check)
-    if (document.uploaded_by !== userData.id) {
+    const isInternalStaff = userData.role === 'admin' || userData.role === 'project_manager' || userData.role === 'accountant'
+    const { data: { user: authUser } } = await supabase.auth.getUser()
+    const isUploader = document.uploaded_by === userData.id || (authUser && document.uploaded_by_auth_id === authUser.id)
+
+    if (!isInternalStaff && !isUploader) {
       return { success: false, error: 'You can only delete documents you uploaded' }
     }
     

@@ -3,7 +3,7 @@
 import React, { useEffect, useState, useRef } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, FileText, Calendar, Building2, DollarSign, Clock, CheckCircle, XCircle, AlertCircle, Send, RotateCcw, Pencil, Mail, Phone, MapPin, FolderOpen, Shield, Plus, History, Upload } from 'lucide-react'
+import { ArrowLeft, FileText, Calendar, Building2, DollarSign, Clock, CheckCircle, XCircle, AlertCircle, Send, RotateCcw, Pencil, Mail, Phone, MapPin, FolderOpen, Shield, Plus, History, Upload, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -38,6 +38,7 @@ import {
   getPMInvoiceById,
   getPMInvoiceDocuments,
 } from '../../actions'
+import { deleteInvoiceDocument } from '@/lib/actions/invoice-documents'
 
 type Invoice = {
   id: string
@@ -254,6 +255,33 @@ export default function PMInvoiceDetailPage() {
       if (fileInputRef.current) {
         fileInputRef.current.value = ''
       }
+    }
+  }
+
+  const handleDeleteDocument = async (docId: string) => {
+    if (!window.confirm('Are you sure you want to delete this document?')) return
+
+    try {
+      const result = await deleteInvoiceDocument(docId)
+      if (result.success) {
+        toast({
+          title: 'Document deleted',
+          description: 'The document has been removed successfully.',
+        })
+        fetchDocuments()
+      } else {
+        toast({
+          title: 'Delete failed',
+          description: result.error || 'Failed to delete document.',
+          variant: 'destructive',
+        })
+      }
+    } catch (error) {
+      toast({
+        title: 'Delete error',
+        description: 'An error occurred while deleting the document.',
+        variant: 'destructive',
+      })
     }
   }
 
@@ -603,10 +631,20 @@ export default function PMInvoiceDetailPage() {
                           )}
                           <a
                             href={`/api/documents/${doc.id}`}
-                            className="inline-flex items-center text-sm text-primary hover:underline"
+                            className="inline-flex items-center text-sm text-primary hover:underline mr-1"
                           >
                             Download
                           </a>
+                          {!['approved', 'partially_paid', 'paid'].includes(invoice.status) && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                              onClick={() => handleDeleteDocument(doc.id)}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          )}
                         </div>
                       </li>
                     )

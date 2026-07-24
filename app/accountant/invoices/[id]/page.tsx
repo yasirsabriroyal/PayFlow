@@ -8,7 +8,7 @@ import {
   CheckCircle2, Clock, AlertTriangle, XCircle, Download,
   Send, CreditCard, Banknote, History, Paperclip, User,
   MapPin, Phone, Mail, Hash, RefreshCw, Printer, MoreHorizontal,
-  ChevronRight, ChevronDown, ExternalLink, Shield, Receipt, RotateCcw, Upload
+  ChevronRight, ChevronDown, ExternalLink, Shield, Receipt, RotateCcw, Upload, Trash2
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -48,6 +48,7 @@ import {
   recordDirectInvoicePayment,
   recordCertificatePayment
 } from '../../actions'
+import { deleteInvoiceDocument } from '@/lib/actions/invoice-documents'
 
 // Helper function to format currency
 function formatCurrency(amount: number) {
@@ -320,6 +321,33 @@ export default function InvoiceDetailPage() {
     const result = await getInvoiceById(invoiceId)
     if (result.success && result.attachments) {
       setAttachments(result.attachments as Attachment[])
+    }
+  }
+
+  const handleDeleteAttachment = async (docId: string) => {
+    if (!window.confirm('Are you sure you want to delete this document?')) return
+
+    try {
+      const result = await deleteInvoiceDocument(docId)
+      if (result.success) {
+        toast({
+          title: 'Document deleted',
+          description: 'The document has been removed successfully.',
+        })
+        fetchAttachments()
+      } else {
+        toast({
+          title: 'Delete failed',
+          description: result.error || 'Failed to delete document.',
+          variant: 'destructive',
+        })
+      }
+    } catch (error) {
+      toast({
+        title: 'Delete error',
+        description: 'An error occurred while deleting the document.',
+        variant: 'destructive',
+      })
     }
   }
 
@@ -1240,24 +1268,41 @@ export default function InvoiceDetailPage() {
               ) : (
                 <div className="space-y-2">
                   {attachments.map((attachment) => (
-                    <a
+                    <div
                       key={attachment.id}
-                      href={attachment.file_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex items-center justify-between p-3 bg-muted/30 rounded-lg hover:bg-muted/50 transition-colors"
+                      className="flex items-center justify-between p-3 bg-muted/30 rounded-lg border border-border"
                     >
-                      <div className="flex items-center gap-3">
-                        <FileText className="w-5 h-5 text-muted-foreground" />
-                        <div>
-                          <p className="font-medium text-sm">{attachment.file_name}</p>
+                      <div className="flex items-center gap-3 min-w-0">
+                        <FileText className="w-5 h-5 text-muted-foreground flex-shrink-0" />
+                        <div className="min-w-0">
+                          <p className="font-medium text-sm truncate">{attachment.file_name}</p>
                           <p className="text-xs text-muted-foreground">
                             {(attachment.file_size_bytes / 1024).toFixed(1)} KB • {formatDate(attachment.created_at)}
                           </p>
                         </div>
                       </div>
-                      <ExternalLink className="w-4 h-4 text-muted-foreground" />
-                    </a>
+                      <div className="flex items-center gap-2">
+                        <a
+                          href={attachment.file_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center justify-center h-8 px-3 rounded-md border border-input bg-background hover:bg-accent hover:text-accent-foreground text-xs font-medium"
+                        >
+                          <ExternalLink className="w-3.5 h-3.5 mr-1" />
+                          View
+                        </a>
+                        {!['approved', 'partially_paid', 'paid'].includes(invoice.status) && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                            onClick={() => handleDeleteAttachment(attachment.id)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        )}
+                      </div>
+                    </div>
                   ))}
                 </div>
               )}
