@@ -40,7 +40,8 @@ import {
   History,
   Pencil,
   Save,
-  Loader2
+  Loader2,
+  Plus
 } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -50,6 +51,7 @@ import { AppHeader } from '@/components/app-header'
 import { RoleTabBar } from '@/components/role-tab-bar'
 import { getPMContractorById } from '../../actions'
 import { updateVendor } from '@/app/admin/contractors/actions'
+import { assignContractorToProject, getAvailableProjectsForContractor } from '@/app/projects/[id]/actions'
 import { usePermissions } from '@/hooks/use-permissions'
 import { SETTLED_OR_SENT_STATUSES } from '@/lib/payments/status'
 
@@ -186,6 +188,14 @@ export default function PMContractorProfilePage({ params }: { params: Promise<{ 
     wcb_clearance_expiry: '',
   })
 
+  // Assign Project dialog state
+  const [isAssignProjectOpen, setIsAssignProjectOpen] = useState(false)
+  const [availableProjects, setAvailableProjects] = useState<Array<{ id: string; name: string; project_number: string; is_active: boolean }> | null>(null)
+  const [isLoadingProjects, setIsLoadingProjects] = useState(false)
+  const [selectedProjectId, setSelectedProjectId] = useState('')
+  const [isAssigningProject, setIsAssigningProject] = useState(false)
+  const [assignProjectError, setAssignProjectError] = useState('')
+
   useEffect(() => {
     const loadData = async () => {
       const result = await getPMContractorById(resolvedParams.id)
@@ -275,6 +285,33 @@ export default function PMContractorProfilePage({ params }: { params: Promise<{ 
     } finally {
       setIsSaving(false)
     }
+  }
+
+  const openAssignProjectDialog = async () => {
+    setIsAssignProjectOpen(true)
+    setSelectedProjectId('')
+    setAssignProjectError('')
+    setIsLoadingProjects(true)
+    const result = await getAvailableProjectsForContractor(resolvedParams.id)
+    setAvailableProjects(result.success && result.data ? result.data : [])
+    setIsLoadingProjects(false)
+  }
+
+  const handleAssignProject = async () => {
+    if (!selectedProjectId || !contractor) return
+    setIsAssigningProject(true)
+    setAssignProjectError('')
+    const result = await assignContractorToProject(selectedProjectId, resolvedParams.id, null, null, null)
+    if (result.success) {
+      setIsAssignProjectOpen(false)
+      setSelectedProjectId('')
+      // Re-fetch contractor data to update projects list
+      const refreshed = await getAvailableProjectsForContractor(resolvedParams.id)
+      setAvailableProjects(refreshed.success && refreshed.data ? refreshed.data : [])
+    } else {
+      setAssignProjectError(result.error || 'Failed to assign project')
+    }
+    setIsAssigningProject(false)
   }
 
   const getStatusConfig = (status: string) => {
@@ -718,9 +755,15 @@ export default function PMContractorProfilePage({ params }: { params: Promise<{ 
           {/* Projects Tab */}
           <TabsContent value="projects" className="mt-6">
             <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Associated Projects</CardTitle>
-                <CardDescription>Projects where this contractor has submitted invoices</CardDescription>
+              <CardHeader className="flex flex-row items-center justify-between">
+                <div>
+                  <CardTitle className="text-base">Associated Projects</CardTitle>
+                  <CardDescription>Projects this contractor is assigned to</CardDescription>
+                </div>
+                <Button size="sm" className="gap-1" onClick={openAssignProjectDialog}>
+                  <Plus className="w-4 h-4" />
+                  Assign Project
+                </Button>
               </CardHeader>
               <CardContent>
                 {projects.length === 0 ? (
@@ -1160,6 +1203,66 @@ export default function PMContractorProfilePage({ params }: { params: Promise<{ 
                   Save Changes
                 </>
               )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Assign Project Dialog */}
+      <Dialog open={isAssignProjectOpen} onOpenChange={setIsAssignProjectOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Assign to Project</DialogTitle>
+            <DialogDescription>
+              Select a project to assign <strong>{contractor?.company_name}</strong> to.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            {isLoadingProjects ? (
+              <div className="flex items-center justify-center py-6">
+                <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+              </div>
+            ) : availableProjects !== null && availableProjects.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-4">
+                This contractor is already assigned to all active projects.
+              </p>
+            ) : (
+              <div className="space-y-2">
+                <Label htmlFor="project-select">Project</Label>
+                <Select
+                  value={selectedProjectId}
+                  onValueChange={setSelectedProjectId}
+                >
+                  <SelectTrigger id="project-select">
+                    <SelectValue placeholder="Select a project..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(availableProjects || []).map(p => (
+                      <SelectItem key={p.id} value={p.id}>
+                        <span className="font-medium">{p.name}</span>
+                        <span className="text-muted-foreground ml-2 text-xs">— {p.project_number}</span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            {assignProjectError && (
+              <p className="text-sm text-destructive">{assignProjectError}</p>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsAssignProjectOpen(false)}>Cancel</Button>
+            <Button
+              onClick={handleAssignProject}
+              disabled={!selectedProjectId || isAssigningProject || isLoadingProjects}
+            >
+              {isAssigningProject ? (
+                <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Assigning...</>
+              ) : 'Assign'}
             </Button>
           </DialogFooter>
         </DialogContent>

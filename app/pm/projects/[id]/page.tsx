@@ -18,10 +18,15 @@ import {
   DollarSign,
   FileText,
   Users,
-  ChevronRight
+  ChevronRight,
+  Plus,
+  Loader2
 } from 'lucide-react'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Label } from '@/components/ui/label'
 import { getPMProjects, getPMInvoices } from '../../actions'
-import { getProjectContractors } from '@/app/projects/[id]/actions'
+import { getProjectContractors, getAvailableContractors, assignContractorToProject } from '@/app/projects/[id]/actions'
 import { AppHeader } from '@/components/app-header'
 import { RoleTabBar } from '@/components/role-tab-bar'
 import { WorkflowLink } from '@/components/workflow-link'
@@ -66,6 +71,14 @@ export default function PMProjectDetailPage({ params }: { params: Promise<{ id: 
   const [contractors, setContractors] = useState<Contractor[]>([])
   const [isLoading, setIsLoading] = useState(true)
 
+  // Assign Contractor dialog state
+  const [isAssignOpen, setIsAssignOpen] = useState(false)
+  const [availableContractors, setAvailableContractors] = useState<Array<{ id: string; company_name: string; contact_name: string; email: string; status: string }> | null>(null)
+  const [isLoadingAvailable, setIsLoadingAvailable] = useState(false)
+  const [selectedContractorId, setSelectedContractorId] = useState('')
+  const [isAssigning, setIsAssigning] = useState(false)
+  const [assignError, setAssignError] = useState('')
+
   useEffect(() => {
     const loadData = async () => {
       const [projectsResult, invoicesResult, contractorsResult] = await Promise.all([
@@ -104,6 +117,41 @@ export default function PMProjectDetailPage({ params }: { params: Promise<{ id: 
     }
     loadData()
   }, [resolvedParams.id])
+
+  const openAssignDialog = async () => {
+    setIsAssignOpen(true)
+    setSelectedContractorId('')
+    setAssignError('')
+    setIsLoadingAvailable(true)
+    const result = await getAvailableContractors(resolvedParams.id)
+    setAvailableContractors(result.success && result.data ? result.data : [])
+    setIsLoadingAvailable(false)
+  }
+
+  const handleAssign = async () => {
+    if (!selectedContractorId) return
+    setIsAssigning(true)
+    setAssignError('')
+    const result = await assignContractorToProject(resolvedParams.id, selectedContractorId, null, null, null)
+    if (result.success && result.data) {
+      const newContractor = result.data.contractor
+      if (newContractor) {
+        setContractors(prev => [...prev, {
+          id: newContractor.id,
+          company_name: newContractor.company_name,
+          contact_name: newContractor.contact_name,
+          status: newContractor.status,
+        }])
+      }
+      setIsAssignOpen(false)
+      setSelectedContractorId('')
+      const refresh = await getAvailableContractors(resolvedParams.id)
+      setAvailableContractors(refresh.success && refresh.data ? refresh.data : [])
+    } else {
+      setAssignError(result.error || 'Failed to assign contractor')
+    }
+    setIsAssigning(false)
+  }
 
   const formatCurrency = (cents?: number) => {
     if (!cents) return '$0'
@@ -307,12 +355,18 @@ export default function PMProjectDetailPage({ params }: { params: Promise<{ id: 
             <Card>
               <CardHeader className="flex flex-row items-center justify-between">
                 <CardTitle>Assigned Contractors</CardTitle>
-                <Link href="/pm/contractors">
-                  <Button variant="outline" size="sm" className="gap-1">
-                    View All Contractors
-                    <ChevronRight className="w-4 h-4" />
+                <div className="flex items-center gap-2">
+                  <Button size="sm" className="gap-1" onClick={openAssignDialog}>
+                    <Plus className="w-4 h-4" />
+                    Assign Contractor
                   </Button>
-                </Link>
+                  <Link href="/pm/contractors">
+                    <Button variant="outline" size="sm" className="gap-1">
+                      View All
+                      <ChevronRight className="w-4 h-4" />
+                    </Button>
+                  </Link>
+                </div>
               </CardHeader>
               <CardContent>
                 {contractors.length === 0 ? (
@@ -347,6 +401,68 @@ export default function PMProjectDetailPage({ params }: { params: Promise<{ id: 
           </TabsContent>
         </Tabs>
       </main>
+
+      {/* Assign Contractor Dialog */}
+      <Dialog open={isAssignOpen} onOpenChange={setIsAssignOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Assign Contractor to Project</DialogTitle>
+            <DialogDescription>
+              Select a contractor to assign to <strong>{project?.name}</strong>.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            {isLoadingAvailable ? (
+              <div className="flex items-center justify-center py-6">
+                <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+              </div>
+            ) : availableContractors !== null && availableContractors.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-4">
+                All registered contractors are already assigned to this project.
+              </p>
+            ) : (
+              <div className="space-y-2">
+                <Label htmlFor="contractor-select">Contractor</Label>
+                <Select
+                  value={selectedContractorId}
+                  onValueChange={setSelectedContractorId}
+                >
+                  <SelectTrigger id="contractor-select">
+                    <SelectValue placeholder="Select a contractor..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(availableContractors || []).map(c => (
+                      <SelectItem key={c.id} value={c.id}>
+                        <span className="font-medium">{c.company_name}</span>
+                        {c.contact_name && (
+                          <span className="text-muted-foreground ml-2 text-xs">— {c.contact_name}</span>
+                        )}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            {assignError && (
+              <p className="text-sm text-destructive">{assignError}</p>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsAssignOpen(false)}>Cancel</Button>
+            <Button
+              onClick={handleAssign}
+              disabled={!selectedContractorId || isAssigning || isLoadingAvailable}
+            >
+              {isAssigning ? (
+                <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Assigning...</>
+              ) : 'Assign'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

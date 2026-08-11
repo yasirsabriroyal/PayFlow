@@ -509,6 +509,50 @@ export async function updateProjectContractor(
   })
 }
 
+// Get all active projects a specific contractor is NOT yet assigned to
+export async function getAvailableProjectsForContractor(contractorId: string): Promise<{
+  success: boolean
+  data?: Array<{
+    id: string
+    name: string
+    project_number: string
+    is_active: boolean
+  }>
+  error?: string
+}> {
+  return withPermission(PERMISSIONS.PROJECTS.VIEW_PROJECTS, async () => {
+    const supabase = getSupabaseAdmin()
+
+    // Get project IDs this contractor is already assigned to
+    const { data: existing } = await supabase
+      .from('project_contractors')
+      .select('project_id')
+      .eq('contractor_id', contractorId)
+
+    const assignedProjectIds = (existing || []).map(e => e.project_id).filter(Boolean)
+
+    // Get all active projects not in the assigned list
+    let query = supabase
+      .from('projects')
+      .select('id, name, project_number, is_active')
+      .eq('is_active', true)
+      .order('name')
+
+    if (assignedProjectIds.length > 0) {
+      query = query.not('id', 'in', `(${assignedProjectIds.join(',')})`)
+    }
+
+    const { data, error } = await query
+
+    if (error) {
+      console.error('Failed to fetch available projects for contractor:', error)
+      return { success: false, error: error.message }
+    }
+
+    return { success: true, data: data || [] }
+  })
+}
+
 // Remove a contractor from a project
 export async function removeContractorFromProject(
   assignmentId: string
