@@ -14,6 +14,7 @@
 import { getSupabaseAdmin } from '@/lib/supabase/admin'
 import { withPermission } from '@/lib/permissions'
 import { PERMISSIONS } from '@/lib/permissions/constants'
+import { getInvoicePaymentBalance } from '@/lib/payments/payment-balance'
 
 // =====================================================
 // TYPES
@@ -136,7 +137,10 @@ export async function getInvoiceForCertificate(invoiceId: string) {
     const totalCertified = (certificates || [])
       .filter(c => c.status !== 'rejected' && c.status !== 'cancelled')
       .reduce((sum, c) => sum + (c.certified_amount_cents || 0), 0)
-    const remainingBalance = Math.max(0, (invoice.total_cents || 0) - totalCertified)
+      
+    // Use authoritative payment balance
+    const invBalance = await getInvoicePaymentBalance(supabase, invoiceId, invoice.net_payable_cents || 0)
+    const remainingBalance = Math.max(0, (invoice.total_cents || 0) - Math.max(totalCertified, invBalance.totalPaidCents))
     
     return { 
       success: true, 
@@ -246,14 +250,15 @@ export async function createPaymentCertificate(input: CreatePaymentCertificateIn
       return { success: false, error: 'Invoice not found' }
     }
     
-    // 2. Validate invoice status - must be approved or submitted
-    if (!['submitted', 'approved', 'pending_approval'].includes(invoice.status)) {
+    // 2. Validate invoice status - must be approved, submitted, or partially paid
+    if (!['submitted', 'approved', 'pending_approval', 'partially_paid'].includes(invoice.status)) {
       return { success: false, error: `Cannot create certificate for invoice with status: ${invoice.status}` }
     }
     
     // 3. Calculate previous certified amount and validate new amount
     const previousCertified = invoice.total_certified_cents || 0
-    const remainingBalance = invoice.total_cents - previousCertified
+    const invBalance = await getInvoicePaymentBalance(supabase, input.invoice_id, invoice.net_payable_cents || 0)
+    const remainingBalance = Math.max(0, invoice.total_cents - Math.max(previousCertified, invBalance.totalPaidCents))
     
     if (input.certified_amount_cents <= 0) {
       return { success: false, error: 'Certificate amount must be greater than 0' }
