@@ -417,7 +417,7 @@ function ChangeHistoryPanel({ history }: { history: CertificateChangeHistoryEntr
       <ol className="space-y-4">
         {history.map((entry) => {
           const keys = Object.keys(entry.new_values).filter(
-            (k) => k in HISTORY_FIELD_LABELS && (entry.change_type === 'reject' ? k === 'status' : true)
+            (k) => k in HISTORY_FIELD_LABELS && (entry.change_type === 'reject' ? k === 'status' : k !== 'status')
           )
           return (
             <li key={entry.id} className="border-l-2 border-border pl-4">
