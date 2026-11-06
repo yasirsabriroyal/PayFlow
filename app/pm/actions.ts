@@ -1006,77 +1006,28 @@ export async function getPMApprovedInvoices() {
   })
 }
 
-// Approve an invoice
+// Approve an invoice — delegates to pmApproveInvoice (central status engine:
+// validated transition, history, audit and notifications). Errors are returned,
+// never thrown, so the /pm/approvals page can display them.
 export async function approveInvoice(invoiceId: string) {
-  return withPermission(PERMISSIONS.INVOICES.APPROVE_INVOICES, async (userData) => {
-    const supabase = getSupabaseAdmin()
-
-    const { data, error } = await supabase
-      .from('invoices')
-      .update({
-        status: 'approved',
-        updated_at: new Date().toISOString()
-      })
-      .eq('id', invoiceId)
-      .select()
-      .single()
-
-    if (error) {
-      console.error('Approve invoice error:', error)
-      return { success: false, error: error.message }
-    }
-
-    const auditUserId = await resolveInternalUserId(userData.id, supabase)
-    if (auditUserId) {
-      await supabase.from('audit_logs').insert({
-        action: 'invoice_approved',
-        entity_type: 'invoice',
-        entity_id: invoiceId,
-        user_id: auditUserId,
-        description: `Approved invoice`,
-        new_values: { status: 'approved' },
-      })
-    }
-
-    return { success: true, invoice: data }
-  })
+  try {
+    return await pmApproveInvoice(invoiceId)
+  } catch (error) {
+    console.error('Approve invoice error:', error)
+    return { success: false as const, error: error instanceof Error ? error.message : 'Failed to approve invoice' }
+  }
 }
 
-// Reject an invoice
+// Reject an invoice — delegates to pmRejectInvoice (central status engine:
+// validated transition, history, audit and notifications). Errors are returned,
+// never thrown, so the /pm/approvals page can display them.
 export async function rejectInvoice(invoiceId: string, reason: string) {
-  return withPermission(PERMISSIONS.INVOICES.APPROVE_INVOICES, async (userData) => {
-    const supabase = getSupabaseAdmin()
-
-    const { data, error } = await supabase
-      .from('invoices')
-      .update({
-        status: 'rejected',
-        rejection_reason: reason,
-        updated_at: new Date().toISOString()
-      })
-      .eq('id', invoiceId)
-      .select()
-      .single()
-
-    if (error) {
-      console.error('Reject invoice error:', error)
-      return { success: false, error: error.message }
-    }
-
-    const auditUserId = await resolveInternalUserId(userData.id, supabase)
-    if (auditUserId) {
-      await supabase.from('audit_logs').insert({
-        action: 'invoice_rejected',
-        entity_type: 'invoice',
-        entity_id: invoiceId,
-        user_id: auditUserId,
-        description: `Rejected invoice: ${reason}`,
-        new_values: { status: 'rejected', rejection_reason: reason },
-      })
-    }
-
-    return { success: true, invoice: data }
-  })
+  try {
+    return await pmRejectInvoice(invoiceId, reason)
+  } catch (error) {
+    console.error('Reject invoice error:', error)
+    return { success: false as const, error: error instanceof Error ? error.message : 'Failed to reject invoice' }
+  }
 }
 
 // Create a new invoice (PM manual entry)
