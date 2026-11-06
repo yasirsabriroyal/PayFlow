@@ -15,6 +15,15 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { useToast } from '@/hooks/use-toast'
 import { AppHeader } from '@/components/app-header'
 import {
@@ -32,12 +41,22 @@ import {
   AlertTriangle,
   Loader2,
   CreditCard,
+  Pencil,
+  History,
 } from 'lucide-react'
 import {
   getPaymentCertificateById,
+  adminUpdatePaymentCertificate,
+  adminRejectPaymentCertificate,
+  getCertificateViewerContext,
+  type CertificateChangeHistoryEntry,
+} from '@/lib/actions/payment-certificates'
+// Approve/reject of PENDING certificates uses the maintained PM workflow
+// actions (status 'pending'), which are restricted to admin or PM.
+import {
   approvePaymentCertificate,
   rejectPaymentCertificate,
-} from '@/lib/actions/payment-certificates'
+} from '@/app/pm/actions'
 import { recordCertificatePayment } from '@/app/accountant/actions'
 
 type Certificate = {
@@ -120,6 +139,7 @@ function getStatusBadge(status: string) {
   switch (status) {
     case 'draft':
       return <Badge variant="secondary"><Clock className="w-3 h-3 mr-1" />Draft</Badge>
+    case 'pending':
     case 'pending_approval':
       return <Badge variant="outline" className="border-amber-500 text-amber-600"><Clock className="w-3 h-3 mr-1" />Pending Approval</Badge>
     case 'submitted':
@@ -367,6 +387,79 @@ function PaidLockedPanel({ certificate }: { certificate: Certificate }) {
   )
 }
 
+// ─── Change History Panel (admin, PM, accountant only) ────────────────────────
+
+const HISTORY_FIELD_LABELS: Record<string, string> = {
+  certified_amount_cents: 'Certified amount',
+  description: 'Description',
+  work_period_start: 'Work period start',
+  work_period_end: 'Work period end',
+  status: 'Status',
+}
+
+function formatHistoryValue(key: string, value: unknown): string {
+  if (value === null || value === undefined || value === '') return '—'
+  if (key === 'certified_amount_cents' && typeof value === 'number') return formatCurrency(value / 100)
+  if (key === 'work_period_start' || key === 'work_period_end') return formatDate(String(value))
+  return String(value)
+}
+
+function ChangeHistoryPanel({ history }: { history: CertificateChangeHistoryEntry[] }) {
+  return (
+    <div className="bg-card border border-border rounded-xl p-6">
+      <h2 className="text-lg font-semibold mb-1 flex items-center gap-2">
+        <History className="w-5 h-5 text-primary" />
+        Change History
+      </h2>
+      <p className="text-sm text-muted-foreground mb-4">
+        Admin changes to this certificate. Visible to admins, project managers and accountants only.
+      </p>
+      <ol className="space-y-4">
+        {history.map((entry) => {
+          const keys = Object.keys(entry.new_values).filter(
+            (k) => k in HISTORY_FIELD_LABELS && (entry.change_type === 'reject' ? k === 'status' : true)
+          )
+          return (
+            <li key={entry.id} className="border-l-2 border-border pl-4">
+              <div className="flex items-center gap-2 flex-wrap">
+                {entry.change_type === 'reject' ? (
+                  <Badge variant="destructive">Rejected</Badge>
+                ) : (
+                  <Badge variant="outline">Edited</Badge>
+                )}
+                <span className="text-sm font-medium">{entry.changed_by}</span>
+                <span className="text-xs text-muted-foreground">{formatDateTime(entry.created_at)}</span>
+              </div>
+              {entry.reason && (
+                <p className="text-sm mt-1.5">
+                  <span className="text-muted-foreground">Reason: </span>
+                  {entry.reason}
+                </p>
+              )}
+              {keys.length > 0 && (
+                <ul className="mt-1.5 space-y-0.5">
+                  {keys.map((k) => (
+                    <li key={k} className="text-sm">
+                      <span className="text-muted-foreground">{HISTORY_FIELD_LABELS[k]}: </span>
+                      <span className="line-through text-muted-foreground">
+                        {formatHistoryValue(k, entry.old_values[k as keyof typeof entry.old_values])}
+                      </span>
+                      {' → '}
+                      <span className="font-medium">
+                        {formatHistoryValue(k, entry.new_values[k as keyof typeof entry.new_values])}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </li>
+          )
+        })}
+      </ol>
+    </div>
+  )
+}
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function CertificateDetailPage() {
@@ -378,6 +471,22 @@ export default function CertificateDetailPage() {
   const [certificate, setCertificate] = useState<Certificate | null>(null)
   const [loading, setLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState(false)
+
+  // Viewer role + admin change history (history only returned to internal roles)
+  const [viewerRole, setViewerRole] = useState<string | null>(null)
+  const [history, setHistory] = useState<CertificateChangeHistoryEntry[]>([])
+
+  // Reject dialog
+  const [isRejectOpen, setIsRejectOpen] = useState(false)
+  const [rejectReason, setRejectReason] = useState('')
+
+  // Admin edit dialog
+  const [isEditOpen, setIsEditOpen] = useState(false)
+  const [editAmount, setEditAmount] = useState('')
+  const [editDescription, setEditDescription] = useState('')
+  const [editPeriodStart, setEditPeriodStart] = useState('')
+  const [editPeriodEnd, setEditPeriodEnd] = useState('')
+  const [editReason, setEditReason] = useState('')
 
   const fetchCertificate = useCallback(async () => {
     try {
@@ -402,17 +511,33 @@ export default function CertificateDetailPage() {
     }
   }, [certId, toast])
 
+  const fetchViewerContext = useCallback(async () => {
+    try {
+      const ctx = await getCertificateViewerContext(certId)
+      setViewerRole(ctx.role)
+      setHistory(ctx.history)
+    } catch {
+      // Non-critical: page still works without history / role-gated buttons
+    }
+  }, [certId])
+
   useEffect(() => {
     fetchCertificate()
-  }, [fetchCertificate])
+    fetchViewerContext()
+  }, [fetchCertificate, fetchViewerContext])
+
+  const refreshAll = () => {
+    fetchCertificate()
+    fetchViewerContext()
+  }
 
   const handleApprove = async () => {
     setActionLoading(true)
     try {
-      const result = await approvePaymentCertificate(certId)
+      const result = await approvePaymentCertificate({ certificate_id: certId })
       if (result.success) {
         toast({ title: 'Certificate Approved', description: 'The payment certificate has been approved.' })
-        fetchCertificate()
+        refreshAll()
       } else {
         toast({
           title: 'Error',
@@ -426,16 +551,65 @@ export default function CertificateDetailPage() {
   }
 
   const handleReject = async () => {
+    if (!rejectReason.trim()) return
     setActionLoading(true)
     try {
-      const result = await rejectPaymentCertificate(certId, 'Rejected by reviewer')
+      // Admin uses the admin action (works on pending + approved and records
+      // change history); PM uses the standard pending-only rejection.
+      const result = viewerRole === 'admin'
+        ? await adminRejectPaymentCertificate({ certificate_id: certId, reason: rejectReason.trim() })
+        : await rejectPaymentCertificate({ certificate_id: certId, reason: rejectReason.trim() })
       if (result.success) {
-        toast({ title: 'Certificate Rejected', description: 'The payment certificate has been rejected.' })
-        fetchCertificate()
+        toast({ title: 'Certificate Rejected', description: 'The payment certificate has been rejected and returned to the PM.' })
+        setIsRejectOpen(false)
+        setRejectReason('')
+        refreshAll()
       } else {
         toast({
           title: 'Error',
           description: (result as { error?: string }).error || 'Failed to reject certificate',
+          variant: 'destructive',
+        })
+      }
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
+  const openEditDialog = () => {
+    if (!certificate) return
+    setEditAmount((certificate.certified_amount_cents / 100).toFixed(2))
+    setEditDescription(certificate.description || '')
+    setEditPeriodStart(certificate.work_period_start?.slice(0, 10) || '')
+    setEditPeriodEnd(certificate.work_period_end?.slice(0, 10) || '')
+    setEditReason('')
+    setIsEditOpen(true)
+  }
+
+  const editAmountCents = Math.round(parseFloat(editAmount) * 100)
+  const editIsValid =
+    Number.isFinite(editAmountCents) && editAmountCents > 0 && editReason.trim().length > 0
+
+  const handleAdminEdit = async () => {
+    if (!editIsValid) return
+    setActionLoading(true)
+    try {
+      const result = await adminUpdatePaymentCertificate({
+        certificate_id: certId,
+        certified_amount_cents: editAmountCents,
+        description: editDescription,
+        work_period_start: editPeriodStart || null,
+        work_period_end: editPeriodEnd || null,
+        reason: editReason.trim(),
+      })
+      if (result.success) {
+        toast({ title: 'Certificate Updated', description: 'Your changes were saved and added to the change history.' })
+        setIsEditOpen(false)
+        refreshAll()
+      } else {
+        toast({
+          title: 'Error',
+          description: (result as { error?: string }).error || 'Failed to update certificate',
           variant: 'destructive',
         })
       }
@@ -468,6 +642,15 @@ export default function CertificateDetailPage() {
 
   const invoice = certificate.invoice
   const isPaid = certificate.status === 'paid'
+  const isAdmin = viewerRole === 'admin'
+  const canApprovePending =
+    certificate.status === 'pending' && (viewerRole === 'admin' || viewerRole === 'project_manager')
+  // Admin may edit/reject only pending or approved certs (never draft, rejected or paid)
+  const canAdminModify = isAdmin && (certificate.status === 'pending' || certificate.status === 'approved')
+  const canReject = canApprovePending || canAdminModify
+  const showHistory =
+    (viewerRole === 'admin' || viewerRole === 'project_manager' || viewerRole === 'accountant') &&
+    history.length > 0
 
   return (
     <div className="min-h-screen bg-background">
@@ -502,17 +685,27 @@ export default function CertificateDetailPage() {
               </div>
             </div>
 
-            {/* Approve / Reject — only for pending_approval or submitted */}
-            {(certificate.status === 'pending_approval' || certificate.status === 'submitted') && (
-              <div className="flex gap-2">
-                <Button variant="outline" onClick={handleReject} disabled={actionLoading}>
-                  <XCircle className="w-4 h-4 mr-2" />
-                  Reject
-                </Button>
-                <Button onClick={handleApprove} disabled={actionLoading}>
-                  <CheckCircle className="w-4 h-4 mr-2" />
-                  Approve
-                </Button>
+            {/* Edit (admin) / Reject (admin or PM) / Approve (pending, admin or PM) */}
+            {(canReject || canAdminModify) && (
+              <div className="flex gap-2 flex-wrap justify-end">
+                {canAdminModify && (
+                  <Button variant="outline" onClick={openEditDialog} disabled={actionLoading}>
+                    <Pencil className="w-4 h-4 mr-2" />
+                    Edit
+                  </Button>
+                )}
+                {canReject && (
+                  <Button variant="outline" onClick={() => setIsRejectOpen(true)} disabled={actionLoading}>
+                    <XCircle className="w-4 h-4 mr-2" />
+                    Reject
+                  </Button>
+                )}
+                {canApprovePending && (
+                  <Button onClick={handleApprove} disabled={actionLoading}>
+                    <CheckCircle className="w-4 h-4 mr-2" />
+                    Approve
+                  </Button>
+                )}
               </div>
             )}
           </div>
@@ -684,11 +877,134 @@ export default function CertificateDetailPage() {
             certificate={certificate}
             onPaid={() => {
               setLoading(true)
-              fetchCertificate()
+              refreshAll()
             }}
           />
         )}
+
+        {/* Change History — admin, PM and accountant only (never contractors) */}
+        {showHistory && <ChangeHistoryPanel history={history} />}
       </div>
+
+      {/* Reject dialog */}
+      <Dialog
+        open={isRejectOpen}
+        onOpenChange={(open) => {
+          setIsRejectOpen(open)
+          if (!open) setRejectReason('')
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Reject {certificate.certificate_number}</DialogTitle>
+            <DialogDescription>
+              The certificate will be returned to the project manager to revise and resubmit.
+              {certificate.status === 'approved' && ' It will be removed from the payment queue.'}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="rejectReason">Reason (required)</Label>
+            <Textarea
+              id="rejectReason"
+              value={rejectReason}
+              onChange={(e) => setRejectReason(e.target.value)}
+              placeholder="Explain why this certificate is being rejected"
+              rows={4}
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsRejectOpen(false)} disabled={actionLoading}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleReject}
+              disabled={actionLoading || !rejectReason.trim()}
+            >
+              {actionLoading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+              Reject Certificate
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Admin edit dialog */}
+      <Dialog open={isEditOpen} onOpenChange={setIsEditOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit {certificate.certificate_number}</DialogTitle>
+            <DialogDescription>
+              Status stays {certificate.status === 'approved' ? 'approved' : 'pending'}. Every change is
+              recorded in the change history.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="editAmount">Certified Amount (CAD)</Label>
+              <Input
+                id="editAmount"
+                type="number"
+                inputMode="decimal"
+                min="0.01"
+                step="0.01"
+                value={editAmount}
+                onChange={(e) => setEditAmount(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                Paid at the full certified amount. Holdback stays at the invoice level.
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="editDescription">Description</Label>
+              <Textarea
+                id="editDescription"
+                value={editDescription}
+                onChange={(e) => setEditDescription(e.target.value)}
+                rows={3}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label htmlFor="editPeriodStart">Work Period Start</Label>
+                <Input
+                  id="editPeriodStart"
+                  type="date"
+                  value={editPeriodStart}
+                  onChange={(e) => setEditPeriodStart(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="editPeriodEnd">Work Period End</Label>
+                <Input
+                  id="editPeriodEnd"
+                  type="date"
+                  value={editPeriodEnd}
+                  onChange={(e) => setEditPeriodEnd(e.target.value)}
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="editReason">Reason for change (required)</Label>
+              <Textarea
+                id="editReason"
+                value={editReason}
+                onChange={(e) => setEditReason(e.target.value)}
+                placeholder="Shown in the change history"
+                rows={2}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsEditOpen(false)} disabled={actionLoading}>
+              Cancel
+            </Button>
+            <Button onClick={handleAdminEdit} disabled={actionLoading || !editIsValid}>
+              {actionLoading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+              Save Changes
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
