@@ -10,6 +10,7 @@
  * - suspended
  */
 
+import { after } from 'next/server'
 import { withPermission } from '@/lib/permissions'
 import { PERMISSIONS } from '@/lib/permissions/constants'
 import { getSupabaseAdmin } from '@/lib/supabase/admin'
@@ -18,6 +19,8 @@ import { resolveInternalUserId } from '@/lib/utils/resolve-user'
 import { applyInvoiceStatusChange } from '@/lib/invoices/status-flow'
 import { resolvePmScope } from '@/lib/permissions/pm-scope'
 import { withInvoiceProjectPermission } from '@/lib/permissions/project-roles'
+import { resolveRecipients } from '@/lib/notifications/distribution'
+import { sendGenericAlert } from '@/lib/notifications/server-dispatch'
 
 /**
  * Build a status-engine actor from the authenticated user. Resolves the
@@ -620,6 +623,87 @@ export async function resubmitCertificate(input: { certificate_id: string }) {
   })
 }
 
+async function notifyCertificateApproved(
+  certificateId: string,
+  actorInternalUserId: string
+): Promise<void> {
+  try {
+    const supabase = getSupabaseAdmin()
+    const { data: cert } = await supabase
+      .from('payment_certificates')
+      .select(`
+        id, certificate_number, net_payable_cents, invoice_id, contractor_id, project_id,
+        invoice:invoices(invoice_number),
+        contractor:contractors(company_name),
+        project:projects(name)
+      `)
+      .eq('id', certificateId)
+      .maybeSingle()
+
+    if (!cert) {
+      console.error('[notifyCertificateApproved] certificate not found:', certificateId)
+      return
+    }
+
+    const recipients = await resolveRecipients({
+      event: 'certificate_approved',
+      contractorId: cert.contractor_id,
+      projectId: cert.project_id,
+      actorUserId: actorInternalUserId,
+    })
+
+    const internalRecipients = recipients.filter(
+      (r): r is typeof r & { userId: string } => r.userId !== null && r.role !== 'contractor'
+    )
+    if (internalRecipients.length === 0) return
+
+    const invoiceRow = Array.isArray(cert.invoice) ? cert.invoice[0] : cert.invoice
+    const contractorRow = Array.isArray(cert.contractor) ? cert.contractor[0] : cert.contractor
+    const projectRow = Array.isArray(cert.project) ? cert.project[0] : cert.project
+
+    const invoiceNumber = (invoiceRow as { invoice_number?: string } | null)?.invoice_number ?? 'Unknown'
+    const contractorName = (contractorRow as { company_name?: string } | null)?.company_name ?? 'Unknown'
+    const projectName = (projectRow as { name?: string } | null)?.name ?? 'Unknown'
+
+    const amount = new Intl.NumberFormat('en-CA', {
+      style: 'currency',
+      currency: 'CAD',
+    }).format((cert.net_payable_cents ?? 0) / 100)
+
+    const title = `Certificate ${cert.certificate_number ?? 'Unknown'} approved for payment`
+    const body = [
+      `${contractorName} · ${projectName}`,
+      `Invoice ${invoiceNumber}`,
+      `Amount to pay: ${amount}`,
+    ].join('\n')
+    const link = `/invoices/${cert.invoice_id}/certificates/${certificateId}`
+
+    await Promise.allSettled(
+      internalRecipients.map((r) =>
+        sendGenericAlert({
+          recipientUserId: r.userId,
+          recipient: {
+            id: r.userId,
+            name: r.name,
+            email: r.email ?? undefined,
+            phone: r.phone ?? undefined,
+            role: r.role as 'admin' | 'accountant' | 'project_manager',
+            emailEnabled: r.emailEnabled,
+            smsEnabled: r.smsEnabled,
+            whatsAppEnabled: r.whatsAppEnabled,
+          },
+          type: 'certificate_approved',
+          title,
+          body,
+          link,
+        })
+      )
+    )
+  } catch (error) {
+    console.error('[notifyCertificateApproved]', error)
+  }
+}
+
 /**
  * Approve a pending payment certificate.
  * Permission: admin or project_manager.
@@ -685,6 +769,8 @@ export async function approvePaymentCertificate(input: { certificate_id: string 
       old_values: { status: 'pending' },
       new_values: { status: 'approved', approved_by: internalUserId, approved_at: now },
     })
+
+    after(() => notifyCertificateApproved(input.certificate_id, internalUserId))
 
     return { success: true, certificate: updated }
   })
