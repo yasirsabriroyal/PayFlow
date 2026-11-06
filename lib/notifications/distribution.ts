@@ -30,6 +30,7 @@ export type DistributionEvent =
   | 'disputed'
   | 'partially_paid'
   | 'paid'
+  | 'certificate_approved'
 
 /**
  * A single recipient rule. `role` is intentionally a string (not a closed
@@ -77,7 +78,8 @@ export interface ResolveRecipientsArgs {
 
 /**
  * Built-in fallback used when no `system_settings` policy row exists. Mirrors
- * the historical routing, plus copies payment events to the accountant.
+ * the historical routing, plus copies payment events to the accountant. Also
+ * supplies defaults for events not yet present in a saved policy.
  */
 const DEFAULT_POLICY: DistributionPolicy = {
   version: 1,
@@ -90,6 +92,7 @@ const DEFAULT_POLICY: DistributionPolicy = {
     disputed: { rules: [{ kind: 'role', role: 'accountant' }, { kind: 'role', role: 'admin' }, { kind: 'project_role', role: 'project_manager' }] },
     partially_paid: { rules: [{ kind: 'vendor' }, { kind: 'role', role: 'accountant' }, { kind: 'role', role: 'admin' }, { kind: 'project_role', role: 'project_manager' }] },
     paid: { rules: [{ kind: 'vendor' }, { kind: 'role', role: 'accountant' }, { kind: 'role', role: 'admin' }, { kind: 'project_role', role: 'project_manager' }] },
+    certificate_approved: { rules: [{ kind: 'role', role: 'accountant' }, { kind: 'role', role: 'admin' }] },
   },
 }
 
@@ -115,7 +118,9 @@ export async function getDistributionPolicy(
       .maybeSingle()
 
     const value = data?.setting_value as DistributionPolicy | undefined
-    if (value && value.events) return value
+    if (value && value.events) {
+      return { ...value, events: { ...DEFAULT_POLICY.events, ...value.events } }
+    }
   } catch (e) {
     console.error('[distribution] failed to load policy, using default:', e)
   }

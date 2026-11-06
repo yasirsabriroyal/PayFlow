@@ -48,6 +48,7 @@ const EVENTS: Array<{ key: string; label: string; description: string; highlight
   { key: 'submitted', label: 'Invoice Submitted', description: 'A vendor submitted a new invoice.' },
   { key: 'pending_approval', label: 'Pending Approval', description: 'An invoice is awaiting approval.' },
   { key: 'approved', label: 'Invoice Approved', description: 'An invoice was approved for payment.' },
+  { key: 'certificate_approved', label: 'Certificate Approved', description: 'A payment certificate was approved and is ready to pay.' },
   { key: 'rejected', label: 'Invoice Rejected', description: 'An invoice was rejected.' },
   { key: 'revision_requested', label: 'Revision Requested', description: 'Changes were requested on an invoice.' },
   { key: 'disputed', label: 'Invoice Disputed', description: 'An invoice was flagged as disputed.' },
@@ -71,6 +72,7 @@ const DEFAULT_POLICY: DistributionPolicy = {
     rejected: { rules: [{ kind: 'project_role', role: 'project_manager' }, { kind: 'vendor' }] },
     revision_requested: { rules: [{ kind: 'vendor' }] },
     disputed: { rules: [{ kind: 'role', role: 'accountant' }, { kind: 'role', role: 'admin' }, { kind: 'project_role', role: 'project_manager' }] },
+    certificate_approved: { rules: [{ kind: 'role', role: 'accountant' }, { kind: 'role', role: 'admin' }] },
   },
 }
 
