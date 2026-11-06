@@ -36,7 +36,9 @@
 | Live URL | v0-finance-web-app-woad.vercel.app |
 | Vercel Team ID | team_4OHeyCWhrrubThww9728V0ln |
 | Vercel Project ID | prj_3ecmxMmT1BovCkLJ2ittqFwMIkQu |
-| Local Path | C:\Users\yasir\OneDrive\Apps\RoyalPayFlow |
+| Local Path | C:\RoyalApps\RoyalPayFlow |
+| Working Branch | master |
+| Production Branch | main (push with: `git push origin master:main`) |
 
 ---
 
@@ -118,10 +120,16 @@ These rules are FIXED and must never be violated by any code change:
 2. **Certificates are paid at full certified amount** — no holdback deduction per cert
 3. **Cannot issue a cert** if invoice remaining balance ≤ holdback amount
 4. **EFT batch is blocked** if any selected invoice has unpaid certificates
-5. **Certificate status flow:** `draft → pending → approved → paid` (or `rejected → draft`)
+5. **Certificate status flow:** `draft → pending → approved → paid` (or `rejected → draft`; admin may also send `pending/approved → rejected`)
 6. **Who can approve/reject:** Admin OR Project Manager
 7. **Who can create certs:** Project Manager only (not accountant, not admin)
 8. **PM can resubmit** a rejected certificate after editing
+9. **Admin override (Nov 2026):** Admin can EDIT (amount, description, work period) or REJECT (reason required) a certificate only while it is `pending` or `approved`
+   - Drafts and rejected certs belong to the PM — admin cannot edit them
+   - Paid certs are never touched
+   - Editing an approved cert keeps it `approved`; admin reject of an approved cert sends it back to the PM (`approved → rejected`)
+   - Every admin change is written to `audit_logs` (`change_source: admin_certificate_change`) and shown in the cert's **Change History** — visible to admin, PM and accountant only, never contractors
+   - Actions: `adminUpdatePaymentCertificate`, `adminRejectPaymentCertificate`, `getCertificateViewerContext` in `lib/actions/payment-certificates.ts`
 
 ### Certificate Workflow
 ```
@@ -231,7 +239,7 @@ PM creates cert (draft)
 
 ### How to Open Claude Code
 ```bash
-cd C:\Users\yasir\OneDrive\Apps\RoyalPayFlow
+cd C:\RoyalApps\RoyalPayFlow
 claude
 ```
 ⚠️ Paste prompts INSIDE the Claude Code terminal — NOT in Windows cmd.exe
