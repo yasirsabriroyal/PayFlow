@@ -1780,7 +1780,8 @@ export async function getApprovedInvoices(options?: { limit?: number }) {
           wcb_clearance_expiry,
           bank_account_last4,
           banking_approval_status,
-          bank_account_encrypted,
+          etransfer_email,
+          preferred_payment_method,
           vendor_type
         ),
         project:projects(id, name, project_number)
