@@ -1830,6 +1830,53 @@ export async function getApprovedInvoices(options?: { limit?: number }) {
 }
 
 /**
+ * Payment guardrail settings saved in Admin → Settings → Payments.
+ * Read server-side because system_settings is admin-only under RLS. Read-only.
+ * Missing or unreadable rows fall back to safe defaults (WCB block on, $50,000).
+ */
+export async function getPaymentGuardrailSettings() {
+  return withPermission(PERMISSIONS.PAYMENTS.PROCESS_PAYMENTS, async () => {
+    const supabase = getSupabaseAdmin()
+
+    const { data, error } = await supabase
+      .from('system_settings')
+      .select('setting_key, setting_value')
+      .in('setting_key', ['payment_wcb_block', 'payment_stat_dec_threshold'])
+
+    if (error) {
+      console.error('Get payment guardrail settings error:', error)
+      return { success: false as const, error: error.message }
+    }
+
+    const asObject = (value: unknown): Record<string, unknown> | null =>
+      typeof value === 'object' && value !== null && !Array.isArray(value)
+        ? (value as Record<string, unknown>)
+        : null
+    const wcb = asObject(data?.find(row => row.setting_key === 'payment_wcb_block')?.setting_value)
+    const statDec = asObject(data?.find(row => row.setting_key === 'payment_stat_dec_threshold')?.setting_value)
+
+    const block_wcb_expired = wcb && 'enabled' in wcb
+      ? wcb.enabled === true || wcb.enabled === 'true'
+      : true
+
+    let statutory_declaration_threshold = 50000
+    if (statDec) {
+      const thresholdCents = statDec.threshold_cents
+      if (statDec.enabled === true && typeof thresholdCents === 'number' && thresholdCents > 0) {
+        statutory_declaration_threshold = thresholdCents / 100
+      } else if (statDec.enabled === false) {
+        statutory_declaration_threshold = 0
+      }
+    }
+
+    return {
+      success: true as const,
+      settings: { block_wcb_expired, statutory_declaration_threshold },
+    }
+  })
+}
+
+/**
  * Summary totals for the payment dashboard: how much has gone out today and
  * this calendar week. Keeps the accountant oriented on completed work alongside
  * the "ready to pay" action items. Low row volume, so summed in JS.

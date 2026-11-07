@@ -50,8 +50,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { useToast } from '@/hooks/use-toast'
-import { createClient } from '@/lib/supabase/client'
-import { executeEFTPayment, processPayments, getApprovedInvoices, getApprovedCertificatesForPayment, recordCertificatePayment, executeCertificateEFTBatch, getRecentPayments, getRecentPaymentTotals } from '../actions'
+import { executeEFTPayment, processPayments, getApprovedInvoices, getApprovedCertificatesForPayment, recordCertificatePayment, executeCertificateEFTBatch, getRecentPayments, getRecentPaymentTotals, getPaymentGuardrailSettings } from '../actions'
 import { usePermissions } from '@/hooks/use-permissions'
 import { AppHeader } from '@/components/app-header'
 import { RoleTabBar } from '@/components/role-tab-bar'
@@ -71,6 +70,8 @@ type ComplianceIssue = {
 type InvoiceCompliance = {
   isBlocked: boolean
   issues: ComplianceIssue[]
+  /** Non-blocking notices; never affect isBlocked, selection or paying. */
+  warnings: string[]
 }
 
 // System settings types
@@ -259,32 +260,22 @@ export default function PaymentsPage() {
     loadAll()
   }, [])
 
-  // Fetch payment guardrail settings from system_settings table
+  // Fetch payment guardrail settings (Admin → Settings → Payments), read server-side
   useEffect(() => {
     const fetchSettings = async () => {
-      const supabase = createClient()
-      
       try {
-        const { data, error } = await supabase
-          .from('system_settings')
-          .select('key, value')
-          .in('key', ['block_wcb_expired', 'require_lien_waiver', 'statutory_declaration_threshold'])
-
-        if (!error && data) {
-          const settings: Partial<PaymentSettings> = {}
-          data.forEach((row: { key: string; value: unknown }) => {
-            if (row.key === 'block_wcb_expired') {
-              settings.block_wcb_expired = row.value === true || row.value === 'true'
-            } else if (row.key === 'require_lien_waiver') {
-              settings.require_lien_waiver = row.value === true || row.value === 'true'
-            } else if (row.key === 'statutory_declaration_threshold') {
-              settings.statutory_declaration_threshold = Number(row.value) || 50000
-            }
-          })
-          setPaymentSettings(prev => ({ ...prev, ...settings }))
+        const result = await getPaymentGuardrailSettings()
+        if (result.success) {
+          setPaymentSettings(prev => ({
+            ...prev,
+            block_wcb_expired: result.settings.block_wcb_expired,
+            statutory_declaration_threshold: result.settings.statutory_declaration_threshold,
+          }))
+        } else {
+          console.warn('[payments] Using default payment settings:', result.error)
         }
       } catch (err) {
-        console.log('[v0] Using default payment settings')
+        console.warn('[payments] Using default payment settings:', err)
       } finally {
         setSettingsLoaded(true)
       }
@@ -403,6 +394,7 @@ export default function PaymentsPage() {
   // Check compliance for an invoice based on active settings
   const checkCompliance = (invoice: ApprovedInvoice): InvoiceCompliance => {
     const issues: ComplianceIssue[] = []
+    const warnings: string[] = []
 
     if (invoice.vendorType !== 'supplier') {
     // Stage 2: Banking approval gate (EFT-specific, highest priority)
@@ -442,16 +434,16 @@ export default function PaymentsPage() {
       })
     }
 
-    // Check statutory declaration threshold
+    // Check statutory declaration threshold — WARNING only (never blocks)
+    // until PayFlow can record statutory declarations.
     if (
       paymentSettings.statutory_declaration_threshold > 0 &&
       invoice.amount >= paymentSettings.statutory_declaration_threshold &&
       !(invoice as typeof invoice & { hasStatutoryDeclaration?: boolean }).hasStatutoryDeclaration
     ) {
-      issues.push({
-        type: 'needs_statutory_declaration',
-        message: `Invoice exceeds $${paymentSettings.statutory_declaration_threshold.toLocaleString()} - statutory declaration required`,
-      })
+      const threshold = new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD' })
+        .format(paymentSettings.statutory_declaration_threshold)
+      warnings.push(`Statutory declaration required (invoice ${threshold} or more)`)
     }
     }
 
@@ -466,6 +458,7 @@ export default function PaymentsPage() {
     return {
       isBlocked: issues.length > 0,
       issues,
+      warnings,
     }
   }
 
@@ -1020,6 +1013,9 @@ export default function PaymentsPage() {
                           Pay {formatCurrency(invoice.remainingPayable)}
                         </Button>
                       )}
+                      {compliance?.warnings.map((warning, i) => (
+                        <p key={i} className="text-xs text-warning mt-2">• {warning}</p>
+                      ))}
                     </div>
                   </DataCard>
                 )
@@ -1183,6 +1179,9 @@ export default function PaymentsPage() {
                           {invoice.hasUnpaidCerts && (
                             <p className="text-xs font-medium text-destructive mt-0.5">Pay certificate first</p>
                           )}
+                          {compliance?.warnings.map((warning, i) => (
+                            <p key={i} className="text-xs font-medium text-warning mt-0.5">{warning}</p>
+                          ))}
                         </td>
                         <td className="px-6 py-4">
                           {invoice.dueDate ? (
