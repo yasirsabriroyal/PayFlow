@@ -216,6 +216,23 @@ export async function getPaymentCertificateById(certificateId: string) {
       return { success: false, error: error.message }
     }
     
+    // payments -> payment_certificates is one-to-many, so the embedded payment
+    // comes back as an array. The certificate page expects ONE payment object
+    // (or null): prefer a cleared payment, then the newest one that is not
+    // cancelled/returned, then the newest of all.
+    const rawPayment = (certificate as { payment?: unknown }).payment
+    if (Array.isArray(rawPayment)) {
+      const byNewest = [...rawPayment].sort((a, b) =>
+        String(b?.created_at ?? '').localeCompare(String(a?.created_at ?? ''))
+      )
+      const payment =
+        byNewest.find((p) => p?.status === 'cleared') ??
+        byNewest.find((p) => p?.status !== 'cancelled' && p?.status !== 'returned') ??
+        byNewest[0] ??
+        null
+      return { success: true, certificate: { ...certificate, payment } }
+    }
+
     return { success: true, certificate }
   })
 }
