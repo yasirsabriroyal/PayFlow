@@ -272,7 +272,9 @@ function statusToInAppType(status: InvoiceStatus): InAppNotificationType {
  * vendor, project, payment date, reference, method, and who issued the payment.
  */
 function buildPaidBody(invoiceNumber: string, amount: string, e?: PaidEnrichment): string {
-  const lines = [`Payment of ${amount} has been processed for invoice ${invoiceNumber}.`]
+  const paidAmount =
+    typeof e?.amountPaidCents === 'number' ? formatCents(e.amountPaidCents) : amount
+  const lines = [`Payment of ${paidAmount} has been processed for invoice ${invoiceNumber}.`]
   if (e?.vendorName) lines.push(`Vendor: ${e.vendorName}`)
   if (e?.projectName) lines.push(`Project: ${e.projectName}`)
   if (e?.paymentDate) lines.push(`Payment date: ${e.paymentDate}`)

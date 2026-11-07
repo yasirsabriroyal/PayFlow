@@ -2227,16 +2227,34 @@ export async function recordCertificatePayment(input: {
     //     so audit + history + notifications fire consistently.
     if (invoice && invoice.status !== 'paid') {
       try {
+        const { data: payerRow } = await supabase
+          .from('users')
+          .select('first_name, last_name')
+          .eq('id', internalUserId)
+          .maybeSingle()
+        const payerName =
+          [payerRow?.first_name, payerRow?.last_name].filter(Boolean).join(' ') || 'Accountant'
+
         await applyInvoiceStatusChange({
           invoiceId: certificate.invoice_id,
           newStatus: invoiceFullyPaid ? 'paid' : 'partially_paid',
           actor: {
             userId: internalUserId,
-            name: userData.email || 'Accountant',
+            name: payerName,
             role: userData.role ?? 'accountant',
             authUserId: userData.id,
           },
           reason: `Payment of $${(requiredAmount / 100).toFixed(2)} recorded for certificate ${certificate.certificate_number}`,
+          paymentContext: {
+            paymentId: payment.id,
+            paymentDate: input.payment_date,
+            paymentMethod: input.payment_method,
+            paymentReference:
+              input.payment_reference || input.cheque_number ||
+              input.etransfer_reference || input.wire_reference || undefined,
+            amountPaidCents: requiredAmount,
+            issuedByName: payerName,
+          },
         })
       } catch (statusErr) {
         // Non-fatal — payment is already recorded.
