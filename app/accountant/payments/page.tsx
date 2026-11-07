@@ -95,6 +95,9 @@ type ApprovedInvoice = {
   amount: number
   holdback: number
   netPayable: number
+  /** Amount still owed; this is what gets paid. */
+  remainingPayable: number
+  paidToDate: number
   wcbExpiry: string
   hasLienWaiver: boolean
   hasStatutoryDeclaration?: boolean
@@ -233,6 +236,8 @@ export default function PaymentsPage() {
           holdback: ((inv.holdback_cents as number) || 0) / 100,
           netPayable: (((inv.net_payable_cents as number) ??
             (((inv.total_cents as number) || 0) - ((inv.holdback_cents as number) || 0))) || 0) / 100,
+          remainingPayable: (((inv.remaining_payable_cents as number | undefined) ?? (inv.net_payable_cents as number)) || 0) / 100,
+          paidToDate: ((inv.total_paid_cents as number | undefined) ?? 0) / 100,
           wcbExpiry: ((inv.contractor as Record<string, unknown>)?.wcb_clearance_expiry as string) || '',
           hasLienWaiver: true as boolean,
           hasStatutoryDeclaration: false as boolean,
@@ -560,7 +565,7 @@ export default function PaymentsPage() {
   }
 
   const selectedInvoices = invoices.filter(inv => selectedIds.has(inv.id))
-  const totalSelected = selectedInvoices.reduce((sum, inv) => sum + inv.netPayable, 0)
+  const totalSelected = selectedInvoices.reduce((sum, inv) => sum + inv.remainingPayable, 0)
 
   const openEFTReview = () => {
     if (selectedIds.size === 0) return
@@ -613,7 +618,7 @@ export default function PaymentsPage() {
     setEftReviewOpen(false)
     // Call server action with permission enforcement
     const invoiceIds = Array.from(selectedIds)
-    const totalAmountCents = selectedInvoices.reduce((sum, inv) => sum + Math.round(inv.netPayable * 100), 0)
+    const totalAmountCents = selectedInvoices.reduce((sum, inv) => sum + Math.round(inv.remainingPayable * 100), 0)
     
     const result = await executeEFTPayment({
       invoice_ids: invoiceIds,
@@ -679,12 +684,12 @@ export default function PaymentsPage() {
   const methodLabel = methodLabels[paymentMethod]
   const isEft = paymentMethod === 'eft'
 
-  const totalPending = invoices.reduce((sum, inv) => sum + inv.netPayable, 0)
+  const totalPending = invoices.reduce((sum, inv) => sum + inv.remainingPayable, 0)
 
   const overdueInvoices = invoices.filter(isOverdueToPay)
-  const overdueTotal = overdueInvoices.reduce((sum, inv) => sum + inv.netPayable, 0)
+  const overdueTotal = overdueInvoices.reduce((sum, inv) => sum + inv.remainingPayable, 0)
   const dueThisWeekInvoices = invoices.filter(isDueThisWeek)
-  const dueThisWeekTotal = dueThisWeekInvoices.reduce((sum, inv) => sum + inv.netPayable, 0)
+  const dueThisWeekTotal = dueThisWeekInvoices.reduce((sum, inv) => sum + inv.remainingPayable, 0)
 
   return (
     <div className="min-h-screen bg-background">
@@ -960,10 +965,14 @@ export default function PaymentsPage() {
                         <p className="text-sm font-medium text-warning">-{formatCurrency(invoice.holdback)}</p>
                       </div>
                       <div className="text-center">
-                        <p className="text-xs text-muted-foreground">Net</p>
-                        <p className="text-sm font-semibold">{formatCurrency(invoice.netPayable)}</p>
+                        <p className="text-xs text-muted-foreground">Remaining</p>
+                        <p className="text-sm font-semibold">{formatCurrency(invoice.remainingPayable)}</p>
                       </div>
                     </div>
+
+                    {invoice.paidToDate > 0 && (
+                      <p className="text-xs text-muted-foreground">Paid to date: {formatCurrency(invoice.paidToDate)}</p>
+                    )}
 
                     {invoice.hasUnpaidCerts && (
                       <p className="text-xs font-medium text-destructive">Pay certificate first</p>
@@ -991,7 +1000,7 @@ export default function PaymentsPage() {
                           className="w-full gap-1 h-10 touch-manipulation"
                         >
                           <Banknote className="w-4 h-4" />
-                          Pay {formatCurrency(invoice.netPayable)}
+                          Pay {formatCurrency(invoice.remainingPayable)}
                         </Button>
                       )}
                     </div>
@@ -1037,7 +1046,7 @@ export default function PaymentsPage() {
                     Holdback
                   </th>
                   <th className="px-6 py-4 text-right text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                    Net Payable
+                    Remaining
                   </th>
                   <th className="px-6 py-4 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                     Bank
@@ -1176,8 +1185,11 @@ export default function PaymentsPage() {
                         </td>
                         <td className="px-6 py-4 text-right">
                           <p className={`font-semibold ${isBlocked ? 'text-muted-foreground' : 'text-success'}`}>
-                            {formatCurrency(invoice.netPayable)}
+                            {formatCurrency(invoice.remainingPayable)}
                           </p>
+                          {invoice.paidToDate > 0 && (
+                            <p className="text-xs text-muted-foreground">Paid to date: {formatCurrency(invoice.paidToDate)}</p>
+                          )}
                         </td>
                         <td className="px-6 py-4">
                           <div className="flex flex-col gap-1">
@@ -1760,7 +1772,7 @@ export default function PaymentsPage() {
                     <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Invoice #</th>
                     <th className="px-4 py-3 text-right text-xs font-semibold text-muted-foreground uppercase tracking-wider">Amount</th>
                     <th className="px-4 py-3 text-right text-xs font-semibold text-muted-foreground uppercase tracking-wider">Holdback</th>
-                    <th className="px-4 py-3 text-right text-xs font-semibold text-muted-foreground uppercase tracking-wider">Net Payable</th>
+                    <th className="px-4 py-3 text-right text-xs font-semibold text-muted-foreground uppercase tracking-wider">Remaining</th>
                     <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Bank Account</th>
                   </tr>
                 </thead>
@@ -1782,7 +1794,7 @@ export default function PaymentsPage() {
                       </td>
                       <td className="px-4 py-3 text-right">{formatCurrency(invoice.amount)}</td>
                       <td className="px-4 py-3 text-right text-muted-foreground">-{formatCurrency(invoice.holdback)}</td>
-                      <td className="px-4 py-3 text-right font-semibold text-success">{formatCurrency(invoice.netPayable)}</td>
+                      <td className="px-4 py-3 text-right font-semibold text-success">{formatCurrency(invoice.remainingPayable)}</td>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-1.5">
                           <CreditCard className={`w-3.5 h-3.5 ${invoice.bankInfo === 'Not set' ? 'text-warning' : 'text-muted-foreground'}`} />
@@ -1887,7 +1899,7 @@ export default function PaymentsPage() {
               <div className="flex items-center justify-between">
                 <span className="text-sm text-muted-foreground">Total Amount</span>
                 <span className="font-semibold text-success">
-                  {formatCurrency(paidInvoices.reduce((sum, inv) => sum + inv.netPayable, 0))}
+                  {formatCurrency(paidInvoices.reduce((sum, inv) => sum + inv.remainingPayable, 0))}
                 </span>
               </div>
             </div>
@@ -1899,7 +1911,7 @@ export default function PaymentsPage() {
                     <p className="text-sm font-medium">{invoice.contractor}</p>
                     <p className="text-xs text-muted-foreground">{invoice.invoiceNumber}</p>
                   </div>
-                  <p className="text-sm font-medium">{formatCurrency(invoice.netPayable)}</p>
+                  <p className="text-sm font-medium">{formatCurrency(invoice.remainingPayable)}</p>
                 </div>
               ))}
               {paidInvoices.length > 3 && (

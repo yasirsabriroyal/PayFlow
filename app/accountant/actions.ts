@@ -687,7 +687,7 @@ export const executeEFTPayment = secureAction(
     }
     
     const invalidInvoices = invoices?.filter(
-      inv => !['approved', 'payment_processing'].includes(inv.status)
+      inv => !['approved', 'payment_processing', 'partially_paid'].includes(inv.status)
     )
     
     if (invalidInvoices?.length) {
@@ -1773,6 +1773,7 @@ export async function getApprovedInvoices(options?: { limit?: number }) {
         total_cents,
         holdback_cents,
         net_payable_cents,
+        status,
         contractor:contractors(
           id,
           company_name,
@@ -1784,7 +1785,7 @@ export async function getApprovedInvoices(options?: { limit?: number }) {
         ),
         project:projects(id, name, project_number)
       `)
-      .eq('status', 'approved')
+      .in('status', ['approved', 'partially_paid'])
       .order('updated_at', { ascending: false })
 
     if (error) {
@@ -1809,12 +1810,21 @@ export async function getApprovedInvoices(options?: { limit?: number }) {
 
     const invoiceIdsWithUnpaidCerts = new Set((unpaidCerts || []).map(c => c.invoice_id))
 
+    // Authoritative paid and remaining amounts, from actual payment records.
+    const balances = await Promise.all(
+      invoices.map(inv => getInvoicePaymentBalance(supabase, inv.id, inv.net_payable_cents || 0))
+    )
+
     return {
       success: true,
-      invoices: invoices.map(inv => ({
-        ...inv,
-        has_unpaid_certs: invoiceIdsWithUnpaidCerts.has(inv.id),
-      })),
+      invoices: invoices
+        .map((inv, i) => ({
+          ...inv,
+          has_unpaid_certs: invoiceIdsWithUnpaidCerts.has(inv.id),
+          total_paid_cents: balances[i].totalPaidCents,
+          remaining_payable_cents: balances[i].remainingPayableCents,
+        }))
+        .filter(inv => inv.remaining_payable_cents > 0),
     }
   })
 }
