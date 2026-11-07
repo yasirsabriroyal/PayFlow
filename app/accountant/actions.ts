@@ -3202,9 +3202,10 @@ export async function executeCertificateEFTBatch(input: {
 
     const processedPaymentIds: string[] = []
     const processedCertIds: string[] = []
-    // Track invoices that become fully paid in this batch so we can send one
-    // branded payment confirmation per invoice (to the real vendor + internal CC).
-    const fullyPaidInvoices = new Map<string, { contractorId: string | null; amountPaidCents: number }>()
+    // Status of each invoice touched by this batch, as it was BEFORE the batch
+    // (read once per invoice). Used after the loop to route the status change
+    // through the status engine and send one confirmation set per invoice.
+    const statusBeforeByInvoice = new Map<string, string | null>()
     // Sum of certificate amounts paid in THIS batch, per invoice (for accurate
     // "Payment of …" amounts in confirmations).
     const batchPaidByInvoice = new Map<string, number>()
@@ -3234,7 +3235,7 @@ export async function executeCertificateEFTBatch(input: {
           if (rbPayErr) console.error('Rollback failed (payments):', rbPayErr)
           const { error: rbCertErr } = await supabase
             .from('payment_certificates')
-            .update({ status: 'approved', updated_at: new Date().toISOString() })
+            .update({ status: 'approved', paid_at: null, paid_by: null, updated_at: new Date().toISOString() })
             .in('id', processedCertIds)
           if (rbCertErr) console.error('Rollback failed (certificates):', rbCertErr)
         }
@@ -3243,12 +3244,15 @@ export async function executeCertificateEFTBatch(input: {
 
       if (newPayment) processedPaymentIds.push(newPayment.id)
 
-      // Update certificate to paid
+      // Update certificate to paid (paid_at / paid_by stamped, as in recordCertificatePayment)
+      const certPaidAt = new Date().toISOString()
       await supabase
         .from('payment_certificates')
         .update({
           status: 'paid',
-          updated_at: new Date().toISOString(),
+          paid_at: certPaidAt,
+          paid_by: internalUserId,
+          updated_at: certPaidAt,
         })
         .eq('id', cert.id)
 
@@ -3258,16 +3262,19 @@ export async function executeCertificateEFTBatch(input: {
         (batchPaidByInvoice.get(cert.invoice_id) ?? 0) + (cert.net_payable_cents || 0)
       )
       
-      // Update invoice total_paid_cents
+      // Update invoice total_paid_cents (status is set after the loop, via the engine)
       const { data: invoice } = await supabase
         .from('invoices')
-        .select('total_paid_cents, net_payable_cents')
+        .select('total_paid_cents, net_payable_cents, status')
         .eq('id', cert.invoice_id)
         .single()
       
       if (invoice) {
+        // The batch no longer writes status, so the first read is the pre-batch status.
+        if (!statusBeforeByInvoice.has(cert.invoice_id)) {
+          statusBeforeByInvoice.set(cert.invoice_id, (invoice.status as string | null) ?? null)
+        }
         const newTotalPaid = (invoice.total_paid_cents || 0) + cert.net_payable_cents
-        const invoiceFullyPaid = newTotalPaid >= invoice.net_payable_cents
         
         await supabase
           .from('invoices')
@@ -3275,17 +3282,9 @@ export async function executeCertificateEFTBatch(input: {
             total_paid_cents: newTotalPaid,
             amount_paid_cents: newTotalPaid,
             amount_remaining_cents: Math.max(0, invoice.net_payable_cents - newTotalPaid),
-            status: invoiceFullyPaid ? 'paid' : 'approved',
             updated_at: new Date().toISOString(),
           })
           .eq('id', cert.invoice_id)
-
-        if (invoiceFullyPaid) {
-          fullyPaidInvoices.set(cert.invoice_id, {
-            contractorId: cert.contractor_id ?? null,
-            amountPaidCents: newTotalPaid,
-          })
-        }
       }
     }
     
@@ -3314,10 +3313,12 @@ export async function executeCertificateEFTBatch(input: {
       },
     })
 
-    // Send branded payment-confirmation emails for invoices fully settled by this
-    // batch (real vendor + internal CC). Additive + non-fatal: payments are already
-    // committed, so a notification failure must never affect the result.
-    if (fullyPaidInvoices.size > 0) {
+    // Route each touched invoice's status through the status engine and send
+    // exactly ONE payment confirmation set per invoice: the engine sends it when
+    // it runs; otherwise (repeat partial payment, or engine failure) the fallback
+    // does. Additive + non-fatal: payments are already committed, so a failure
+    // here must never affect the batch result or the other invoices.
+    if (statusBeforeByInvoice.size > 0) {
       // userData here is the auth-scoped CurrentUser (no name fields), so resolve
       // the processed-by display name from the internal users row.
       const { data: processor } = await supabase
@@ -3328,32 +3329,74 @@ export async function executeCertificateEFTBatch(input: {
       const processedByName =
         [processor?.first_name, processor?.last_name].filter(Boolean).join(' ').trim() || 'Accounts Payable'
       const paymentDate = new Date().toISOString().split('T')[0]
-      const { data: paidInvoiceRows } = await supabase
+      const actor = { userId: internalUserId, name: processedByName, role: 'accountant', authUserId: userData.id }
+      const { data: touchedInvoiceRows } = await supabase
         .from('invoices')
-        .select('id, invoice_number, project_id')
-        .in('id', [...fullyPaidInvoices.keys()])
-      const invoiceMeta = new Map((paidInvoiceRows || []).map((r) => [r.id, r]))
+        .select('id, invoice_number, project_id, contractor_id, net_payable_cents, total_paid_cents')
+        .in('id', [...statusBeforeByInvoice.keys()])
+      const invoiceMeta = new Map((touchedInvoiceRows || []).map((r) => [r.id, r]))
 
-      await Promise.all(
-        [...fullyPaidInvoices.entries()].map(([invoiceId, info]) =>
-          dispatchPaymentConfirmation({
-            invoiceId,
-            invoiceNumber: invoiceMeta.get(invoiceId)?.invoice_number || invoiceId,
-            totalCents: info.amountPaidCents,
-            contractorId: info.contractorId,
-            projectId: invoiceMeta.get(invoiceId)?.project_id ?? null,
-            status: 'paid',
-            actor: { userId: internalUserId, name: processedByName, role: 'accountant', authUserId: userData.id },
-            payment: {
-              paymentDate,
-              paymentReference: batchReference,
-              paymentMethod: input.payment_method,
-              issuedByName: processedByName,
-              amountPaidCents: batchPaidByInvoice.get(invoiceId) ?? info.amountPaidCents,
-            },
-          })
-        )
-      )
+      for (const [invoiceId, statusBefore] of statusBeforeByInvoice) {
+        try {
+          if (statusBefore === 'paid') continue
+          const meta = invoiceMeta.get(invoiceId)
+          const netPayableCents = meta?.net_payable_cents || 0
+          const amountPaidCents = batchPaidByInvoice.get(invoiceId) ?? 0
+
+          // Authoritative balance from payment records; fall back to the stored
+          // counter only if the balance lookup fails.
+          let isFullyPaid: boolean
+          try {
+            const balance = await getInvoicePaymentBalance(supabase, invoiceId, netPayableCents)
+            isFullyPaid = balance.isFullyPaid
+          } catch (balanceErr) {
+            console.error(`[executeCertificateEFTBatch] Balance lookup failed for invoice ${invoiceId}:`, balanceErr)
+            isFullyPaid = (meta?.total_paid_cents || 0) >= netPayableCents
+          }
+          const newStatus = isFullyPaid ? 'paid' : 'partially_paid'
+          const paymentContext = {
+            paymentDate,
+            paymentMethod: input.payment_method,
+            paymentReference: batchReference,
+            amountPaidCents,
+            issuedByName: processedByName,
+          }
+
+          // The engine refuses a same-status change (partially_paid -> partially_paid),
+          // so only call it when the status actually changes.
+          let engineNotified = false
+          if (statusBefore !== newStatus) {
+            try {
+              await applyInvoiceStatusChange({
+                invoiceId,
+                newStatus,
+                actor,
+                reason: `Payment of $${(amountPaidCents / 100).toFixed(2)} recorded in certificate batch ${batchReference}`,
+                paymentContext,
+              })
+              engineNotified = true
+            } catch (statusErr) {
+              console.error(`[executeCertificateEFTBatch] Status transition failed for invoice ${invoiceId}:`, statusErr)
+            }
+          }
+
+          // Fallback only: the engine was skipped or failed.
+          if (!engineNotified) {
+            await dispatchPaymentConfirmation({
+              invoiceId,
+              invoiceNumber: meta?.invoice_number || invoiceId,
+              totalCents: netPayableCents,
+              contractorId: meta?.contractor_id ?? null,
+              projectId: meta?.project_id ?? null,
+              status: newStatus,
+              actor,
+              payment: paymentContext,
+            })
+          }
+        } catch (invoiceErr) {
+          console.error(`[executeCertificateEFTBatch] Status/confirmation step failed for invoice ${invoiceId}:`, invoiceErr)
+        }
+      }
     }
     
     revalidatePath('/accountant/payments')
