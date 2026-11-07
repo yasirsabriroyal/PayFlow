@@ -2316,6 +2316,10 @@ export async function recordCertificatePayment(input: {
 
     // 8b. Flip the invoice status through the centralized status engine
     //     so audit + history + notifications fire consistently.
+    // True once the status engine has run (it sends the notifications itself).
+    let engineNotified = false
+    const newInvoiceStatus = invoiceFullyPaid ? 'paid' : 'partially_paid'
+    let payerName = 'Accountant'
     if (invoice && invoice.status !== 'paid') {
       try {
         const { data: payerRow } = await supabase
@@ -2323,33 +2327,73 @@ export async function recordCertificatePayment(input: {
           .select('first_name, last_name')
           .eq('id', internalUserId)
           .maybeSingle()
-        const payerName =
+        payerName =
           [payerRow?.first_name, payerRow?.last_name].filter(Boolean).join(' ') || 'Accountant'
 
-        await applyInvoiceStatusChange({
-          invoiceId: certificate.invoice_id,
-          newStatus: invoiceFullyPaid ? 'paid' : 'partially_paid',
-          actor: {
-            userId: internalUserId,
-            name: payerName,
-            role: userData.role ?? 'accountant',
-            authUserId: userData.id,
-          },
-          reason: `Payment of $${(requiredAmount / 100).toFixed(2)} recorded for certificate ${certificate.certificate_number}`,
-          paymentContext: {
-            paymentId: payment.id,
-            paymentDate: input.payment_date,
-            paymentMethod: input.payment_method,
-            paymentReference:
-              input.payment_reference || input.cheque_number ||
-              input.etransfer_reference || input.wire_reference || undefined,
-            amountPaidCents: requiredAmount,
-            issuedByName: payerName,
-          },
-        })
+        // The engine refuses partially_paid -> partially_paid (no status change),
+        // so skip it in that case and let the fallback below notify instead.
+        if (!(invoice.status === 'partially_paid' && newInvoiceStatus === 'partially_paid')) {
+          await applyInvoiceStatusChange({
+            invoiceId: certificate.invoice_id,
+            newStatus: newInvoiceStatus,
+            actor: {
+              userId: internalUserId,
+              name: payerName,
+              role: userData.role ?? 'accountant',
+              authUserId: userData.id,
+            },
+            reason: `Payment of $${(requiredAmount / 100).toFixed(2)} recorded for certificate ${certificate.certificate_number}`,
+            paymentContext: {
+              paymentId: payment.id,
+              paymentDate: input.payment_date,
+              paymentMethod: input.payment_method,
+              paymentReference:
+                input.payment_reference || input.cheque_number ||
+                input.etransfer_reference || input.wire_reference || undefined,
+              amountPaidCents: requiredAmount,
+              issuedByName: payerName,
+            },
+          })
+          engineNotified = true
+        }
       } catch (statusErr) {
         // Non-fatal — payment is already recorded.
         console.error('[v0] Paid status transition failed:', statusErr)
+      }
+    }
+
+    // 8c. Fallback only (same pattern as recordDirectInvoicePayment): if the
+    //     status engine did not run (skipped repeat partial, or it failed),
+    //     send the payment confirmation here. Awaited so it is not lost, and
+    //     wrapped so a notification failure never fails the payment.
+    if (invoice && invoice.status !== 'paid' && !engineNotified) {
+      try {
+        const { data: invoiceMeta } = await supabase
+          .from('invoices')
+          .select('invoice_number, project_id')
+          .eq('id', certificate.invoice_id)
+          .maybeSingle()
+        await dispatchPaymentConfirmation({
+          invoiceId: certificate.invoice_id,
+          invoiceNumber: invoiceMeta?.invoice_number || certificate.invoice_id,
+          totalCents: invoice.net_payable_cents || 0,
+          contractorId: certificate.contractor_id ?? null,
+          projectId: invoiceMeta?.project_id ?? certificate.project_id ?? null,
+          status: newInvoiceStatus,
+          actor: { userId: internalUserId, name: payerName, role: userData.role ?? 'accountant', authUserId: userData.id },
+          payment: {
+            paymentId: payment.id,
+            paymentDate: input.payment_date,
+            paymentReference:
+              input.payment_reference || input.cheque_number ||
+              input.etransfer_reference || input.wire_reference || undefined,
+            paymentMethod: input.payment_method,
+            issuedByName: payerName,
+            amountPaidCents: requiredAmount,
+          },
+        })
+      } catch (notifyErr) {
+        console.error('[recordCertificatePayment] Payment confirmation fallback failed:', notifyErr)
       }
     }
     
