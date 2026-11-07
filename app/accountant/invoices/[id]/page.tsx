@@ -722,7 +722,7 @@ export default function InvoiceDetailPage() {
   const statusInfo = getStatusInfo(invoice.status)
   const StatusIcon = statusInfo.icon
   const canApprove = ['submitted', 'pending_approval'].includes(invoice.status)
-  const canPay = invoice.status === 'approved'
+  const canPay = ['approved', 'partially_paid'].includes(invoice.status)
   const isPaid = invoice.status === 'paid'
 
   return (

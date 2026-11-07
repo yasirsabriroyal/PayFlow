@@ -2487,7 +2487,7 @@ export async function recordDirectInvoicePayment(input: {
     if (invoice.status === 'paid') {
       return { success: false, error: 'Invoice is already paid and cannot receive another payment.' }
     }
-    if (!['approved', 'payment_processing'].includes(invoice.status)) {
+    if (!['approved', 'payment_processing', 'partially_paid'].includes(invoice.status)) {
       return { success: false, error: `Cannot process payment for invoice with status: ${invoice.status}` }
     }
 
