@@ -90,6 +90,10 @@ type ApprovedInvoice = {
   bankInfo: string
   /** Stage 2: from contractors.banking_approval_status */
   bankingApprovalStatus: string
+  /** From contractors.etransfer_email; required to pay by e-Transfer. */
+  etransferEmail: string | null
+  /** From contractors.preferred_payment_method. */
+  preferredPaymentMethod: string | null
   project: string
   invoiceNumber: string
   approvedDate: string
@@ -141,7 +145,9 @@ export default function PaymentsPage() {
   const [settingsLoaded, setSettingsLoaded] = useState(false)
   const [eftReviewOpen, setEftReviewOpen] = useState(false)
   const [isProcessingPayment, setIsProcessingPayment] = useState(false)
-  const [paymentMethod, setPaymentMethod] = useState<'eft' | 'cheque' | 'wire' | 'etransfer'>('eft')
+  const [paymentMethod, setPaymentMethod] = useState<'eft' | 'cheque' | 'wire' | 'etransfer'>('etransfer')
+  // Certificate payments have their own method so their dialogs never change the invoice list's "Pay by".
+  const [certPaymentMethod, setCertPaymentMethod] = useState<'eft' | 'cheque' | 'wire' | 'etransfer'>('etransfer')
 
   // Approved certificates state
   const [approvedCerts, setApprovedCerts] = useState<Array<{
@@ -231,6 +237,8 @@ export default function PaymentsPage() {
             const c = inv.contractor as Record<string, unknown>
             return (c?.banking_approval_status as string) || 'not_submitted'
           })(),
+          etransferEmail: ((inv.contractor as Record<string, unknown>)?.etransfer_email as string | null) ?? null,
+          preferredPaymentMethod: ((inv.contractor as Record<string, unknown>)?.preferred_payment_method as string | null) ?? null,
           project: (inv.project as Record<string, unknown>)?.name as string || 'Unknown',
           invoiceNumber: inv.invoice_number as string,
           approvedDate: inv.updated_at as string,
@@ -314,7 +322,7 @@ export default function PaymentsPage() {
     const result = await recordCertificatePayment({
       certificate_id: certId,
       amount_cents: amountCents,
-      payment_method: paymentMethod,
+      payment_method: certPaymentMethod,
       payment_date: new Date().toISOString().split('T')[0],
     })
     if (result.success) {
@@ -370,7 +378,7 @@ export default function PaymentsPage() {
     const ids = Array.from(selectedCertIds)
     const result = await executeCertificateEFTBatch({
       certificate_ids: ids,
-      payment_method: paymentMethod,
+      payment_method: certPaymentMethod,
     })
     if (result.success) {
       toast({
@@ -392,13 +400,16 @@ export default function PaymentsPage() {
   }
 
   // Check compliance for an invoice based on active settings
-  const checkCompliance = (invoice: ApprovedInvoice): InvoiceCompliance => {
+  const checkCompliance = (invoice: ApprovedInvoice, method: typeof paymentMethod): InvoiceCompliance => {
     const issues: ComplianceIssue[] = []
     const warnings: string[] = []
 
     if (invoice.vendorType !== 'supplier') {
-    // Stage 2: Banking approval gate (EFT-specific, highest priority)
-    // Mirrors the server-side evaluateBankingGate() logic for UI-layer gating.
+    // Banking requirement depends on the payment method.
+    // Mirrors the server-side evaluateBankingGate() logic for UI-layer gating:
+    // EFT / wire need approved banking, e-Transfer needs a valid e-Transfer
+    // email, cheque has no banking requirement.
+    if (method === 'eft' || method === 'wire') {
     switch (invoice.bankingApprovalStatus) {
       case 'not_submitted':
         issues.push({ type: 'wcb_expired', message: 'Banking not submitted — no banking details on file' })
@@ -414,6 +425,14 @@ export default function PaymentsPage() {
         break
       // 'approved' = pass through, 'skipped_non_eft' irrelevant here
     }
+    } else if (method === 'etransfer') {
+      // Same email check as lib/payments/banking-gate.ts
+      const etransferEmail = invoice.etransferEmail?.trim() ?? ''
+      if (!etransferEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(etransferEmail)) {
+        issues.push({ type: 'wcb_expired', message: 'No e-Transfer email on file' })
+      }
+    }
+    // 'cheque': no banking requirement
 
     // Check WCB expiry
     if (paymentSettings.block_wcb_expired && invoice.wcbExpiry) {
@@ -464,9 +483,19 @@ export default function PaymentsPage() {
 
   // Get compliance status for all invoices
   const invoiceCompliance = invoices.reduce((acc, inv) => {
-    acc[inv.id] = checkCompliance(inv)
+    acc[inv.id] = checkCompliance(inv, paymentMethod)
     return acc
   }, {} as Record<string, InvoiceCompliance>)
+
+  // When the payment method changes, drop selected invoices that are blocked
+  // under the new method.
+  useEffect(() => {
+    setSelectedIds(prev => {
+      const next = new Set(Array.from(prev).filter(id => !invoiceCompliance[id]?.isBlocked))
+      return next.size === prev.size ? prev : next
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [paymentMethod])
 
   // Count blocked invoices
   const blockedCount = Object.values(invoiceCompliance).filter(c => c.isBlocked).length
@@ -900,15 +929,30 @@ export default function PaymentsPage() {
           <div className="px-6 py-4 border-b border-border bg-muted/30">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <p className="text-xs font-semibold uppercase tracking-wider text-primary mb-1">Step 2 · Pay Invoices (EFT)</p>
+                <p className="text-xs font-semibold uppercase tracking-wider text-primary mb-1">Step 2 · Pay Invoices</p>
                 <h2 className="text-base font-semibold">Invoice Batch Payments</h2>
                 <p className="text-sm text-muted-foreground">
-                  Select approved invoices and pay them together in one batch. You choose the payment method (EFT, cheque, wire, or e-transfer) at the review step.
+                  {"Select approved invoices and pay them together in one batch. 'Pay by' sets the payment method and decides which invoices can be paid."}
                 </p>
               </div>
               {invoices.length > 0 && (
                 <span className="text-sm font-medium text-muted-foreground whitespace-nowrap">{invoices.length} ready</span>
               )}
+            </div>
+            {/* Pay by — the method decides which invoices are blocked */}
+            <div className="mt-3 flex items-center gap-2">
+              <label htmlFor="pay-by-method" className="text-sm font-medium whitespace-nowrap">Pay by</label>
+              <Select value={paymentMethod} onValueChange={(v) => setPaymentMethod(v as typeof paymentMethod)}>
+                <SelectTrigger id="pay-by-method" className="w-full sm:w-72">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="etransfer">E-Transfer</SelectItem>
+                  <SelectItem value="eft">EFT (Electronic Funds Transfer)</SelectItem>
+                  <SelectItem value="wire">Wire Transfer</SelectItem>
+                  <SelectItem value="cheque">Cheque</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
           </div>
 
@@ -1654,7 +1698,7 @@ export default function PaymentsPage() {
               <div className="border-t border-border pt-3 space-y-2">
                 <div className="flex justify-between items-center">
                   <span className="text-muted-foreground">Payment Method</span>
-                  <Select value={paymentMethod} onValueChange={(v) => setPaymentMethod(v as typeof paymentMethod)}>
+                  <Select value={certPaymentMethod} onValueChange={(v) => setCertPaymentMethod(v as typeof certPaymentMethod)}>
                     <SelectTrigger className="w-[180px] h-8">
                       <SelectValue />
                     </SelectTrigger>
@@ -1723,7 +1767,7 @@ export default function PaymentsPage() {
             </div>
             <div className="flex justify-between items-center border-t border-border pt-3 text-sm">
               <span className="text-muted-foreground">Payment Method</span>
-              <Select value={paymentMethod} onValueChange={(v) => setPaymentMethod(v as typeof paymentMethod)}>
+              <Select value={certPaymentMethod} onValueChange={(v) => setCertPaymentMethod(v as typeof certPaymentMethod)}>
                 <SelectTrigger className="w-[180px] h-8">
                   <SelectValue />
                 </SelectTrigger>
@@ -1774,8 +1818,8 @@ export default function PaymentsPage() {
             </DialogDescription>
           </DialogHeader>
 
-          {/* Missing bank account warning */}
-          {selectedInvoices.some(inv => inv.bankInfo === 'Not set') && (
+          {/* Missing bank account warning (EFT / wire only) */}
+          {(paymentMethod === 'eft' || paymentMethod === 'wire') && selectedInvoices.some(inv => inv.bankInfo === 'Not set') && (
             <div className="flex items-start gap-3 rounded-lg bg-warning/10 border border-warning/30 px-4 py-3">
               <AlertTriangle className="w-4 h-4 text-warning mt-0.5 flex-shrink-0" />
               <p className="text-sm text-warning font-medium">
@@ -1833,20 +1877,10 @@ export default function PaymentsPage() {
             </div>
           </div>
 
-          {/* Payment method selector */}
-          <div className="space-y-1.5">
-            <label className="text-sm font-medium">Payment Method</label>
-            <Select value={paymentMethod} onValueChange={(v) => setPaymentMethod(v as typeof paymentMethod)}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="eft">EFT (Electronic Funds Transfer)</SelectItem>
-                <SelectItem value="cheque">Cheque</SelectItem>
-                <SelectItem value="wire">Wire Transfer</SelectItem>
-                <SelectItem value="etransfer">E-Transfer</SelectItem>
-              </SelectContent>
-            </Select>
+          {/* Payment method (chosen with "Pay by" above the invoice list) */}
+          <div className="space-y-1">
+            <p className="text-sm font-medium">Payment method: {methodLabel}</p>
+            <p className="text-xs text-muted-foreground">{"Change 'Pay by' above the list to use a different method."}</p>
           </div>
 
           {/* Payment details & total */}
