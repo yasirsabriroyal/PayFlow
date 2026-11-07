@@ -21,6 +21,7 @@ import {
   Clock,
   History,
   ChevronDown,
+  Loader2,
   X
 } from 'lucide-react'
 import Link from 'next/link'
@@ -138,6 +139,7 @@ export default function PaymentsPage() {
   const [paymentSettings, setPaymentSettings] = useState<PaymentSettings>(defaultSettings)
   const [settingsLoaded, setSettingsLoaded] = useState(false)
   const [eftReviewOpen, setEftReviewOpen] = useState(false)
+  const [isProcessingPayment, setIsProcessingPayment] = useState(false)
   const [paymentMethod, setPaymentMethod] = useState<'eft' | 'cheque' | 'wire' | 'etransfer'>('eft')
 
   // Approved certificates state
@@ -615,47 +617,62 @@ export default function PaymentsPage() {
   }, [invoicesLoading, invoices, invoiceCompliance, toast])
 
   const handleGenerateEFT = async () => {
-    setEftReviewOpen(false)
+    if (isProcessingPayment) return
+    setIsProcessingPayment(true)
     // Call server action with permission enforcement
     const invoiceIds = Array.from(selectedIds)
     const totalAmountCents = selectedInvoices.reduce((sum, inv) => sum + Math.round(inv.remainingPayable * 100), 0)
     
-    const result = await executeEFTPayment({
-      invoice_ids: invoiceIds,
-      total_amount_cents: totalAmountCents,
-      payment_method: paymentMethod,
-    })
+    try {
+      const result = await executeEFTPayment({
+        invoice_ids: invoiceIds,
+        total_amount_cents: totalAmountCents,
+        payment_method: paymentMethod,
+      })
     
-    if (!result.success) {
+      if (!result.success) {
+        toast({
+          title: 'Payment Failed',
+          description: result.error || `Failed to process the ${methodLabel} payment batch.`,
+          variant: 'destructive',
+        })
+        setEftReviewOpen(false)
+        return
+      }
+    
+      const batchId = result.data?.batch_reference || `EFT-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${String(Math.floor(Math.random() * 1000)).padStart(3, '0')}`
+      setGeneratedBatchId(batchId)
+      setPaidInvoices([...selectedInvoices])
+
+      // Branded payment-confirmation emails (to real vendors + internal CC) are sent
+      // server-side by executeEFTPayment via the unified notification dispatcher.
       toast({
-        title: 'Payment Failed',
-        description: result.error || `Failed to process the ${methodLabel} payment batch.`,
+        title: `${methodLabel} Payment Batch Processed`,
+        description: (
+          <div className="flex items-center gap-2 mt-1">
+            <Mail className="w-4 h-4 text-primary" />
+            <span className="text-sm">{selectedInvoices.length} vendors notified by email</span>
+          </div>
+        ),
+      })
+
+      // Remove paid invoices from the list
+      setInvoices(prev => prev.filter(inv => !selectedIds.has(inv.id)))
+      setSelectedIds(new Set())
+      setEftReviewOpen(false)
+      setSuccessDialogOpen(true)
+      setRefreshKey(k => k + 1) // refresh Paid totals + Recently Paid
+    } catch (error) {
+      console.error('EFT payment error:', error)
+      toast({
+        title: 'Payment status unknown',
+        description: 'The connection was interrupted. Reload the page and check Recently Paid before trying again — the payment may have been recorded.',
         variant: 'destructive',
       })
-      return
+      setEftReviewOpen(false)
+    } finally {
+      setIsProcessingPayment(false)
     }
-    
-    const batchId = result.data?.batch_reference || `EFT-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${String(Math.floor(Math.random() * 1000)).padStart(3, '0')}`
-    setGeneratedBatchId(batchId)
-    setPaidInvoices([...selectedInvoices])
-
-    // Branded payment-confirmation emails (to real vendors + internal CC) are sent
-    // server-side by executeEFTPayment via the unified notification dispatcher.
-    toast({
-      title: `${methodLabel} Payment Batch Processed`,
-      description: (
-        <div className="flex items-center gap-2 mt-1">
-          <Mail className="w-4 h-4 text-primary" />
-          <span className="text-sm">{selectedInvoices.length} vendors notified by email</span>
-        </div>
-      ),
-    })
-
-    // Remove paid invoices from the list
-    setInvoices(prev => prev.filter(inv => !selectedIds.has(inv.id)))
-    setSelectedIds(new Set())
-    setSuccessDialogOpen(true)
-    setRefreshKey(k => k + 1) // refresh Paid totals + Recently Paid
   }
 
   const formatCurrency = (amount: number) => {
@@ -1738,7 +1755,14 @@ export default function PaymentsPage() {
       </Dialog>
 
       {/* EFT Review Dialog */}
-      <Dialog open={eftReviewOpen} onOpenChange={setEftReviewOpen}>
+      <Dialog
+        open={eftReviewOpen}
+        onOpenChange={(open) => {
+          // Ignore close requests (Escape, outside click, X) while the payment runs
+          if (!open && isProcessingPayment) return
+          setEftReviewOpen(open)
+        }}
+      >
         <DialogContent className="sm:max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="text-xl">
@@ -1850,18 +1874,32 @@ export default function PaymentsPage() {
           </div>
 
           <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => setEftReviewOpen(false)}>
+            <Button variant="outline" onClick={() => setEftReviewOpen(false)} disabled={isProcessingPayment}>
               Cancel
             </Button>
             <Button
               onClick={handleGenerateEFT}
               className="bg-primary hover:bg-primary/90"
-              disabled={!canExecuteEFT}
+              disabled={!canExecuteEFT || isProcessingPayment}
             >
-              <FileSpreadsheet className="w-4 h-4 mr-2" />
-              {isEft ? 'Confirm & Generate EFT File' : `Confirm ${methodLabel} Payment`}
+              {isProcessingPayment ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Processing payment…
+                </>
+              ) : (
+                <>
+                  <FileSpreadsheet className="w-4 h-4 mr-2" />
+                  {isEft ? 'Confirm & Generate EFT File' : `Confirm ${methodLabel} Payment`}
+                </>
+              )}
             </Button>
           </DialogFooter>
+          {isProcessingPayment && (
+            <p className="text-xs text-muted-foreground text-center">
+              Please keep this page open until the payment finishes.
+            </p>
+          )}
         </DialogContent>
       </Dialog>
 
