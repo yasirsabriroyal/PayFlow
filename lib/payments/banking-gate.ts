@@ -106,12 +106,14 @@ export async function evaluateBankingGate(
     return { allowed: true, status: 'approved', message: 'eTransfer approved.' }
   }
 
-  // ── Non-EFT, non-eTransfer gate (cheque, wire) ───────────────────────────
-  if (paymentMethod !== 'eft') {
+  // ── Cheque: no banking requirement ───────────────────────────────────────
+  if (paymentMethod === 'cheque') {
     return { allowed: true, status: 'skipped_non_eft', message: 'Banking gate not required for this payment method.' }
   }
 
-  // ── EFT gate ──────────────────────────────────────────────────────────────
+  // ── EFT / wire gate ───────────────────────────────────────────────────────
+  // Wire transfers need the same approved bank account as EFT. Any other
+  // (unexpected) method value also lands here, so it fails safe.
 
   // ── 1. Fetch contractor banking columns ────────────────────────────────────
   const { data: contractor, error } = await supabase
@@ -202,12 +204,13 @@ export async function validateBankingForInvoiceBatch(
   invoiceIds: string[],
   paymentMethod: 'eft' | 'cheque' | 'wire' | 'etransfer'
 ): Promise<string | null> {
-  if (paymentMethod !== 'eft') return null
+  if (paymentMethod === 'cheque') return null
 
-  // Fetch contractor_ids from invoices in a single query
+  // Fetch contractor_ids (plus invoice numbers and company names for messages)
+  // in a single query. evaluateBankingGate reads the contractor columns it needs.
   const { data: invoices, error } = await supabase
     .from('invoices')
-    .select('id, contractor_id')
+    .select('id, invoice_number, contractor_id, contractor:contractors(company_name)')
     .in('id', invoiceIds)
 
   if (error || !invoices?.length) {
@@ -217,17 +220,27 @@ export async function validateBankingForInvoiceBatch(
   // Deduplicate contractor IDs (multiple invoices may belong to the same contractor)
   const uniqueContractorIds = [...new Set(invoices.map((inv) => inv.contractor_id as string))]
 
+  // Evaluate every contractor and report all failures, naming the invoices.
+  const failures: string[] = []
   for (const contractorId of uniqueContractorIds) {
     const result = await evaluateBankingGate(supabase, contractorId, paymentMethod)
     if (!result.allowed) {
-      // Find associated invoices for context
-      const invoiceNums = invoices
-        .filter((inv) => inv.contractor_id === contractorId)
-        .map((inv) => inv.id)
+      const contractorInvoices = invoices.filter((inv) => inv.contractor_id === contractorId)
+      const invoiceNums = contractorInvoices
+        .map((inv) => (inv.invoice_number as string | null) || (inv.id as string))
         .join(', ')
-      return `${result.message} (invoices: ${invoiceNums})`
+      const companyName = contractorCompanyName(contractorInvoices[0]?.contractor)
+      const label = contractorInvoices.length > 1 ? 'Invoices' : 'Invoice'
+      failures.push(`${label} ${invoiceNums}${companyName ? ` (${companyName})` : ''}: ${result.message}`)
     }
   }
 
-  return null
+  return failures.length > 0 ? failures.join(' ') : null
+}
+
+/** Company name from a Supabase contractor join (object or single-item array). */
+function contractorCompanyName(raw: unknown): string | null {
+  const contractor = Array.isArray(raw) ? raw[0] : raw
+  const name = (contractor as { company_name?: unknown } | null | undefined)?.company_name
+  return typeof name === 'string' && name.trim() ? name.trim() : null
 }
