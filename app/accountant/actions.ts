@@ -2598,18 +2598,39 @@ export async function recordDirectInvoicePayment(input: {
     //     audit + invoice_history + contractor/PM notifications fire consistently.
     //     BUG-FIX (Issue D): Previously used raw .update({ status }) which
     //     bypassed applyInvoiceStatusChange — no history, no payment confirmation.
+    const { data: payerRow } = await supabase
+      .from('users')
+      .select('first_name, last_name')
+      .eq('id', internalUserId)
+      .maybeSingle()
+    const payerName =
+      [payerRow?.first_name, payerRow?.last_name].filter(Boolean).join(' ') || 'Accountant'
+    const directPaymentReference =
+      input.payment_reference || input.cheque_number || input.etransfer_reference ||
+      input.wire_reference || `Direct payment for ${invoice.invoice_number}`
+    // True once the status engine has run (it sends the notifications itself).
+    let engineNotified = false
     try {
       await applyInvoiceStatusChange({
         invoiceId: input.invoice_id,
         newStatus: isFullyPaid ? 'paid' : 'partially_paid',
         actor: {
           userId: internalUserId,
-          name: userData.email || 'Accountant',
+          name: payerName,
           role: userData.role ?? 'accountant',
           authUserId: userData.id,
         },
         reason: `Direct payment of $${(input.amount_cents / 100).toFixed(2)} recorded via ${input.payment_method.toUpperCase()}`,
+        paymentContext: {
+          paymentId: payment.id,
+          paymentDate: input.payment_date,
+          paymentMethod: input.payment_method,
+          paymentReference: directPaymentReference,
+          amountPaidCents: input.amount_cents,
+          issuedByName: payerName,
+        },
       })
+      engineNotified = true
     } catch (statusErr) {
       // Non-fatal — payment is already recorded. Log and continue.
       console.error('[recordDirectInvoicePayment] Status transition failed:', statusErr)
@@ -2646,25 +2667,28 @@ export async function recordDirectInvoicePayment(input: {
       }
     }
 
-    // 9d. Dispatch branded payment-confirmation email/notification to contractor.
-    //     BUG-FIX (Issue H): Previously missing — contractors received no confirmation
-    //     for direct invoice payments.
-    void dispatchPaymentConfirmation({
-      invoiceId: input.invoice_id,
-      invoiceNumber: invoice.invoice_number || input.invoice_id,
-      totalCents: invoice.net_payable_cents || 0,
-      contractorId: invoice.contractor_id ?? null,
-      projectId: invoice.project_id ?? null,
-      status: isFullyPaid ? 'paid' : 'partially_paid',
-      actor: { userId: internalUserId, name: userData.email || 'Accountant', role: userData.role ?? 'accountant', authUserId: userData.id },
-      payment: {
-        paymentDate: input.payment_date,
-        paymentReference: input.payment_reference || `Direct payment for ${invoice.invoice_number}`,
-        paymentMethod: input.payment_method,
-        issuedByName: userData.email || 'Accountant',
-        amountPaidCents: input.amount_cents,
-      },
-    })
+    // 9d. Fallback only: if the status engine did not run (e.g. a repeat
+    //     partial payment it rejects), send the payment confirmation here.
+    //     Awaited so it cannot be lost when the function ends.
+    if (!engineNotified) {
+      await dispatchPaymentConfirmation({
+        invoiceId: input.invoice_id,
+        invoiceNumber: invoice.invoice_number || input.invoice_id,
+        totalCents: invoice.net_payable_cents || 0,
+        contractorId: invoice.contractor_id ?? null,
+        projectId: invoice.project_id ?? null,
+        status: isFullyPaid ? 'paid' : 'partially_paid',
+        actor: { userId: internalUserId, name: payerName, role: userData.role ?? 'accountant', authUserId: userData.id },
+        payment: {
+          paymentId: payment.id,
+          paymentDate: input.payment_date,
+          paymentReference: directPaymentReference,
+          paymentMethod: input.payment_method,
+          issuedByName: payerName,
+          amountPaidCents: input.amount_cents,
+        },
+      })
+    }
 
     // 10. Log the action
     await supabase.from('audit_logs').insert({
