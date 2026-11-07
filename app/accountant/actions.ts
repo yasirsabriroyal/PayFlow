@@ -3046,6 +3046,9 @@ export async function executeCertificateEFTBatch(input: {
     // Track invoices that become fully paid in this batch so we can send one
     // branded payment confirmation per invoice (to the real vendor + internal CC).
     const fullyPaidInvoices = new Map<string, { contractorId: string | null; amountPaidCents: number }>()
+    // Sum of certificate amounts paid in THIS batch, per invoice (for accurate
+    // "Payment of …" amounts in confirmations).
+    const batchPaidByInvoice = new Map<string, number>()
 
     // Process each certificate
     for (const cert of certificates || []) {
@@ -3091,6 +3094,10 @@ export async function executeCertificateEFTBatch(input: {
         .eq('id', cert.id)
 
       processedCertIds.push(cert.id)
+      batchPaidByInvoice.set(
+        cert.invoice_id,
+        (batchPaidByInvoice.get(cert.invoice_id) ?? 0) + (cert.net_payable_cents || 0)
+      )
       
       // Update invoice total_paid_cents
       const { data: invoice } = await supabase
@@ -3183,7 +3190,7 @@ export async function executeCertificateEFTBatch(input: {
               paymentReference: batchReference,
               paymentMethod: input.payment_method,
               issuedByName: processedByName,
-              amountPaidCents: info.amountPaidCents,
+              amountPaidCents: batchPaidByInvoice.get(invoiceId) ?? info.amountPaidCents,
             },
           })
         )
