@@ -808,6 +808,9 @@ export const executeEFTPayment = secureAction(
 
     const processedPaymentIds: string[] = []
     const processedCertIds: string[] = []
+    // Amount actually paid per invoice in THIS run (only invoices whose
+    // payment record was created). Used for accurate confirmations.
+    const paidThisRun = new Map<string, number>()
 
     // Update each invoice to paid status with proper amount tracking
     for (const inv of invoices || []) {
@@ -840,6 +843,7 @@ export const executeEFTPayment = secureAction(
         .eq('status', 'approved')
 
       if (approvedCerts && approvedCerts.length > 0) {
+        // Unreachable in normal flow: the unpaid-certificate check above blocks these invoices.
         // Pay through certificates — create payment records linked to each cert.
         // Each cert is checked independently against the payments table so that
         // a cert already (partially) paid outside this batch is never overpaid.
@@ -942,6 +946,7 @@ export const executeEFTPayment = secureAction(
           
           if (prError) {
             console.error('Error creating payment request:', prError)
+            throw new Error(`Payment request failed for invoice ${inv.invoice_number}: ${prError.message}`)
           }
           paymentRequestId = newPR?.id
         } else {
@@ -956,6 +961,10 @@ export const executeEFTPayment = secureAction(
               processed_at: new Date().toISOString(),
             })
             .eq('id', paymentRequestId)
+        }
+
+        if (!paymentRequestId) {
+          throw new Error(`Payment request failed for invoice ${inv.invoice_number}: no payment request`)
         }
 
         // Create payment record linked to payment_request
@@ -974,6 +983,7 @@ export const executeEFTPayment = secureAction(
           
           if (paymentError) {
             console.error('Error creating payment:', paymentError)
+            throw new Error(`Payment failed for invoice ${inv.invoice_number}: ${paymentError.message}`)
           }
         }
       }
@@ -998,6 +1008,8 @@ export const executeEFTPayment = secureAction(
         console.error('Execute EFT error updating invoice:', updateError)
         throw new Error(updateError.message)
       }
+
+      paidThisRun.set(inv.id, paymentAmount)
     }
     
     // Create payment batch record
@@ -1072,7 +1084,7 @@ export const executeEFTPayment = secureAction(
     // already committed above, so a notification failure must never abort it.
     const paymentDate = new Date().toISOString().split('T')[0]
     await Promise.all(
-      (invoices || []).map((inv) =>
+      (invoices || []).filter((inv) => paidThisRun.has(inv.id)).map((inv) =>
         dispatchPaymentConfirmation({
           invoiceId: inv.id,
           invoiceNumber: inv.invoice_number || inv.id,
@@ -1086,7 +1098,7 @@ export const executeEFTPayment = secureAction(
             paymentReference: batchReference,
             paymentMethod: input.payment_method,
             issuedByName: processedByName,
-            amountPaidCents: inv.net_payable_cents || 0,
+            amountPaidCents: paidThisRun.get(inv.id),
           },
         })
       )
