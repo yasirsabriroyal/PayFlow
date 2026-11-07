@@ -811,9 +811,13 @@ export const executeEFTPayment = secureAction(
     // Amount actually paid per invoice in THIS run (only invoices whose
     // payment record was created). Used for accurate confirmations.
     const paidThisRun = new Map<string, number>()
+    // First per-invoice failure in this run. It stops the loop; invoices already
+    // paid stay in paidThisRun and are finalized below before the error is raised.
+    let failure: { invoiceNumber: string; message: string } | null = null
 
     // Update each invoice to paid status with proper amount tracking
     for (const inv of invoices || []) {
+      try {
       // Query actual payment records to determine how much is still owed.
       // Never assume net_payable_cents is fully unpaid — prior direct payments
       // or partial certificate payments may have already reduced the balance.
@@ -1010,18 +1014,31 @@ export const executeEFTPayment = secureAction(
       }
 
       paidThisRun.set(inv.id, paymentAmount)
+      } catch (err) {
+        failure = {
+          invoiceNumber: inv.invoice_number || inv.id,
+          message: err instanceof Error ? err.message : 'Unknown error',
+        }
+        break
+      }
     }
     
+    // Everything below covers only the invoices actually paid in this run.
+    const paidInvoices = (invoices || []).filter((inv) => paidThisRun.has(inv.id))
+    const paidTotalCents = [...paidThisRun.values()].reduce((sum, cents) => sum + cents, 0)
+
     // Create payment batch record
-    await supabase.from('payment_batches').insert({
-      batch_reference: batchReference,
-      payment_method: input.payment_method,
-      invoice_count: input.invoice_ids.length,
-      total_amount_cents: totalAmount,
-      executed_by_user_id: userData.id,
-      executed_at: new Date().toISOString(),
-      status: 'completed',
-    })
+    if (paidThisRun.size > 0) {
+      await supabase.from('payment_batches').insert({
+        batch_reference: batchReference,
+        payment_method: input.payment_method,
+        invoice_count: paidThisRun.size,
+        total_amount_cents: paidTotalCents,
+        executed_by_user_id: userData.id,
+        executed_at: new Date().toISOString(),
+        status: 'completed',
+      })
+    }
 
     // Stage 3: Create holdback ledger rows for every invoice in the batch that
     // carries a holdback. Payment records and invoice statuses are already
@@ -1032,7 +1049,7 @@ export const executeEFTPayment = secureAction(
     const batchHoldbackResult = await createHoldbackLedgerBatch(supabase, {
       paymentDate: holdbackDate,
       processedByUserId: userData.id,
-      invoices: (invoices || []).map((inv) => ({
+      invoices: paidInvoices.map((inv) => ({
         invoiceId: inv.id,
         contractorId: inv.contractor_id,
         projectId: inv.project_id,
@@ -1055,9 +1072,9 @@ export const executeEFTPayment = secureAction(
       entity_id: batchReference,
       user_id: userData.id,
       details: { 
-        invoice_count: input.invoice_ids.length,
-        total_amount_cents: totalAmount,
-        invoice_ids: input.invoice_ids,
+        invoice_count: paidThisRun.size,
+        total_amount_cents: paidTotalCents,
+        invoice_ids: paidInvoices.map((inv) => inv.id),
       },
     })
 
@@ -1067,7 +1084,7 @@ export const executeEFTPayment = secureAction(
       const internalUserId = await resolveInternalUserId(userData.id, supabase)
       if (internalUserId) {
         void Promise.all(
-          pendingOverrideConsumptions.map(c =>
+          pendingOverrideConsumptions.filter((c) => paidThisRun.has(c.invoiceId)).map(c =>
             consumeInvoiceOverrides({
               contractorId: c.contractorId,
               invoiceId: c.invoiceId,
@@ -1106,6 +1123,10 @@ export const executeEFTPayment = secureAction(
 
     revalidatePath('/accountant/payments')
     revalidatePath('/accountant/queue')
+
+    if (failure) {
+      throw new Error(`${paidThisRun.size} invoice(s) paid. Payment failed for invoice ${failure.invoiceNumber}: ${failure.message}. Remaining invoices were not paid — reload the page before retrying.`)
+    }
     
     return { 
       batch_reference: batchReference,
