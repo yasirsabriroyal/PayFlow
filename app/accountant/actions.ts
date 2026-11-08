@@ -1449,7 +1449,25 @@ export async function getInvoiceQueue(options?: {
       return { success: false, error: error.message, invoices: [] }
     }
     
-    return { success: true, invoices: data || [] }
+    // Authoritative paid and remaining amounts, from actual payment records —
+    // only for payable invoices (approved / partially_paid). Other statuses
+    // keep these fields undefined.
+    const invoices = data || []
+    const payable = invoices.filter(inv => inv.status === 'approved' || inv.status === 'partially_paid')
+    const balances = await Promise.all(
+      payable.map(inv => getInvoicePaymentBalance(supabase, inv.id, inv.net_payable_cents || 0))
+    )
+    const balanceById = new Map(payable.map((inv, i) => [inv.id, balances[i]]))
+
+    return {
+      success: true,
+      invoices: invoices.map(inv => {
+        const balance = balanceById.get(inv.id)
+        return balance
+          ? { ...inv, total_paid_cents: balance.totalPaidCents, remaining_payable_cents: balance.remainingPayableCents }
+          : inv
+      }),
+    }
   })
 }
 

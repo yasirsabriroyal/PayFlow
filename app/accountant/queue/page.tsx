@@ -57,6 +57,9 @@ type QueueInvoice = {
   amount: number
   holdback: number
   netPayable: number
+  /** Approved / partially paid: amount still owed (from payment records). */
+  remainingPayable: number
+  paidToDate: number
   status: string
   documentUrl: string
   invoiceDate: string
@@ -166,6 +169,10 @@ function AccountantQueueContent() {
         holdback: ((inv.holdback_cents as number) || 0) / 100,
         netPayable: (((inv.net_payable_cents as number) ??
           (((inv.total_cents as number) || 0) - ((inv.holdback_cents as number) || 0))) || 0) / 100,
+        remainingPayable: (((inv.remaining_payable_cents as number | undefined) ??
+          (inv.net_payable_cents as number) ??
+          (((inv.total_cents as number) || 0) - ((inv.holdback_cents as number) || 0))) || 0) / 100,
+        paidToDate: ((inv.total_paid_cents as number | undefined) ?? 0) / 100,
         status: inv.status as string,
         documentUrl: inv.document_url as string || '',
         invoiceDate: inv.invoice_date as string,
@@ -252,10 +259,14 @@ function AccountantQueueContent() {
   // Dashboard metrics (computed from ALL invoices, not the filtered view).
   // Each card surfaces both a count and the dollars behind it so the accountant
   // immediately sees what needs review, what's payable, what's overdue, and what's blocked.
-  const sumNet = (list: QueueInvoice[]) => list.reduce((s, i) => s + i.netPayable, 0)
+  // Approved / partially paid invoices count what is actually left to pay;
+  // every other status keeps its net payable.
+  const isPayableStatus = (i: QueueInvoice) => i.status === 'approved' || i.status === 'partially_paid'
+  const amountDue = (i: QueueInvoice) => (isPayableStatus(i) ? i.remainingPayable : i.netPayable)
+  const sumNet = (list: QueueInvoice[]) => list.reduce((s, i) => s + amountDue(i), 0)
   const submittedList = allInvoices.filter(i => i.status === 'submitted')
   const pendingList = allInvoices.filter(i => i.status === 'pending_approval')
-  const approvedList = allInvoices.filter(i => i.status === 'approved')
+  const approvedList = allInvoices.filter(isPayableStatus)
   const overdueList = allInvoices.filter(isOverdue)
   const outstandingList = allInvoices.filter(i => !['paid', 'rejected', 'draft'].includes(i.status))
 
@@ -366,7 +377,7 @@ function AccountantQueueContent() {
   // Only approvable invoices in the current filtered view are selectable.
   const selectableInvoices = canApprove ? filteredInvoices.filter(isActionable) : []
   const selectedInvoices = allInvoices.filter(inv => selectedIds.has(inv.id))
-  const selectedTotal = selectedInvoices.reduce((s, i) => s + i.netPayable, 0)
+  const selectedTotal = selectedInvoices.reduce((s, i) => s + amountDue(i), 0)
   const allSelectableSelected =
     selectableInvoices.length > 0 && selectableInvoices.every(inv => selectedIds.has(inv.id))
 
@@ -642,10 +653,13 @@ return (
                         <p className="text-sm font-medium text-warning">-{formatCurrency(invoice.holdback)}</p>
                       </div>
                       <div className="text-center">
-                        <p className="text-xs text-muted-foreground">Net</p>
-                        <p className="text-sm font-semibold">{formatCurrency(invoice.netPayable)}</p>
+                        <p className="text-xs text-muted-foreground">{isPayableStatus(invoice) ? 'Remaining' : 'Net'}</p>
+                        <p className="text-sm font-semibold">{formatCurrency(amountDue(invoice))}</p>
                       </div>
                     </div>
+                    {isPayableStatus(invoice) && invoice.paidToDate > 0 && (
+                      <p className="text-xs text-muted-foreground">Paid to date: {formatCurrency(invoice.paidToDate)}</p>
+                    )}
 
                     {/* Inline actions for reviewable invoices */}
                     {isActionable(invoice) && (canApprove || canReject) && (
@@ -697,8 +711,8 @@ return (
                       </div>
                     )}
 
-                    {/* Approved invoices: shortcut to pay */}
-                    {invoice.status === 'approved' && canPay && (
+                    {/* Approved / partially paid invoices: shortcut to pay the remaining balance */}
+                    {isPayableStatus(invoice) && canPay && invoice.remainingPayable > 0 && (
                       <div
                         className="pt-3 border-t border-border"
                         onClick={(e) => e.stopPropagation()}
@@ -709,7 +723,7 @@ return (
                           onClick={() => goToPay(invoice)}
                         >
                           <Banknote className="w-4 h-4 mr-1" />
-                          Pay {formatCurrency(invoice.netPayable)}
+                          Pay {formatCurrency(invoice.remainingPayable)}
                         </Button>
                       </div>
                     )}
@@ -789,7 +803,12 @@ return (
                           -{formatCurrency(invoice.holdback)}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-semibold">
-                          {formatCurrency(invoice.netPayable)}
+                          {formatCurrency(amountDue(invoice))}
+                          {isPayableStatus(invoice) && (
+                            <p className="text-xs font-normal text-muted-foreground">
+                              Remaining{invoice.paidToDate > 0 ? ` · Paid to date: ${formatCurrency(invoice.paidToDate)}` : ''}
+                            </p>
+                          )}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
                           <Badge variant="outline" className={status.color}>
@@ -833,7 +852,7 @@ return (
                                 Reject
                               </Button>
                             )}
-                            {invoice.status === 'approved' && canPay && (
+                            {isPayableStatus(invoice) && canPay && invoice.remainingPayable > 0 && (
                               <Button
                                 size="sm"
                                 className="h-8 gap-1"
